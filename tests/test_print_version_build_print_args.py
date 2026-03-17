@@ -1,5 +1,5 @@
 # tests/test_print_version_build_print_args.py
-import scripts.print_version_build as bp
+import manuscripta.export.print_version as bp
 
 
 def test_parse_args_valid_type():

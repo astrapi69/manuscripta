@@ -1,7 +1,7 @@
 # tests/test_full_export_comic_pdf.py
 from pathlib import Path
 from unittest.mock import patch
-import scripts.full_export_comic as fec
+import manuscripta.export.comic as fec
 import subprocess
 
 

@@ -1,6 +1,6 @@
 # tests/test_full_export_comic_cli.py
 from pathlib import Path
-import scripts.full_export_comic as fec
+import manuscripta.export.comic as fec
 
 
 def test_cli_main_success_html_only(tmp_path: Path):

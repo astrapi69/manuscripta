@@ -1,5 +1,5 @@
 # tests/test_strip_links_cli.py
-import scripts.strip_links as sl
+import manuscripta.markdown.strip_links as sl
 
 
 def test_cli_missing_file_returns_1(tmp_path, capsys):

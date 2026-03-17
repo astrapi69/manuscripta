@@ -3,7 +3,7 @@ import argparse
 from pathlib import Path
 
 import pytest
-import scripts.pandoc_batch as mod
+import manuscripta.utils.pandoc_batch as mod
 
 
 class DummyProc:

@@ -1,7 +1,7 @@
 # tests/test_shortcuts_export_passthrough.py
 import pytest
 from unittest.mock import patch
-import scripts.shortcuts_export as se
+import manuscripta.export.shortcuts as se
 
 
 def test_export_pdf_passthrough():

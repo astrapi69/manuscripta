@@ -1,5 +1,5 @@
 # tests/test_validate_epub.py
-import scripts.validate_format as vf
+import manuscripta.export.validation as vf
 
 
 class Dummy:

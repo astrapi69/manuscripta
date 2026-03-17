@@ -1,6 +1,6 @@
 # tests/test_validate_cli.py
 import pytest
-import scripts.validate_format as vf
+import manuscripta.export.validation as vf
 
 
 def test_cli_autodetect_md(tmp_path, capsys):

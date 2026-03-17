@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-import scripts.inject_images as mod
+import manuscripta.images.inject as mod
 
 
 # ---------- Prompt loading ----------

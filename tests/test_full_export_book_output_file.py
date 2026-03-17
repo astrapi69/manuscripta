@@ -1,7 +1,7 @@
 import sys
 import io
 import subprocess
-from scripts import full_export_book
+from manuscripta.export import book as full_export_book
 
 
 def run_main_with_args(

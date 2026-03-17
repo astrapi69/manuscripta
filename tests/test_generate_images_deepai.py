@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any, List
 import requests
 
-import scripts.generate_images_deepai as mod
+import manuscripta.images.generate_deepai as mod
 
 
 class FakeResponse:

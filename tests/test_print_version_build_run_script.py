@@ -1,5 +1,5 @@
 # tests/test_print_version_build_run_script.py
-import scripts.print_version_build as bp
+import manuscripta.export.print_version as bp
 
 
 class DummyProc:

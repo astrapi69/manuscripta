@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import FrozenSet
 
 
-import scripts.generate_images_deepai as gen
-import scripts.inject_images as inj
+import manuscripta.images.generate_deepai as gen
+import manuscripta.images.inject as inj
 
 
 # --- helpers -----------------------------------------------------------------

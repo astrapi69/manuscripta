@@ -1,6 +1,6 @@
 # tests/test_validate_html.py
 import pytest
-import scripts.validate_format as vf
+import manuscripta.export.validation as vf
 
 
 def test_html_valid(tmp_path, capsys):

@@ -6,7 +6,7 @@ from textwrap import dedent
 
 import pytest
 
-import scripts.print_version_build as bp
+import manuscripta.export.print_version as bp
 
 
 class DummyProc:

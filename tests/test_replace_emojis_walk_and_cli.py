@@ -1,7 +1,7 @@
 # tests/test_replace_emojis_walk_and_cli.py
 from pathlib import Path
 
-import scripts.replace_emojis as repl
+import manuscripta.markdown.emojis as repl
 
 
 def test_iter_md_files_skips_bak(tmp_path: Path):

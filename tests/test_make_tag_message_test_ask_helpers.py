@@ -11,7 +11,7 @@ import pytest
 
 # Import module under test (lives in scripts/)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import make_tag_message as mtm
+import manuscripta.project.tag_message as mtm
 
 
 # ---------------------------------------------------------------------------

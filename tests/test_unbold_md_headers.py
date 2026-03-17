@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-import scripts.unbold_md_headers as m
+import manuscripta.markdown.unbold_headers as m
 
 
 def write(p: Path, text: str, enc: str = "utf-8"):

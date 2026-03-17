@@ -1,7 +1,7 @@
 # tests/test_full_export_comic_combine.py
 from pathlib import Path
 
-import scripts.full_export_comic as fec
+import manuscripta.export.comic as fec
 
 
 def write_html(p: Path, head: str, body: str):

@@ -1,5 +1,5 @@
 # tests/test_validate_pdf.py
-import scripts.validate_format as vf
+import manuscripta.export.validation as vf
 
 
 def test_pdf_success(monkeypatch, tmp_path, capsys):

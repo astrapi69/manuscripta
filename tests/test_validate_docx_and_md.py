@@ -1,6 +1,6 @@
 # tests/test_validate_docx_and_md.py
 import zipfile
-import scripts.validate_format as vf
+import manuscripta.export.validation as vf
 
 
 def test_docx_valid(tmp_path):
