@@ -43,10 +43,10 @@ def test_convert_absolute_then_back_relative_round_trip(project, monkeypatch):
     # Import real modules from repo (not temp copies)
     repo_root = Path(__file__).resolve().parents[1]
     to_abs = _import(
-        "convert_to_absolute", repo_root / "scripts" / "convert_to_absolute.py"
+        "convert_to_absolute", repo_root / "src" / "manuscripta" / "paths" / "to_absolute.py"
     )
     to_rel = _import(
-        "convert_to_relative", repo_root / "scripts" / "convert_to_relative.py"
+        "convert_to_relative", repo_root / "src" / "manuscripta" / "paths" / "to_relative.py"
     )
 
     # Step 1: relative -> absolute

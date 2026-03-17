@@ -5,7 +5,7 @@ from pathlib import Path
 
 # Resolve the real repository root as two levels up from this test file
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPT_PATH = REPO_ROOT / "scripts" / "normalize_toc_links.py"
+SCRIPT_PATH = REPO_ROOT / "src" / "manuscripta" / "markdown" / "normalize_toc.py"
 
 
 def run_script(toc_path: Path, args):

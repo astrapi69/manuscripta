@@ -32,9 +32,9 @@ def setup_teardown():
 @patch("subprocess.run")
 def test_run_script_success(mock_run):
     mock_run.return_value.returncode = 0
-    run_script("scripts/convert_to_absolute.py")
+    run_script("manuscripta.paths.to_absolute")
     mock_run.assert_called_with(
-        ["python3", "scripts/convert_to_absolute.py"],
+        ["python3", "-m", "manuscripta.paths.to_absolute"],
         check=True,
         stdout=ANY,
         stderr=ANY,

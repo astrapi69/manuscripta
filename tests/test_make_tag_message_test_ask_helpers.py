@@ -9,8 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Import module under test (lives in scripts/)
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+# Import module under test
 import manuscripta.project.tag_message as mtm
 
 
