@@ -62,6 +62,11 @@ codespell-fix: ## Run codespell with auto-fix
 precommit: ## Run all pre-commit hooks
 	poetry run pre-commit run -a
 
+.PHONY: fix
+fix: ## Run all auto-fixes (ruff + black)
+	poetry run ruff check src/ tests/ --fix --unsafe-fixes
+	poetry run black src/ tests/
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------

@@ -5,7 +5,6 @@ Adapted from the original script-copying approach to use the installed library d
 """
 import sys
 from pathlib import Path
-from unittest.mock import patch
 import pytest
 
 import manuscripta.export.book as feb
@@ -81,11 +80,7 @@ def test_pipeline_runs_convert_scripts_in_correct_order(
         ("to_relative", None),
         ("img_tags", "--to-relative"),
     ]
-    filtered = [
-        c
-        for c in calls
-        if c[0] in ("to_absolute", "to_relative", "img_tags")
-    ]
+    filtered = [c for c in calls if c[0] in ("to_absolute", "to_relative", "img_tags")]
     assert (
         filtered == expected
     ), f"Call order mismatch.\nExpected: {expected}\nGot:      {filtered}"

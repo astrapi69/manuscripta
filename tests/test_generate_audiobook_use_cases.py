@@ -5,7 +5,10 @@ import sys
 import textwrap
 from manuscripta.audiobook.tts.base import TTSAdapter
 
-from manuscripta.audiobook.generator import generate_audio_from_markdown, get_tts_adapter
+from manuscripta.audiobook.generator import (
+    generate_audio_from_markdown,
+    get_tts_adapter,
+)
 
 
 class RecordingTTS(TTSAdapter):
