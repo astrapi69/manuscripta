@@ -88,9 +88,7 @@ def load_init_settings(base_dir: Path) -> dict[str, Any]:
     defaults = _build_default_init_settings()
 
     if not settings_path.exists():
-        log.info(
-            "No %s found, using built-in defaults.", INIT_SETTINGS_FILE
-        )
+        log.info("No %s found, using built-in defaults.", INIT_SETTINGS_FILE)
         return defaults
 
     try:
@@ -125,9 +123,7 @@ def load_init_settings(base_dir: Path) -> dict[str, Any]:
     return _resolve_settings(data, defaults)
 
 
-def _resolve_settings(
-    data: dict[str, Any], defaults: dict[str, Any]
-) -> dict[str, Any]:
+def _resolve_settings(data: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
     """Merge user settings with defaults.
 
     Supported keys in init-settings.yaml:
@@ -210,17 +206,13 @@ def write_default_init_settings(base_dir: Path) -> Path:
     """Write the default init-settings.yaml to config/. Returns the path."""
     settings_path = base_dir / INIT_SETTINGS_FILE
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    content = _build_init_settings_yaml(
-        _DEFAULT_DIRECTORIES, _DEFAULT_FILES
-    )
+    content = _build_init_settings_yaml(_DEFAULT_DIRECTORIES, _DEFAULT_FILES)
     settings_path.write_text(content, encoding="utf-8")
     log.info("Created default %s", settings_path)
     return settings_path
 
 
-def _build_init_settings_yaml(
-    directories: list[str], files: list[str]
-) -> str:
+def _build_init_settings_yaml(directories: list[str], files: list[str]) -> str:
     """Build the YAML content for init-settings.yaml with comments."""
     lines = [
         "# init-settings.yaml",
