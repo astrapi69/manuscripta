@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def load_character_profiles(path="scripts/data/character_profiles.json"):
+def load_character_profiles(path="config/data/character_profiles.json"):
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
@@ -56,8 +56,8 @@ def main():
     )
     parser.add_argument(
         "--prompt-file",
-        default="scripts/data/image_prompts.json",
-        help="Path to the prompt JSON file (default: scripts/data/image_prompts.json)",
+        default="config/data/image_prompts.json",
+        help="Path to the prompt JSON file (default: config/data/image_prompts.json)",
     )
     parser.add_argument(
         "--output-dir",
@@ -70,7 +70,7 @@ def main():
     )
     parser.add_argument(
         "--character-profile",
-        default="scripts/data/character_profiles.json",
+        default="config/data/character_profiles.json",
         help="Path to character profile JSON file",
     )
     args = parser.parse_args()

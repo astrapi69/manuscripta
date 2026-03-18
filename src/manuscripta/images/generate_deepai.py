@@ -44,7 +44,7 @@ def load_json(path: Path) -> Dict[str, Any]:
 
 
 def load_character_profiles(
-    path: Union[str, Path] = "scripts/data/character_profiles.json",
+    path: Union[str, Path] = "config/data/character_profiles.json",
 ) -> Dict[str, str]:
     """Load character profiles; return {} on failure (backward-compatible)."""
     path = Path(path)
@@ -145,8 +145,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--prompt-file",
-        default="scripts/data/image_prompts.json",
-        help="Path to the prompt JSON file (default: scripts/data/image_prompts.json)",
+        default="config/data/image_prompts.json",
+        help="Path to the prompt JSON file (default: config/data/image_prompts.json)",
     )
     parser.add_argument(
         "--output-dir",
@@ -161,7 +161,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--character-profile",
-        default="scripts/data/character_profiles.json",
+        default="config/data/character_profiles.json",
         help="Path to character profile JSON file",
     )
     parser.add_argument(

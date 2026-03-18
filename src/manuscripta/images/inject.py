@@ -266,7 +266,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--prompt-file",
-        default="scripts/data/image_prompts.json",
+        default="config/data/image_prompts.json",
         type=Path,
         help="Prompt JSON path",
     )

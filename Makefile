@@ -1,19 +1,12 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 
-MANUSCRIPT ?= manuscript
-INCLUDE    ?= **/*.md
-EXCLUDE    ?=
-
-# Build exclude flags dynamically
-_EXCLUDE_FLAGS := $(foreach p,$(EXCLUDE),--exclude $(p))
-
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
 
 .PHONY: lock-install
-lock-install: ## Lock and Install project dependencies
+lock-install: ## Lock and install project dependencies
 	poetry lock
 	poetry install
 
@@ -25,60 +18,52 @@ install: ## Install project with all dependencies
 install-dev: ## Install with dev dependencies
 	poetry install --with dev
 
-# ---------------------------------------------------------------------------
-# Manuscript tasks
-# ---------------------------------------------------------------------------
+.PHONY: update
+update: ## Update dependencies
+	poetry update
 
-.PHONY: check
-check: ## Run core style checks on manuscript
-	poetry run ms-check $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS)
-
-.PHONY: check-strict
-check-strict: ## Run all checks including prose analysis (filler, passive, sentence length)
-	poetry run ms-check $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS) --strict
-
-.PHONY: sanitize
-sanitize: ## Sanitize manuscript files (in-place)
-	poetry run ms-sanitize $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS)
-
-.PHONY: sanitize-dry
-sanitize-dry: ## Sanitize dry-run (show changes without writing)
-	poetry run ms-sanitize $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS) --dry-run
-
-.PHONY: sanitize-backup
-sanitize-backup: ## Sanitize with .bak backup files
-	poetry run ms-sanitize $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS) --backup
-
-.PHONY: quotes
-quotes: ## Fix German quotation marks
-	poetry run ms-quotes $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS)
-
-.PHONY: quotes-dry
-quotes-dry: ## Preview quotation mark fixes
-	poetry run ms-quotes $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS) --dry-run
-
-.PHONY: format-md
-format-md: ## Fix broken bold/italic formatting
-	poetry run ms-format $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS)
-
-.PHONY: format-md-dry
-format-md-dry: ## Preview formatting fixes
-	poetry run ms-format $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS) --dry-run
-
-.PHONY: metrics
-metrics: ## Show word counts, readability and text metrics
-	poetry run ms-metrics $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS)
-
-.PHONY: validate
-validate: ## Full validation pipeline (sanitize + check + readability)
-	poetry run ms-validate $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS)
-
-.PHONY: validate-fix
-validate-fix: ## Full validation with auto-fix (sanitize applied, not dry-run)
-	poetry run ms-validate $(MANUSCRIPT) --include '$(INCLUDE)' $(_EXCLUDE_FLAGS) --fix
+.PHONY: hooks
+hooks: ## Install pre-commit hooks
+	poetry run pre-commit install
 
 # ---------------------------------------------------------------------------
-# Development
+# Code Quality
+# ---------------------------------------------------------------------------
+
+.PHONY: lint
+lint: ## Run ruff linter
+	poetry run ruff check src/ tests/
+
+.PHONY: lint-fix
+lint-fix: ## Run ruff linter with auto-fix
+	poetry run ruff check src/ tests/ --fix --unsafe-fixes
+
+.PHONY: format
+format: ## Format code with black
+	poetry run black src/ tests/
+
+.PHONY: format-check
+format-check: ## Check formatting without changes
+	poetry run black --check src/ tests/
+
+.PHONY: typecheck
+typecheck: ## Run MyPy type checks
+	poetry run mypy src/
+
+.PHONY: codespell
+codespell: ## Run codespell
+	poetry run codespell src/ tests/
+
+.PHONY: codespell-fix
+codespell-fix: ## Run codespell with auto-fix
+	poetry run codespell src/ tests/ --write-changes
+
+.PHONY: precommit
+precommit: ## Run all pre-commit hooks
+	poetry run pre-commit run -a
+
+# ---------------------------------------------------------------------------
+# Tests
 # ---------------------------------------------------------------------------
 
 .PHONY: test
@@ -89,72 +74,47 @@ test: ## Run all tests
 test-v: ## Run all tests (verbose)
 	poetry run pytest -v
 
+.PHONY: test-fast
+test-fast: ## Run tests without coverage (faster)
+	poetry run pytest -q --maxfail=1 --disable-warnings --no-cov
+
 .PHONY: test-cov
 test-cov: ## Run tests with coverage report
-	poetry run pytest --cov=manuscript_tools --cov-report=term-missing
+	poetry run pytest --cov=manuscripta --cov-report=term-missing
 
-.PHONY: lint
-lint: ## Run ruff linter
-	poetry run ruff check src/ tests/
+.PHONY: test-xml
+test-xml: ## Run tests with XML coverage (for CI)
+	poetry run pytest -q --maxfail=1 --disable-warnings --cov=manuscripta --cov-report=xml
 
-.PHONY: lint-fix
-lint-fix: ## Run ruff linter with auto-fix
-	poetry run ruff check src/ tests/ --fix
-
-.PHONY: format
-format: ## Format code with ruff
-	poetry run ruff format src/ tests/
-
-.PHONY: format-check
-format-check: ## Check formatting without changes
-	poetry run ruff format src/ tests/ --check
+# ---------------------------------------------------------------------------
+# CI
+# ---------------------------------------------------------------------------
 
 .PHONY: ci
 ci: lint format-check test ## Full CI pipeline (lint + format-check + test)
 
 # ---------------------------------------------------------------------------
-# Version management
+# Version Management
 # ---------------------------------------------------------------------------
 
 .PHONY: bump-patch
-bump-patch: ## Bump patch version (0.2.0 -> 0.2.1)
-	python scripts/bump_version.py patch
+bump-patch: ## Bump patch version (0.1.0 -> 0.1.1)
+	poetry version patch
 
 .PHONY: bump-minor
-bump-minor: ## Bump minor version (0.2.0 -> 0.3.0)
-	python scripts/bump_version.py minor
+bump-minor: ## Bump minor version (0.1.0 -> 0.2.0)
+	poetry version minor
 
 .PHONY: bump-major
-bump-major: ## Bump major version (0.2.0 -> 1.0.0)
-	python scripts/bump_version.py major
+bump-major: ## Bump major version (0.1.0 -> 1.0.0)
+	poetry version major
+
+.PHONY: tag-message
+tag-message: ## Interactive: generate tag message and (optionally) create tag
+	poetry run make-tag-message
 
 # ---------------------------------------------------------------------------
-# Git
-# ---------------------------------------------------------------------------
-
-.PHONY: git-setup
-git-setup: ## Configure git hooks and commit template
-	git config core.hooksPath .githooks
-	git config commit.template .gitmessage
-	chmod +x .githooks/*
-	@echo "Git hooks und commit template aktiviert."
-
-# ---------------------------------------------------------------------------
-# Cleanup
-# ---------------------------------------------------------------------------
-
-.PHONY: clean
-clean: ## Remove build artifacts and caches
-	rm -rf dist/ .pytest_cache/ .ruff_cache/ .coverage
-	find src/ tests/ -type d -name __pycache__ -exec rm -rf {} +
-	find . -name '*.pyc' -delete
-
-.PHONY: clean-bak
-clean-bak: ## Remove .bak files created by sanitize --backup
-	find $(MANUSCRIPT) -name '*.bak' -delete
-
-# ---------------------------------------------------------------------------
-# Build
+# Build & Publish
 # ---------------------------------------------------------------------------
 
 .PHONY: build
@@ -170,6 +130,31 @@ publish-test: ci build ## Run CI, build and publish to TestPyPI
 	poetry publish -r testpypi
 
 # ---------------------------------------------------------------------------
+# Git
+# ---------------------------------------------------------------------------
+
+.PHONY: git-setup
+git-setup: ## Configure git hooks and commit template
+	git config core.hooksPath .githooks
+	git config commit.template .gitmessage
+	chmod +x .githooks/*
+	@echo "Git hooks and commit template activated."
+
+# ---------------------------------------------------------------------------
+# Cleanup
+# ---------------------------------------------------------------------------
+
+.PHONY: clean
+clean: ## Remove build artifacts and caches
+	rm -rf dist/ build/ .pytest_cache/ .ruff_cache/ .mypy_cache/ .coverage coverage.xml
+	find src/ tests/ -type d -name __pycache__ -exec rm -rf {} +
+	find . -name '*.pyc' -delete
+
+.PHONY: clean-venv
+clean-venv: ## Remove Poetry virtualenv
+	poetry env remove --all || true
+
+# ---------------------------------------------------------------------------
 # Help
 # ---------------------------------------------------------------------------
 
@@ -177,12 +162,3 @@ publish-test: ci build ## Run CI, build and publish to TestPyPI
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
-
-# ----------------------------------------------------------------------
-# Project Releases
-# ----------------------------------------------------------------------
-
-.PHONY: tag-message
-
-tag-message: ## Interactive: Generate tag message file and (optionally) create tag
-	python scripts/make_tag_message.py

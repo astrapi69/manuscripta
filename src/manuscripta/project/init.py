@@ -1,27 +1,40 @@
-# scripts/init_book_project.py
+# manuscripta/project/init.py
 import json
 from pathlib import Path
 import toml
 
 # Keep working directory handling simple for CLI; tests can pass base_dir explicitly.
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path.cwd()
 
 
 def update_pyproject(project_name: str, description: str, base_dir: Path):
     """Update project name and description in pyproject.toml"""
     pyproject_path = base_dir / "pyproject.toml"
+    if not pyproject_path.exists():
+        print("⚠️  pyproject.toml not found, skipping update.")
+        return
     data = toml.load(pyproject_path)
-    data["tool"]["poetry"]["name"] = project_name
-    data["tool"]["poetry"]["description"] = description
+    # Support both [project] (PEP 621) and [tool.poetry] formats
+    if "project" in data:
+        data["project"]["name"] = project_name
+        data["project"]["description"] = description
+    if "tool" in data and "poetry" in data["tool"]:
+        if "name" in data["tool"]["poetry"]:
+            data["tool"]["poetry"]["name"] = project_name
+        if "description" in data["tool"]["poetry"]:
+            data["tool"]["poetry"]["description"] = description
     pyproject_path.write_text(toml.dumps(data), encoding="utf-8")
-    print(f"✅ Updated pyproject.toml with name='{project_name}' and description.")
+    print(f"Updated pyproject.toml with name='{project_name}' and description.")
 
 
 def update_full_export_script(
     output_file: str, title: str, author: str, year: str, lang: str, base_dir: Path
 ):
-    """Update constants in scripts/full_export_book.py (string replace based on your placeholders)."""
+    """Update constants in scripts/full_export_book.py (legacy, skipped if not present)."""
     path = base_dir / "scripts/full_export_book.py"
+    if not path.exists():
+        # manuscripta library handles exports, no local script to update
+        return
     content = path.read_text(encoding="utf-8")
 
     content = content.replace(
@@ -87,12 +100,12 @@ def write_image_prompt_generation_template(json_path: Path):
             "chapter_path": "manuscript/chapters/",
             "assets_path": "assets/figures/",
             "cover_file": "assets/covers/cover.png",
-            "image_prompt_file": "scripts/data/image_prompts.json",
+            "image_prompt_file": "config/data/image_prompts.json",
         },
         "output_formats": ["epub", "epub2", "pdf", "docx", "md"],
         "image_generation": {
-            "engine": "Stable Diffusion / DALL·E / Midjourney",
-            "prompt_file": "scripts/data/image_prompts.json",
+            "engine": "Stable Diffusion / DALL-E / Midjourney",
+            "prompt_file": "config/data/image_prompts.json",
             "target_path": "assets/figures/",
             "style": "cinematic, sci-fi realism, moody lighting",
         },
@@ -167,8 +180,8 @@ def run_init_book_project(
         "assets/figures/diagrams",
         "assets/figures/infographics",
         "config",
+        "config/data",
         "output",
-        "scripts/data",
     ]
     files = [
         "manuscript/chapters/01-chapter.md",
@@ -200,7 +213,7 @@ def run_init_book_project(
     write_readme(base / "README.md")
     write_metadata_json(base / "config/metadata_values.json")
     write_image_prompt_generation_template(
-        base / "scripts/data/image_prompt_generation_template.json"
+        base / "config/data/image_prompt_generation_template.json"
     )
 
     # Write metadata.yaml with nested ISBN
@@ -212,7 +225,7 @@ def run_init_book_project(
         encoding="utf-8",
     )
 
-    # Update pyproject.toml and scripts/full_export_book.py
+    # Update pyproject.toml
     update_pyproject(project_name, project_description, base)
     update_full_export_script(
         output_file=project_name,
@@ -223,12 +236,12 @@ def run_init_book_project(
         base_dir=base,
     )
 
-    print("✅ Book project structure created successfully!")
-    print("🛠️  pyproject.toml and full_export_book.py updated.")
+    print("Book project structure created successfully!")
+    print("pyproject.toml updated.")
     print(
-        "📁 Image generation template saved at scripts/data/image_prompt_generation_template.json"
+        "Image generation template saved at config/data/image_prompt_generation_template.json"
     )
-    print("📄 Metadata saved to config/metadata.yaml")
+    print("Metadata saved to config/metadata.yaml")
 
 
 def main():
