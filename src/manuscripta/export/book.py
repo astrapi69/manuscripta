@@ -475,9 +475,7 @@ def normalize_toc_if_needed(toc_path: Path, args):
             toc_ext = args.extension if args.extension else "md"
             subprocess.run(
                 [
-                    "python3",
-                    "-m",
-                    _MOD_NORMALIZE_TOC,
+                    "python3", "-m", _MOD_NORMALIZE_TOC,
                     "--toc",
                     str(toc_path),
                     "--mode",
@@ -640,9 +638,7 @@ def main():
             toc_ext = args.extension if args.extension else "md"
             subprocess.run(
                 [
-                    "python3",
-                    "-m",
-                    _MOD_NORMALIZE_TOC,
+                    "python3", "-m", _MOD_NORMALIZE_TOC,
                     "--toc",
                     str(TOC_FILE),
                     "--mode",

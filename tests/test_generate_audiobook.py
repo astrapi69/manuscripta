@@ -97,17 +97,13 @@ def _install_fake_adapter_module(
 
 
 def test_get_tts_adapter_google(monkeypatch):
-    _install_fake_adapter_module(
-        "manuscripta.audiobook.tts.gtts_adapter", "GoogleTTSAdapter"
-    )
+    _install_fake_adapter_module("manuscripta.audiobook.tts.gtts_adapter", "GoogleTTSAdapter")
     adapter = get_tts_adapter("google", lang="en", voice=None, rate=200)
     assert hasattr(adapter, "speak")
 
 
 def test_get_tts_adapter_pyttsx3(monkeypatch):
-    _install_fake_adapter_module(
-        "manuscripta.audiobook.tts.pyttsx3_adapter", "Pyttsx3Adapter"
-    )
+    _install_fake_adapter_module("manuscripta.audiobook.tts.pyttsx3_adapter", "Pyttsx3Adapter")
     adapter = get_tts_adapter("pyttsx3", lang="en", voice="Alice", rate=180)
     assert hasattr(adapter, "speak")
 
@@ -118,9 +114,7 @@ def test_get_tts_adapter_elevenlabs_with_and_without_key(monkeypatch):
         return not kwargs.get("api_key")
 
     _install_fake_adapter_module(
-        "manuscripta.audiobook.tts.elevenlabs_adapter",
-        "ElevenLabsAdapter",
-        raises_on_kwargs,
+        "manuscripta.audiobook.tts.elevenlabs_adapter", "ElevenLabsAdapter", raises_on_kwargs
     )
 
     # Without key -> should raise

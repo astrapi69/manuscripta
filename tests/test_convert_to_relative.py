@@ -51,11 +51,7 @@ def test_markdown_image_absolute_to_relative(temp_project, monkeypatch):
 
     # Import the implementation from your repo (tests/.. = project root)
     mod = import_ctr(
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "manuscripta"
-        / "paths"
-        / "to_relative.py"
+        Path(__file__).resolve().parents[1] / "src" / "manuscripta" / "paths" / "to_relative.py"
     )
 
     # Point the module to the temp project structure
@@ -83,11 +79,7 @@ def test_markdown_image_absolute_to_relative(temp_project, monkeypatch):
 def test_html_img_and_a_tags(temp_project, monkeypatch):
     project = temp_project
     mod = import_ctr(
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "manuscripta"
-        / "paths"
-        / "to_relative.py"
+        Path(__file__).resolve().parents[1] / "src" / "manuscripta" / "paths" / "to_relative.py"
     )
 
     chapter = project / "manuscript" / "chapters" / "p.md"
@@ -108,11 +100,7 @@ def test_html_img_and_a_tags(temp_project, monkeypatch):
 def test_skip_urls_anchors_and_non_assets(temp_project, monkeypatch):
     project = temp_project
     mod = import_ctr(
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "manuscripta"
-        / "paths"
-        / "to_relative.py"
+        Path(__file__).resolve().parents[1] / "src" / "manuscripta" / "paths" / "to_relative.py"
     )
 
     chapter = project / "manuscript" / "chapters" / "p.md"
@@ -141,11 +129,7 @@ def test_skip_urls_anchors_and_non_assets(temp_project, monkeypatch):
 def test_idempotency(temp_project, monkeypatch):
     project = temp_project
     mod = import_ctr(
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "manuscripta"
-        / "paths"
-        / "to_relative.py"
+        Path(__file__).resolve().parents[1] / "src" / "manuscripta" / "paths" / "to_relative.py"
     )
 
     chapter = project / "manuscript" / "chapters" / "p.md"
