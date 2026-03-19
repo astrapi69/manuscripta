@@ -1,5 +1,4 @@
 # tests/test_init_book_project.py
-import json
 from pathlib import Path
 import yaml
 import toml
@@ -53,12 +52,9 @@ def test_init_writes_nested_isbn_and_updates_files(tmp_path: Path):
     assert set(meta["isbn"].keys()) == {"ebook", "paperback", "hardcover"}
     assert meta["isbn"]["ebook"] == ""
 
-    # Assert: metadata_values.json has nested ISBN mapping
+    # Assert: metadata_values.json is NOT created (legacy, removed)
     meta_json_path = tmp_path / "config" / "metadata_values.json"
-    assert meta_json_path.exists(), "metadata_values.json should be created"
-    meta_json = json.loads(meta_json_path.read_text(encoding="utf-8"))
-    assert "ISBN" in meta_json and isinstance(meta_json["ISBN"], dict)
-    assert set(meta_json["ISBN"].keys()) == {"ebook", "paperback", "hardcover"}
+    assert not meta_json_path.exists(), "metadata_values.json should not be created"
 
     # Assert: pyproject updated
     updated_pyproject = toml.load(tmp_path / "pyproject.toml")
@@ -75,3 +71,30 @@ def test_init_writes_nested_isbn_and_updates_files(tmp_path: Path):
     assert 'OUTPUT_FILE = "currency-of-mind-storybook"' in fe_content
     assert "The Currency of the Mind" in fe_content
     assert "Draven Quantum" in fe_content
+
+
+def test_init_removes_legacy_metadata_values_json(tmp_path: Path):
+    """If metadata_values.json already exists, init-bp should delete it."""
+    (tmp_path / "config").mkdir(parents=True, exist_ok=True)
+    legacy_path = tmp_path / "config" / "metadata_values.json"
+    legacy_path.write_text('{"old": "data"}', encoding="utf-8")
+
+    pyproject_min = {
+        "project": {
+            "name": "test-book",
+            "description": "test",
+        }
+    }
+    (tmp_path / "pyproject.toml").write_text(
+        toml.dumps(pyproject_min), encoding="utf-8"
+    )
+
+    run_init_book_project(
+        project_name="test-book",
+        project_description="test",
+        book_title="Test",
+        author_name="Test Author",
+        base_dir=tmp_path,
+    )
+
+    assert not legacy_path.exists(), "Legacy metadata_values.json should be deleted"
