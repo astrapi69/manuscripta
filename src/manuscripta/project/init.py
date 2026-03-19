@@ -407,28 +407,6 @@ def write_readme(readme_path: Path):
     )
 
 
-def write_metadata_json(json_path: Path):
-    """Template values users can later fill; ISBN is a mapping."""
-    json_content = {
-        "BOOK_TITLE": "",
-        "BOOK_SUBTITLE": "",
-        "AUTHOR_NAME": "",
-        "ISBN": {"ebook": "", "paperback": "", "hardcover": ""},
-        "BOOK_EDITION": "",
-        "PUBLISHER_NAME": "",
-        "PUBLICATION_DATE": "",
-        "LANGUAGE": "",
-        "BOOK_DESCRIPTION": "",
-        "KEYWORDS": [],
-        "COVER_IMAGE": "",
-        "OUTPUT_FORMATS": ["pdf", "epub", "mobi", "docx"],
-        "KDP_ENABLED": False,
-    }
-    json_path.write_text(
-        json.dumps(json_content, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-
-
 def write_image_prompt_generation_template(json_path: Path):
     json_content = {
         "project_name": "your_project_name",
@@ -532,9 +510,11 @@ def run_init_book_project(
     if readme_path.parent.exists() and not readme_path.exists():
         write_readme(readme_path)
 
+    # Remove legacy metadata_values.json (no longer needed, metadata.yaml is written directly)
     metadata_json_path = base / "config/metadata_values.json"
-    if metadata_json_path.parent.exists() and not metadata_json_path.exists():
-        write_metadata_json(metadata_json_path)
+    if metadata_json_path.exists():
+        metadata_json_path.unlink()
+        log.info("Removed legacy file: config/metadata_values.json")
 
     template_path = base / "config/data/image_prompt_generation_template.json"
     if template_path.parent.exists() and not template_path.exists():
