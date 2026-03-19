@@ -4,10 +4,15 @@ Book project initializer.
 
 Reads structure definitions from config/init-settings.yaml when available.
 Falls back to built-in defaults if the file is missing or unreadable.
+Logs every action (created / already exists) and provides a summary.
+Supports --clean to interactively remove excluded items from disk.
 """
 
+import argparse
 import json
 import logging
+import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +71,41 @@ PROJECT_ROOT = Path.cwd()
 
 
 # ---------------------------------------------------------------------------
+# Stats tracker
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class InitStats:
+    """Tracks what the initializer did during a run."""
+
+    dirs_created: list[str] = field(default_factory=list)
+    dirs_existed: list[str] = field(default_factory=list)
+    files_created: list[str] = field(default_factory=list)
+    files_existed: list[str] = field(default_factory=list)
+    excluded_exist_on_disk: list[str] = field(default_factory=list)
+
+    def log_summary(self):
+        total_created = len(self.dirs_created) + len(self.files_created)
+        total_existed = len(self.dirs_existed) + len(self.files_existed)
+        log.info(
+            "Summary: %d created (%d dirs, %d files), %d already existed.",
+            total_created,
+            len(self.dirs_created),
+            len(self.files_created),
+            total_existed,
+        )
+        if self.excluded_exist_on_disk:
+            log.warning(
+                "%d excluded items still exist on disk. "
+                "Run with --clean to remove them.",
+                len(self.excluded_exist_on_disk),
+            )
+            for p in self.excluded_exist_on_disk:
+                log.warning("  excluded but present: %s", p)
+
+
+# ---------------------------------------------------------------------------
 # Config loading
 # ---------------------------------------------------------------------------
 
@@ -75,6 +115,7 @@ def _build_default_init_settings() -> dict[str, Any]:
     return {
         "directories": list(_DEFAULT_DIRECTORIES),
         "files": list(_DEFAULT_FILES),
+        "exclude": [],
     }
 
 
@@ -167,29 +208,25 @@ def _resolve_settings(data: dict[str, Any], defaults: dict[str, Any]) -> dict[st
             log.info("  + file: %s", f)
 
     # Exclusions (applied last, works on both defaults and custom lists)
-    exclude = set(_as_list(data.get("exclude"), "exclude"))
-    if exclude:
+    exclude = _as_list(data.get("exclude"), "exclude")
+    exclude_set = set(exclude)
+    if exclude_set:
         before_dirs = len(result_dirs)
         before_files = len(result_files)
-        result_dirs = [d for d in result_dirs if d not in exclude]
-        result_files = [f for f in result_files if f not in exclude]
+        result_dirs = [d for d in result_dirs if d not in exclude_set]
+        result_files = [f for f in result_files if f not in exclude_set]
         removed_dirs = before_dirs - len(result_dirs)
         removed_files = before_files - len(result_files)
         if removed_dirs or removed_files:
             log.info(
                 "Excluded %d directories and %d files.", removed_dirs, removed_files
             )
-        unmatched = exclude - set(result_dirs) - set(result_files)
-        # Check against original lists to avoid false warnings
-        original_all = set(defaults["directories"]) | set(defaults["files"])
-        truly_unmatched = unmatched - original_all
-        if truly_unmatched:
-            log.warning(
-                "Exclude entries not found in any list: %s",
-                ", ".join(sorted(truly_unmatched)),
-            )
 
-    return {"directories": result_dirs, "files": result_files}
+    return {
+        "directories": result_dirs,
+        "files": result_files,
+        "exclude": exclude,
+    }
 
 
 def _as_list(value: Any, name: str) -> list[str]:
@@ -247,6 +284,80 @@ def _build_init_settings_yaml(directories: list[str], files: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Create with logging
+# ---------------------------------------------------------------------------
+
+
+def create_directories(base_path: Path, directories: list[str], stats: InitStats):
+    for dir_path in directories:
+        full = base_path / dir_path
+        if full.exists():
+            log.info("Directory already exists: %s", dir_path)
+            stats.dirs_existed.append(dir_path)
+        else:
+            full.mkdir(parents=True, exist_ok=True)
+            log.info("Created directory: %s", dir_path)
+            stats.dirs_created.append(dir_path)
+
+
+def create_files(base_path: Path, files: list[str], stats: InitStats):
+    for file_path in files:
+        p = base_path / file_path
+        if p.exists():
+            log.info("File already exists: %s", file_path)
+            stats.files_existed.append(file_path)
+        else:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.touch()
+            log.info("Created file: %s", file_path)
+            stats.files_created.append(file_path)
+
+
+# ---------------------------------------------------------------------------
+# Clean excluded items
+# ---------------------------------------------------------------------------
+
+
+def check_excluded_on_disk(base_path: Path, exclude: list[str], stats: InitStats):
+    """Check if any excluded paths still exist on disk."""
+    for item in exclude:
+        full = base_path / item
+        if full.exists():
+            stats.excluded_exist_on_disk.append(item)
+
+
+def clean_excluded(base_path: Path, excluded_items: list[str]):
+    """Interactively delete excluded items that exist on disk."""
+    if not excluded_items:
+        return
+
+    print("\nThe following excluded items still exist on disk:")
+    for item in excluded_items:
+        full = base_path / item
+        kind = "dir" if full.is_dir() else "file"
+        print(f"  - {item} ({kind})")
+
+    answer = input("\nDelete these items? [y/N]: ").strip().lower()
+    if answer != "y":
+        print("Skipped. No items deleted.")
+        return
+
+    for item in excluded_items:
+        full = base_path / item
+        try:
+            if full.is_dir():
+                shutil.rmtree(full)
+                log.info("Deleted directory: %s", item)
+            elif full.is_file():
+                full.unlink()
+                log.info("Deleted file: %s", item)
+            print(f"  Deleted: {item}")
+        except OSError as exc:
+            log.error("Failed to delete %s: %s", item, exc)
+            print(f"  Error deleting {item}: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Helpers (unchanged)
 # ---------------------------------------------------------------------------
 
@@ -288,18 +399,6 @@ def update_full_export_script(
     )
     path.write_text(content, encoding="utf-8")
     log.info("Updated full_export_book.py with metadata.")
-
-
-def create_directories(base_path: Path, directories: list[str]):
-    for dir_path in directories:
-        (base_path / dir_path).mkdir(parents=True, exist_ok=True)
-
-
-def create_files(base_path: Path, files: list[str]):
-    for file_path in files:
-        p = base_path / file_path
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.touch()
 
 
 def write_readme(readme_path: Path):
@@ -412,33 +511,36 @@ def run_init_book_project(
     year: str = "2025",
     lang: str = "en",
     base_dir: Path | None = None,
+    clean: bool = False,
 ):
     """Idempotent, testable entrypoint."""
     base = base_dir or PROJECT_ROOT
+    stats = InitStats()
 
     # Load structure from config or fall back to defaults
     settings = load_init_settings(base)
     directories = settings["directories"]
     files = settings["files"]
+    exclude = settings.get("exclude", [])
 
     # Create folders and files
-    create_directories(base, directories)
-    create_files(base, files)
+    create_directories(base, directories, stats)
+    create_files(base, files, stats)
 
     # Write generated content files (only if their parent dirs exist)
     readme_path = base / "README.md"
-    if readme_path.parent.exists():
+    if readme_path.parent.exists() and not readme_path.exists():
         write_readme(readme_path)
 
     metadata_json_path = base / "config/metadata_values.json"
-    if metadata_json_path.parent.exists():
+    if metadata_json_path.parent.exists() and not metadata_json_path.exists():
         write_metadata_json(metadata_json_path)
 
     template_path = base / "config/data/image_prompt_generation_template.json"
-    if template_path.parent.exists():
+    if template_path.parent.exists() and not template_path.exists():
         write_image_prompt_generation_template(template_path)
 
-    # Write init-settings.yaml if it does not exist yet (so users can customize later)
+    # Write init-settings.yaml if it does not exist yet
     settings_path = base / INIT_SETTINGS_FILE
     if not settings_path.exists():
         write_default_init_settings(base)
@@ -464,10 +566,25 @@ def run_init_book_project(
         base_dir=base,
     )
 
-    log.info("Book project structure created successfully.")
-    log.info("Metadata saved to config/metadata.yaml")
-    print("Book project structure created successfully!")
-    print("Metadata saved to config/metadata.yaml")
+    # Check for excluded items that still exist on disk
+    check_excluded_on_disk(base, exclude, stats)
+
+    # Print summary
+    stats.log_summary()
+    print(
+        f"\nDone: {len(stats.dirs_created)} dirs created, "
+        f"{len(stats.files_created)} files created, "
+        f"{len(stats.dirs_existed) + len(stats.files_existed)} already existed."
+    )
+
+    if stats.excluded_exist_on_disk:
+        if clean:
+            clean_excluded(base, stats.excluded_exist_on_disk)
+        else:
+            print(
+                f"\n{len(stats.excluded_exist_on_disk)} excluded item(s) "
+                "still exist on disk. Run with --clean to remove them."
+            )
 
 
 def main():
@@ -475,6 +592,16 @@ def main():
         level=logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+
+    parser = argparse.ArgumentParser(
+        description="Initialize a new book project structure."
+    )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Interactively delete excluded items that still exist on disk.",
+    )
+    args = parser.parse_args()
 
     project_name = input("Enter your project name (e.g., 'ai-for-everyone'): ").strip()
     project_description = input("Enter a short description of your project: ").strip()
@@ -491,6 +618,7 @@ def main():
         year=year,
         lang=lang,
         base_dir=PROJECT_ROOT,
+        clean=args.clean,
     )
 
 
