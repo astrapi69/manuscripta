@@ -682,6 +682,14 @@ def merge_audiobook(
         filelist_path.unlink(missing_ok=True)
 
 
+def _path_or_none(value) -> Path | None:
+    """Convert a config value to Path, or None if empty/missing."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    return Path(s) if s else None
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate audiobook from Markdown files or EPUB"
@@ -689,7 +697,6 @@ def main():
     parser.add_argument(
         "--input",
         type=Path,
-        required=True,
         help="Input: directory with *.md files OR a single .epub file",
     )
     parser.add_argument("--output", type=Path, help="Output folder for audio files")
@@ -697,8 +704,8 @@ def main():
         "--engine",
         type=str,
         choices=["edge", "google", "pyttsx3", "elevenlabs"],
-        default="edge",
-        help="TTS engine to use (default: edge)",
+        default=None,
+        help="TTS engine to use (default: edge, or from voice-settings.yaml)",
     )
     parser.add_argument("--lang", type=str, help="Language code (e.g. 'en', 'de')")
     parser.add_argument("--voice", type=str, help="Voice ID or name")
@@ -742,7 +749,24 @@ def main():
 
     args = parser.parse_args()
 
-    input_path = args.input
+    # Load settings from YAML (optional)
+    # Priority: CLI > voice-settings.yaml > defaults
+    config = {}
+    settings_path = args.settings
+    if not settings_path:
+        # Auto-detect default location
+        default_settings = Path("config/voice-settings.yaml")
+        if default_settings.exists():
+            settings_path = default_settings
+    if settings_path and settings_path.exists():
+        with settings_path.open("r", encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+        print(f"  Loaded settings from: {settings_path}")
+
+    # Resolve input path (CLI > config > error)
+    input_path = args.input or _path_or_none(config.get("input"))
+    if not input_path:
+        parser.error("--input is required (or set 'input' in voice-settings.yaml)")
 
     # --list-chapters: preview EPUB contents and exit (no TTS needed)
     if args.list_chapters:
@@ -752,23 +776,22 @@ def main():
             print("--list-chapters is only supported for .epub files")
         return
 
-    # --output is required for actual generation
-    if not args.output:
-        parser.error("--output is required when generating audio")
-
-    # Load settings from YAML (optional)
-    config = {}
-    if args.settings and args.settings.exists():
-        with args.settings.open("r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
+    # Resolve output path (CLI > config > error)
+    output_path = args.output or _path_or_none(config.get("output"))
+    if not output_path:
+        parser.error("--output is required (or set 'output' in voice-settings.yaml)")
 
     # Apply CLI args (override config file if set)
+    engine = args.engine or config.get("engine", "edge")
     lang = args.lang or config.get("language", "en")
     voice = args.voice or config.get("voice", None)
     rate = args.rate if args.rate is not None else config.get("rate", 200)
+    overwrite = args.overwrite or config.get("overwrite", False)
+    merge = args.merge or config.get("merge", False)
+    title = args.title or config.get("title", None)
 
     # Check that required packages are installed before proceeding
-    check_engine_dependencies(args.engine)
+    check_engine_dependencies(engine)
 
     # Check EPUB dependencies if needed
     if input_path.is_file() and input_path.suffix.lower() == ".epub":
@@ -780,28 +803,28 @@ def main():
             print("Install them with:\n  poetry add ebooklib beautifulsoup4\n")
             return
 
-    tts = get_tts_adapter(args.engine, lang=lang, voice=voice, rate=rate)
+    tts = get_tts_adapter(engine, lang=lang, voice=voice, rate=rate)
 
     # Print configuration summary
     voice_name = getattr(tts, "voice", voice or "default")
     print("=" * 60)
     print("  Audiobook Generator")
     print("=" * 60)
-    print(f"  Engine:   {args.engine}")
+    print(f"  Engine:   {engine}")
     print(f"  Language: {lang}")
     print(f"  Voice:    {voice_name}")
-    if args.settings:
-        print(f"  Settings: {args.settings}")
-    if args.merge:
+    if settings_path:
+        print(f"  Settings: {settings_path}")
+    if merge:
         merged_name = _preview_merged_name(
             voice_name,
-            title=args.title or config.get("title"),
+            title=title,
             input_path=input_path,
         )
         print(f"  Merge to: {merged_name}")
     print("=" * 60)
 
-    # Load section order (optional)
+    # Load section order (optional, CLI > config)
     section_order = None
     if args.section_order and args.section_order.exists():
         with args.section_order.open("r", encoding="utf-8") as f:
@@ -809,7 +832,7 @@ def main():
     elif config.get("section_order"):
         section_order = config["section_order"]
 
-    # Parse skip patterns from CLI or config
+    # Parse skip patterns (CLI > config)
     skip_patterns = None
     if args.skip:
         skip_patterns = [s.strip() for s in args.skip.split(",") if s.strip()]
@@ -830,18 +853,18 @@ def main():
     if file_names:
         print(f"\nFiles to process ({len(file_names)}):")
         for name in file_names:
-            mp3_path = args.output / f"{name}.mp3"
+            mp3_path = output_path / f"{name}.mp3"
             status = " [exists]" if mp3_path.exists() else ""
             print(f"  {name}.mp3{status}")
         print()
 
     if input_path.is_file() and input_path.suffix.lower() == ".epub":
         generate_audio_from_epub(
-            input_path, args.output, tts, skip_patterns, overwrite=args.overwrite
+            input_path, output_path, tts, skip_patterns, overwrite=overwrite
         )
     elif input_path.is_dir():
         generate_audio_from_markdown(
-            input_path, args.output, tts, section_order, overwrite=args.overwrite
+            input_path, output_path, tts, section_order, overwrite=overwrite
         )
     else:
         raise ValueError(
@@ -849,11 +872,11 @@ def main():
         )
 
     # Merge chapter files into single audiobook if requested
-    if args.merge:
+    if merge:
         merge_audiobook(
-            output_dir=args.output,
+            output_dir=output_path,
             voice=voice_name,
-            title=args.title or config.get("title"),
+            title=title,
             input_path=input_path,
         )
 
