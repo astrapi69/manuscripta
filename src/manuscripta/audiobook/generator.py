@@ -601,17 +601,19 @@ def merge_audiobook(
     voice: str,
     title: str | None = None,
     input_path: Path | None = None,
+    merge_filename: str | None = None,
 ) -> Path | None:
     """
     Merge all numbered MP3 files in output_dir into a single audiobook file.
 
     Uses ffmpeg concat demuxer for lossless concatenation (no re-encoding).
-    Output filename: {VoiceName}_{BookTitle}.mp3
+    Output filename: merge_filename if given, otherwise {VoiceName}_{BookTitle}.mp3
 
     :param output_dir: Directory containing the chapter MP3 files.
     :param voice: Full voice name (e.g. 'de-DE-ConradNeural').
     :param title: Optional custom title. If None, derived from input_path.
     :param input_path: Original input path, used to derive title if not given.
+    :param merge_filename: Exact filename for the merged file. Overrides auto-naming.
     :return: Path to the merged file, or None if merge failed.
     """
     # Collect chapter MP3s in sorted order (they are numbered 01_, 02_, ...)
@@ -621,12 +623,19 @@ def merge_audiobook(
         return None
 
     # Build output filename
-    voice_name = _derive_voice_short_name(voice)
-    book_title = title or (
-        _derive_book_title(input_path) if input_path else "audiobook"
-    )
-    safe_title = re.sub(r"[^\w\s-]", "", book_title).strip().replace(" ", "_")
-    merged_name = f"{voice_name}_{safe_title}.mp3"
+    if merge_filename:
+        merged_name = (
+            merge_filename
+            if merge_filename.endswith(".mp3")
+            else f"{merge_filename}.mp3"
+        )
+    else:
+        voice_name = _derive_voice_short_name(voice)
+        book_title = title or (
+            _derive_book_title(input_path) if input_path else "audiobook"
+        )
+        safe_title = re.sub(r"[^\w\s-]", "", book_title).strip().replace(" ", "_")
+        merged_name = f"{voice_name}_{safe_title}.mp3"
     merged_path = output_dir / merged_name
 
     # Check if ffmpeg is available
@@ -746,6 +755,12 @@ def main():
         help="Book title for the merged audiobook filename. "
         "Default: derived from input directory or EPUB filename.",
     )
+    parser.add_argument(
+        "--merge-filename",
+        type=str,
+        help="Exact filename for the merged audiobook (e.g. 'my-book.mp3'). "
+        "Overrides the auto-generated {Voice}_{Title}.mp3 name.",
+    )
 
     args = parser.parse_args()
 
@@ -789,6 +804,7 @@ def main():
     overwrite = args.overwrite or config.get("overwrite", False)
     merge = args.merge or config.get("merge", False)
     title = args.title or config.get("title", None)
+    merge_filename = args.merge_filename or config.get("merge_filename", None)
 
     # Check that required packages are installed before proceeding
     check_engine_dependencies(engine)
@@ -816,11 +832,13 @@ def main():
     if settings_path:
         print(f"  Settings: {settings_path}")
     if merge:
-        merged_name = _preview_merged_name(
+        merged_name = merge_filename or _preview_merged_name(
             voice_name,
             title=title,
             input_path=input_path,
         )
+        if not merged_name.endswith(".mp3"):
+            merged_name += ".mp3"
         print(f"  Merge to: {merged_name}")
     print("=" * 60)
 
@@ -878,6 +896,7 @@ def main():
             voice=voice_name,
             title=title,
             input_path=input_path,
+            merge_filename=merge_filename,
         )
 
 
