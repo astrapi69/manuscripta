@@ -462,7 +462,7 @@ def compile_book(
         print(f"❌ Error compiling {format}: {e}")
 
 
-def normalize_toc_if_needed(toc_path: Path, args):
+def normalize_toc_if_needed(toc_path: Path, extension: str | None = None):
     """
     Normalize TOC links (only for web/ebook ToC 'toc.md').
 
@@ -472,7 +472,7 @@ def normalize_toc_if_needed(toc_path: Path, args):
     try:
         if toc_path.exists() and toc_path.name == "toc.md":
             toc_mode = "strip-to-anchors"
-            toc_ext = args.extension if args.extension else "md"
+            toc_ext = extension if extension else "md"
             subprocess.run(
                 [
                     "python3",
@@ -530,8 +530,8 @@ def main():
         "--book-type",
         type=str,
         choices=[bt.value for bt in BookType],
-        default=BookType.EBOOK.value,
-        help="Specify the book type (ebook, paperback, hardcover). Affects TOC generation and output naming.",
+        default=None,
+        help="Specify the book type (ebook, paperback, hardcover). Default: ebook, or from export-settings.yaml.",
     )
     parser.add_argument(
         "--output-file",
@@ -580,64 +580,82 @@ def main():
 
     args = parser.parse_args()
 
-    # Log --copy-epub-to early so user sees it was recognized
-    if args.copy_epub_to:
-        resolved_dest = Path(args.copy_epub_to).expanduser().resolve()
-        print(f"📋 EPUB copy requested -> {resolved_dest}")
+    # Load export settings (already loaded at module level, but re-read for
+    # CLI-overridable defaults that live under an "export_defaults" key)
+    config = _EXPORT_SETTINGS.get("export_defaults", {})
 
-    # Book type handling
-    book_type = BookType(args.book_type)
+    # Log --copy-epub-to early so user sees it was recognized
+    copy_epub_to = args.copy_epub_to or config.get("copy_epub_to", None)
+    if copy_epub_to:
+        resolved_dest = Path(copy_epub_to).expanduser().resolve()
+        print(f"EPUB copy requested -> {resolved_dest}")
+
+    # Book type: CLI > config > default
+    book_type_str = args.book_type or config.get("book_type", BookType.EBOOK.value)
+    book_type = BookType(book_type_str)
 
     # Decide section order: CLI > auto by book type
     if args.order:
         section_order = args.order.split(",")
     else:
-        # We'll pick later per format to allow mixed builds like: --format=epub,pdf
         section_order = None
 
-    # Set global output filename
+    # Set global output filename: CLI > config > pyproject.toml name
     global OUTPUT_FILE
-    add_type_suffix = not args.no_type_suffix
-    if args.output_file:
-        # User provided name: use the stem, extension is added per-format later
-        op = Path(args.output_file)
+    no_type_suffix = args.no_type_suffix or config.get("no_type_suffix", False)
+    add_type_suffix = not no_type_suffix
+    output_file_arg = args.output_file or config.get("output_file", None)
+    if output_file_arg:
+        op = Path(output_file_arg)
         OUTPUT_FILE = op.stem
     elif OUTPUT_FILE is None or OUTPUT_FILE == "":
-        # Fall back to project name
         project_name = get_project_name_from_pyproject()
         OUTPUT_FILE = project_name
 
     if add_type_suffix:
         OUTPUT_FILE = f"{OUTPUT_FILE}_{book_type.value}"
 
-    print(f"📘 Output file base name set to: {OUTPUT_FILE}")
+    print(f"Output file base name set to: {OUTPUT_FILE}")
 
-    # Determine language: CLI > metadata.yaml > fallback
+    # Determine language: CLI > config > metadata.yaml > fallback
     metadata_lang = get_metadata_language()
-    cli_lang = args.lang
+    cli_lang = args.lang or config.get("lang", None)
 
     if cli_lang:
         if metadata_lang and cli_lang != metadata_lang:
-            print("\n⚠️⚠️⚠️ LANGUAGE MISMATCH DETECTED ⚠️⚠️⚠️")
             print(
-                f"Metadata file says: '{metadata_lang}' but CLI argument is: '{cli_lang}'"
+                f"\nLANGUAGE MISMATCH: metadata says '{metadata_lang}', configured is '{cli_lang}'. Using configured value."
             )
-            print("Using CLI argument value.\n")
         lang = cli_lang
     elif metadata_lang:
         lang = metadata_lang
-        print(f"🌐 Using language from metadata.yaml: '{lang}'")
+        print(f"Using language from metadata.yaml: '{lang}'")
     else:
-        print(f"cli_lang: '{cli_lang}'")
         lang = "en"
-        print("⚠️ No language set in CLI or metadata.yaml. Defaulting to 'en'")
+        print("No language set. Defaulting to 'en'")
+
+    # Resolve remaining options: CLI > config > defaults
+    cover = args.cover or config.get("cover", None)
+    epub2 = args.epub2 or config.get("epub2", False)
+    extension = args.extension or config.get("extension", None)
+    toc_depth = (
+        args.toc_depth
+        if args.toc_depth != DEFAULT_TOC_DEPTH
+        else config.get("toc_depth", DEFAULT_TOC_DEPTH)
+    )
+    use_manual_toc = args.use_manual_toc or config.get("use_manual_toc", False)
+    skip_images = args.skip_images or config.get("skip_images", False)
+    keep_relative_paths = args.keep_relative_paths or config.get(
+        "keep_relative_paths", False
+    )
+    format_arg = args.format or config.get("format", None)
 
     # Step 1a: Normalize TOC (for non-EPUB/non-print formats where manual TOC is used)
     # Note: For EPUB and print PDF, the manual TOC is skipped anyway
     try:
         if TOC_FILE.exists():
             toc_mode = "strip-to-anchors"
-            toc_ext = args.extension if args.extension else "md"
+            toc_ext = extension if extension else "md"
             subprocess.run(
                 [
                     "python3",
@@ -662,10 +680,10 @@ def main():
 
     # Step 1: Convert image paths to absolute
     # Run pre-processing scripts unless user opts out or wants to keep relative paths
-    if not args.skip_images and not args.keep_relative_paths:
+    if not skip_images and not keep_relative_paths:
         run_script(_MOD_PATHS_TO_ABSOLUTE)  # Convert relative paths to absolute
         run_script(_MOD_PATHS_IMG_TAGS, "--to-absolute")  # Process image tags
-    elif args.skip_images:
+    elif skip_images:
         print("⏭️  Skipping Step 1 (skip-images).")
     else:
         print("⏭️  Skipping Step 1 (keep relative paths).")
@@ -678,7 +696,7 @@ def main():
     )  # Make sure metadata exists
 
     # Step 3: Compile the book in requested formats
-    selected_formats = args.format.split(",") if args.format else FORMATS.keys()
+    selected_formats = format_arg.split(",") if format_arg else FORMATS.keys()
 
     for fmt in selected_formats:
         if fmt not in FORMATS:
@@ -719,26 +737,26 @@ def main():
                 )
             )
             if toc_candidate.exists():
-                normalize_toc_if_needed(toc_candidate, args)
+                normalize_toc_if_needed(toc_candidate, extension)
 
         compile_book(
             fmt,
             effective_order,
             book_type,
-            args.cover,
-            args.epub2,
+            cover,
+            epub2,
             lang,
-            args.extension,
-            args.toc_depth,
-            args.use_manual_toc,
+            extension,
+            toc_depth,
+            use_manual_toc,
         )
 
     # Step 4: Restore original image paths
     # Revert any image/URL changes made before compilation unless we kept relative paths
-    if not args.skip_images and not args.keep_relative_paths:
+    if not skip_images and not keep_relative_paths:
         run_script(_MOD_PATHS_TO_RELATIVE)  # Convert absolute paths back to relative
         run_script(_MOD_PATHS_IMG_TAGS, "--to-relative")  # Revert image tag changes
-    elif args.skip_images:
+    elif skip_images:
         print("⏭️  Skipping Step 4 (skip-images).")
     else:
         print("⏭️  Skipping Step 4 (keep relative paths).")
@@ -747,7 +765,7 @@ def main():
     threads = []
 
     for fmt in selected_formats:
-        ext_for_fmt = resolve_ext(fmt, args.extension if fmt == "markdown" else None)
+        ext_for_fmt = resolve_ext(fmt, extension if fmt == "markdown" else None)
         output_path = os.path.join(OUTPUT_DIR, f"{OUTPUT_FILE}.{ext_for_fmt}")
 
         if fmt == "epub":
@@ -797,13 +815,13 @@ def main():
         threads.append(thread)
 
     # Step 5b: Copy EPUB to target directory if requested
-    if args.copy_epub_to:
+    if copy_epub_to:
         epub_output = Path(OUTPUT_DIR) / f"{OUTPUT_FILE}.epub"
         epub_output_abs = epub_output.resolve()
         print(f"📋 Looking for EPUB: {epub_output_abs}")
 
         if epub_output_abs.is_file():
-            target_dir = Path(args.copy_epub_to).expanduser().resolve()
+            target_dir = Path(copy_epub_to).expanduser().resolve()
             target_path = target_dir / epub_output.name
             try:
                 target_dir.mkdir(parents=True, exist_ok=True)
