@@ -19,13 +19,10 @@ def test_parse_args_defaults_and_flags(tmp_path):
         [
             "--dry-run",
             "--restore",
-            "--scripts-dir",
-            str(tmp_path),
             "--export-format",
             "epub",
         ]
     )
     assert ns.dry_run is True
     assert ns.restore is True
-    assert ns.scripts_dir == tmp_path
     assert ns.export_format == "epub"

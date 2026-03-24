@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from textwrap import dedent
 
 import pytest
 
@@ -14,52 +13,16 @@ class DummyProc:
         self.returncode = returncode
 
 
-def make_dummy_scripts(scripts_dir: Path) -> None:
-    """
-    Create the minimal scripts the pipeline expects.
-    We only *need* full_export_book.py now, but we also create a couple no-ops
-    for backwards compatibility with earlier helper behavior.
-    """
-    scripts_dir.mkdir(parents=True, exist_ok=True)
-
-    # Minimal noop full_export_book.py (must exist; logic is monkeypatched)
-    (scripts_dir / "full_export_book.py").write_text(
-        dedent(
-            """\
-            #!/usr/bin/env python3
-            if __name__ == "__main__":
-                pass
-            """
-        ),
-        encoding="utf-8",
-    )
-
-    # Optional extras (not actually invoked by current pipeline)
-    (scripts_dir / "convert_links_to_plain_text.py").write_text(
-        "pass\n", encoding="utf-8"
-    )
-    (scripts_dir / "strip_links.py").write_text("pass\n", encoding="utf-8")
-
-
-def _is_python_invocation(cmd: list[str]) -> bool:
-    """Heuristic: first arg is path/name containing 'python'."""
-    if not cmd:
+def _is_python_module_invocation(cmd: list[str]) -> bool:
+    """Check if cmd is a python -m invocation."""
+    if len(cmd) < 3:
         return False
-    head = cmd[0]
-    return (
-        head.endswith("python")
-        or head.endswith("python3")
-        or head.endswith("python.exe")
-        or "python" in head
-    )
+    return "python" in cmd[0] and cmd[1] == "-m"
 
 
 def test_pipeline_order_and_success(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    scripts_dir = tmp_path / "scripts"
-    make_dummy_scripts(scripts_dir)
-
     calls: list[list[str]] = []
 
     def fake_run(cmd, check=True):
@@ -69,17 +32,17 @@ def test_pipeline_order_and_success(
     monkeypatch.setattr(bp.subprocess, "run", fake_run)
 
     # git restore is opt-in now
-    argv = ["--scripts-dir", str(scripts_dir), "--restore"]
+    argv = ["--restore"]
     with pytest.raises(SystemExit) as ex:
         bp.main(argv)
     assert ex.value.code == 0
 
-    # Verify order: one python invocation (full_export_book) and a git restore at the end
-    py = [c for c in calls if _is_python_invocation(c)]
-    assert len(py) == 1, f"Expected exactly one python call, got {len(py)}: {calls}"
-    assert py[0][1].endswith(
-        "full_export_book.py"
-    ), f"Expected full_export_book.py, got: {py[0]}"
+    # Verify order: one python -m invocation (manuscripta.export.book) and a git restore
+    py = [c for c in calls if _is_python_module_invocation(c)]
+    assert len(py) == 1, f"Expected exactly one python -m call, got {len(py)}: {calls}"
+    assert (
+        py[0][2] == "manuscripta.export.book"
+    ), f"Expected manuscripta.export.book, got: {py[0]}"
 
     git = [c for c in calls if c and c[0] == "git"]
     assert git, "Expected a git call to restore working tree"
@@ -95,20 +58,16 @@ def test_pipeline_order_and_success(
 def test_pipeline_aborts_on_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    scripts_dir = tmp_path / "scripts"
-    make_dummy_scripts(scripts_dir)
-
     def fake_run(cmd, check=True):
-        # Fail on the only pipeline step now: full_export_book.py
-        if len(cmd) > 1 and cmd[1].endswith("full_export_book.py"):
+        # Fail on the module invocation
+        if len(cmd) >= 3 and cmd[2] == "manuscripta.export.book":
             raise bp.subprocess.CalledProcessError(returncode=1, cmd=cmd)
         return DummyProc(0)
 
     monkeypatch.setattr(bp.subprocess, "run", fake_run)
 
-    argv = ["--scripts-dir", str(scripts_dir)]
     with pytest.raises(SystemExit) as ex:
-        bp.main(argv)
+        bp.main([])
 
     assert ex.value.code == 1, "Pipeline should abort with exit code 1 on step failure"
 

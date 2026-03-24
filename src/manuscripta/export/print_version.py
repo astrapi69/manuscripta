@@ -3,7 +3,7 @@
 Builds the print version (paperback or hardcover) of a book project.
 
 Current pipeline (kept minimal to satisfy tests):
-  1) full_export_book.py
+  1) manuscripta.export.book (via python -m)
   2) git restore .   (ONLY if --restore is set)
 
 CLI examples:
@@ -20,8 +20,8 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SCRIPTS_DIR = PROJECT_ROOT / "scripts"
+# All paths relative to cwd (= book repo root)
+PROJECT_ROOT = Path.cwd()
 
 
 # --------------------------------------------------------------------------- #
@@ -51,31 +51,25 @@ def _normalize_book_type(bt: Optional[str]) -> str:
 # --------------------------------------------------------------------------- #
 # Core runner
 # --------------------------------------------------------------------------- #
-def run_script(script: Path | str, *script_args: str, dry_run: bool = False) -> bool:
+def run_script(module_path: str, *script_args: str, dry_run: bool = False) -> bool:
     """
-    Execute a Python script via subprocess.run.
+    Execute a manuscripta module via python -m.
 
     Returns:
         True on success (returncode 0), False otherwise.
 
     Notes:
-      - Uses `python3 <script> <args...>` to avoid exec permission issues.
+      - Uses `python3 -m <module> <args...>` to run installed modules.
       - Never raises on failure; caller handles control flow (tests expect boolean).
       - `dry_run=True` prints the command and returns True without executing.
     """
-    cmd: List[str] = ["python3", str(script)] + list(script_args)
+    cmd: List[str] = ["python3", "-m", module_path] + list(script_args)
 
     if dry_run:
         print("[dry-run] Would run: " + " ".join(cmd))
         return True
 
-    script_path = Path(script)
-    if not script_path.exists():
-        print(f"Script not found: {script_path}")
-        return False
-
     try:
-        # No cwd here – tests mock signature (cmd, check=True)
         proc = subprocess.run(cmd, check=True)
         return proc.returncode == 0
     except subprocess.CalledProcessError as e:
@@ -87,27 +81,24 @@ def run_script(script: Path | str, *script_args: str, dry_run: bool = False) -> 
 # Build pipeline
 # --------------------------------------------------------------------------- #
 def build_print_version(
-    scripts_dir: Path,
     export_format: str,
     book_type: str,
     forwarded_args: list[str],
     dry_run: bool = False,
-    exact_name: bool = False,  # reserved for future extension
+    exact_name: bool = False,
     restore: bool = False,
 ) -> bool:
     """
     Run the minimal pipeline for building the print version.
 
-    Only invokes full_export_book.py and (optionally) performs a git restore at the end
-    if `restore=True`.
+    Invokes manuscripta.export.book and (optionally) performs a git restore
+    at the end if `restore=True`.
     """
     toc_file = PROJECT_ROOT / "manuscript" / "front-matter" / "toc.md"
     if not toc_file.exists():
-        print(f"ℹ️  No TOC file at {toc_file}; skipping TOC link stripping.")
+        print(f"No TOC file at {toc_file}; skipping TOC link stripping.")
 
-    print(f"📘 Building PRINT version of the book ({book_type.upper()})...\n")
-
-    full_export = scripts_dir / "full_export_book.py"
+    print(f"Building PRINT version of the book ({book_type.upper()})...\n")
 
     base_args = [
         f"--format={export_format}",
@@ -116,13 +107,15 @@ def build_print_version(
     ]
 
     if dry_run:
-        print("🔧 DRY-RUN mode enabled (no actual execution).\n")
+        print("DRY-RUN mode enabled (no actual execution).\n")
 
     ok = True
-    ok &= run_script(full_export, *base_args, *forwarded_args, dry_run=dry_run)
+    ok &= run_script(
+        "manuscripta.export.book", *base_args, *forwarded_args, dry_run=dry_run
+    )
 
     if not ok:
-        print("❌ One or more pipeline steps failed.")
+        print("One or more pipeline steps failed.")
         print("Build process aborted.")
         return False
 
@@ -135,10 +128,9 @@ def build_print_version(
             try:
                 subprocess.run(git_cmd, check=True)
             except subprocess.CalledProcessError:
-                # Not fatal for tests, but report it.
-                print("⚠️  git restore failed (non-fatal).")
+                print("git restore failed (non-fatal).")
 
-    print("✅ Pipeline finished successfully.")
+    print("Pipeline finished successfully.")
     return True
 
 
@@ -147,10 +139,10 @@ def build_print_version(
 # --------------------------------------------------------------------------- #
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """
-    Parse known args and collect unknown args to forward to full_export_book.py.
+    Parse known args and collect unknown args to forward to manuscripta.export.book.
 
     Namespace fields:
-      - dry_run, restore, scripts_dir, export_format, book_type, exact_name, extra
+      - dry_run, restore, export_format, book_type, exact_name, extra
     """
     p = argparse.ArgumentParser(description="Build print version of a book project.")
     p.add_argument(
@@ -158,9 +150,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--restore", action="store_true", help="Run git restore at the end (opt-in)."
-    )
-    p.add_argument(
-        "--scripts-dir", type=str, help="Path to scripts dir (defaults to ./scripts)."
     )
     p.add_argument(
         "--export-format",
@@ -188,9 +177,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ns = argparse.Namespace(
         dry_run=known.dry_run,
         restore=known.restore,
-        scripts_dir=(
-            Path(known.scripts_dir) if known.scripts_dir else DEFAULT_SCRIPTS_DIR
-        ),
         export_format=_normalize_export_format(known.export_format),
         book_type=_normalize_book_type(known.book_type),
         exact_name=known.exact_name,
@@ -203,7 +189,6 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
     ok = build_print_version(
-        args.scripts_dir,
         args.export_format,
         args.book_type,
         args.extra,
@@ -214,12 +199,12 @@ def main(argv: list[str] | None = None) -> None:
 
     if ok:
         if args.export_format == "epub":
-            print("\n🎉 Print version EPUB successfully generated!")
+            print("\nPrint version EPUB successfully generated!")
         elif args.export_format == "pdf":
-            print("\n🎉 Print version PDF successfully generated!")
+            print("\nPrint version PDF successfully generated!")
         sys.exit(0)
     else:
-        print("\n❌ Print version build failed.")
+        print("\nPrint version build failed.")
         sys.exit(1)
 
 
