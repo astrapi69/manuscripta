@@ -5,24 +5,21 @@ SHELL := /bin/bash
 # Setup
 # ---------------------------------------------------------------------------
 
-.PHONY: lock-install
+.PHONY: lock-install install install-dev update hooks
+
 lock-install: ## Lock and install project dependencies
 	poetry lock
 	poetry install
 
-.PHONY: install
 install: ## Install project with all dependencies
 	poetry install
 
-.PHONY: install-dev
 install-dev: ## Install with dev dependencies
 	poetry install --with dev
 
-.PHONY: update
 update: ## Update dependencies
 	poetry update
 
-.PHONY: hooks
 hooks: ## Install pre-commit hooks
 	poetry run pre-commit install
 
@@ -30,64 +27,54 @@ hooks: ## Install pre-commit hooks
 # Code Quality
 # ---------------------------------------------------------------------------
 
-.PHONY: lint
+.PHONY: lint lint-fix format format-check fix typecheck codespell codespell-fix precommit
+
 lint: ## Run ruff linter
 	poetry run ruff check src/ tests/
 
-.PHONY: lint-fix
 lint-fix: ## Run ruff linter with auto-fix
 	poetry run ruff check src/ tests/ --fix --unsafe-fixes
 
-.PHONY: format
 format: ## Format code with black
 	poetry run black src/ tests/
 
-.PHONY: format-check
 format-check: ## Check formatting without changes
 	poetry run black --check src/ tests/
 
-.PHONY: typecheck
-typecheck: ## Run MyPy type checks
-	poetry run mypy src/
-
-.PHONY: codespell
-codespell: ## Run codespell
-	poetry run codespell src/ tests/
-
-.PHONY: codespell-fix
-codespell-fix: ## Run codespell with auto-fix
-	poetry run codespell src/ tests/ --write-changes
-
-.PHONY: precommit
-precommit: ## Run all pre-commit hooks
-	poetry run pre-commit run -a
-
-.PHONY: fix
 fix: ## Run all auto-fixes (ruff + black)
 	poetry run ruff check src/ tests/ --fix --unsafe-fixes
 	poetry run black src/ tests/
+
+typecheck: ## Run MyPy type checks
+	poetry run mypy src/
+
+codespell: ## Run codespell
+	poetry run codespell src/ tests/
+
+codespell-fix: ## Run codespell with auto-fix
+	poetry run codespell src/ tests/ --write-changes
+
+precommit: ## Run all pre-commit hooks
+	poetry run pre-commit run -a
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
-.PHONY: test
+.PHONY: test test-v test-fast test-cov test-xml
+
 test: ## Run all tests
 	poetry run pytest
 
-.PHONY: test-v
 test-v: ## Run all tests (verbose)
 	poetry run pytest -v
 
-.PHONY: test-fast
 test-fast: ## Run tests without coverage (faster)
 	poetry run pytest -q --maxfail=1 --disable-warnings --no-cov
 
-.PHONY: test-cov
 test-cov: ## Run tests with coverage report
 	poetry run pytest --cov=manuscripta --cov-report=term-missing
 
-.PHONY: test-xml
 test-xml: ## Run tests with XML coverage (for CI)
 	poetry run pytest -q --maxfail=1 --disable-warnings --cov=manuscripta --cov-report=xml
 
@@ -96,25 +83,24 @@ test-xml: ## Run tests with XML coverage (for CI)
 # ---------------------------------------------------------------------------
 
 .PHONY: ci
+
 ci: lint format-check test ## Full CI pipeline (lint + format-check + test)
 
 # ---------------------------------------------------------------------------
 # Version Management
 # ---------------------------------------------------------------------------
 
-.PHONY: bump-patch
+.PHONY: bump-patch bump-minor bump-major tag-message
+
 bump-patch: ## Bump patch version (0.1.0 -> 0.1.1)
 	poetry version patch
 
-.PHONY: bump-minor
 bump-minor: ## Bump minor version (0.1.0 -> 0.2.0)
 	poetry version minor
 
-.PHONY: bump-major
 bump-major: ## Bump major version (0.1.0 -> 1.0.0)
 	poetry version major
 
-.PHONY: tag-message
 tag-message: ## Interactive: generate tag message and (optionally) create tag
 	poetry run make-tag-message
 
@@ -122,15 +108,14 @@ tag-message: ## Interactive: generate tag message and (optionally) create tag
 # Build & Publish
 # ---------------------------------------------------------------------------
 
-.PHONY: build
+.PHONY: build publish publish-test
+
 build: ## Build distribution package
 	poetry build
 
-.PHONY: publish
 publish: ci build ## Run CI, build and publish to PyPI
 	poetry publish
 
-.PHONY: publish-test
 publish-test: ci build ## Run CI, build and publish to TestPyPI
 	poetry publish -r testpypi
 
@@ -139,6 +124,7 @@ publish-test: ci build ## Run CI, build and publish to TestPyPI
 # ---------------------------------------------------------------------------
 
 .PHONY: git-setup
+
 git-setup: ## Configure git hooks and commit template
 	git config core.hooksPath .githooks
 	git config commit.template .gitmessage
@@ -149,13 +135,13 @@ git-setup: ## Configure git hooks and commit template
 # Cleanup
 # ---------------------------------------------------------------------------
 
-.PHONY: clean
+.PHONY: clean clean-venv
+
 clean: ## Remove build artifacts and caches
 	rm -rf dist/ build/ .pytest_cache/ .ruff_cache/ .mypy_cache/ .coverage coverage.xml
 	find src/ tests/ -type d -name __pycache__ -exec rm -rf {} +
 	find . -name '*.pyc' -delete
 
-.PHONY: clean-venv
 clean-venv: ## Remove Poetry virtualenv
 	poetry env remove --all || true
 
@@ -164,6 +150,7 @@ clean-venv: ## Remove Poetry virtualenv
 # ---------------------------------------------------------------------------
 
 .PHONY: help
+
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
