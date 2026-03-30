@@ -131,6 +131,17 @@ def strip_heading_markers(text: str) -> str:
     return re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
 
 
+def remove_pandoc_attributes(text: str) -> str:
+    """Remove Pandoc-style heading/span attributes like {#id}, {.class}, {key=val}.
+
+    Examples removed:
+        {#uber-den-autor}
+        {#sec:intro .unnumbered}
+        {width=50%}
+    """
+    return re.sub(r"\{[#.][^}]*\}", "", text)
+
+
 def strip_fenced_code_blocks(text: str) -> str:
     """Remove fenced code blocks (``` ... ``` or ~~~ ... ~~~)."""
     text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
@@ -207,6 +218,7 @@ def clean_markdown_for_tts(markdown_text: str) -> str:
 
     text = strip_emphasis_markers(text)
     text = strip_heading_markers(text)
+    text = remove_pandoc_attributes(text)
 
     text = strip_fenced_code_blocks(text)
     text = strip_inline_code_backticks(text)
