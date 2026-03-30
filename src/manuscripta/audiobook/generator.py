@@ -790,10 +790,8 @@ def main():
             config = yaml.safe_load(f) or {}
         print(f"  Loaded settings from: {settings_path}")
 
-    # Resolve input path (CLI > config > error)
-    input_path = args.input or _path_or_none(config.get("input"))
-    if not input_path:
-        parser.error("--input is required (or set 'input' in voice-settings.yaml)")
+    # Resolve input path (CLI > config > default: manuscript)
+    input_path = args.input or _path_or_none(config.get("input")) or Path("manuscript")
 
     # --list-chapters: preview EPUB contents and exit (no TTS needed)
     if args.list_chapters:
@@ -803,10 +801,8 @@ def main():
             print("--list-chapters is only supported for .epub files")
         return
 
-    # Resolve output path (CLI > config > error)
-    output_path = args.output or _path_or_none(config.get("output"))
-    if not output_path:
-        parser.error("--output is required (or set 'output' in voice-settings.yaml)")
+    # Resolve output path (CLI > config > default)
+    output_path = args.output or _path_or_none(config.get("output")) or Path("audiobook/output")
 
     # Apply CLI args (override config file if set)
     engine = args.engine or config.get("engine", "edge")
