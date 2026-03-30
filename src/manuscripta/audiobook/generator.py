@@ -802,7 +802,9 @@ def main():
         return
 
     # Resolve output path (CLI > config > default)
-    output_path = args.output or _path_or_none(config.get("output")) or Path("audiobook/output")
+    output_path = (
+        args.output or _path_or_none(config.get("output")) or Path("audiobook/output")
+    )
 
     # Apply CLI args (override config file if set)
     engine = args.engine or config.get("engine", "edge")
