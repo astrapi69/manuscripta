@@ -1,11 +1,9 @@
-# scripts/tts/edge_tts_adapter.py
-"""
-Edge TTS adapter using Microsoft Edge's online neural TTS service.
+"""Edge TTS adapter using Microsoft Edge's online neural TTS service.
 
 Requires:
     poetry add edge-tts
 
-No API key needed. Requires internet connection.
+No API key needed.  Requires internet connection.
 
 Splits long texts into chunks to avoid WebSocket timeouts on Microsoft's service.
 
@@ -27,17 +25,17 @@ List all voices: edge-tts --list-voices
 """
 
 import asyncio
-import re
 import shutil
 import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
-from manuscripta.audiobook.tts.base import TTSAdapter
-
-# Maximum characters per TTS request. Edge TTS can handle ~5000 chars reliably,
-# but shorter chunks are more robust against WebSocket timeouts.
-_MAX_CHUNK_CHARS = 4000
+from manuscripta.audiobook.tts.base import TTSAdapter, VoiceInfo
+from manuscripta.audiobook.tts.exceptions import (
+    TTSInvalidInputError,
+    TTSTransientError,
+)
+from manuscripta.audiobook.tts.text_chunking import split_text_into_chunks
 
 # Default voices per language code
 _DEFAULT_VOICES = {
@@ -58,68 +56,8 @@ _DEFAULT_VOICES = {
 }
 
 
-def _split_text_into_chunks(text: str, max_chars: int = _MAX_CHUNK_CHARS) -> List[str]:
-    """
-    Split text into chunks that respect paragraph and sentence boundaries.
-
-    Strategy:
-    1. Split by double newlines (paragraphs)
-    2. If a paragraph is still too long, split by sentences
-    3. If a sentence is still too long, hard-split at max_chars
-    """
-    paragraphs = re.split(r"\n\s*\n", text)
-    chunks: List[str] = []
-    current_chunk = ""
-
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
-            continue
-
-        # If adding this paragraph stays within limit, accumulate
-        candidate = f"{current_chunk}\n\n{para}" if current_chunk else para
-        if len(candidate) <= max_chars:
-            current_chunk = candidate
-            continue
-
-        # Flush current chunk if non-empty
-        if current_chunk:
-            chunks.append(current_chunk)
-            current_chunk = ""
-
-        # If the paragraph itself fits, start a new chunk with it
-        if len(para) <= max_chars:
-            current_chunk = para
-            continue
-
-        # Paragraph too long: split by sentences
-        sentences = re.split(r"(?<=[.!?])\s+", para)
-        for sentence in sentences:
-            if not sentence.strip():
-                continue
-            candidate = f"{current_chunk} {sentence}" if current_chunk else sentence
-            if len(candidate) <= max_chars:
-                current_chunk = candidate
-            else:
-                if current_chunk:
-                    chunks.append(current_chunk)
-                # Hard-split if a single sentence exceeds max_chars
-                if len(sentence) > max_chars:
-                    for i in range(0, len(sentence), max_chars):
-                        chunks.append(sentence[i : i + max_chars])
-                    current_chunk = ""
-                else:
-                    current_chunk = sentence
-
-    if current_chunk:
-        chunks.append(current_chunk)
-
-    return chunks
-
-
 class EdgeTTSAdapter(TTSAdapter):
-    """
-    TTS adapter backed by Microsoft Edge's neural TTS service (free, online).
+    """TTS adapter backed by Microsoft Edge's neural TTS service (free, online).
 
     Automatically splits long texts into chunks to avoid WebSocket timeouts.
 
@@ -132,6 +70,11 @@ class EdgeTTSAdapter(TTSAdapter):
     :param pitch: Pitch adjustment, e.g. '+0Hz', '-5Hz'.
     """
 
+    name = "edge-tts"
+    requires_credentials = False
+    supports_chunking = True
+    max_chunk_chars = 4000
+
     def __init__(
         self,
         lang: str = "de",
@@ -140,29 +83,66 @@ class EdgeTTSAdapter(TTSAdapter):
         volume: str = "+0%",
         pitch: str = "+0Hz",
     ):
+        self.lang = lang
         self.voice = voice or _DEFAULT_VOICES.get(lang.lower(), "en-US-JennyNeural")
         self.rate = rate
         self.volume = volume
         self.pitch = pitch
 
-    def speak(self, text: str, output_path: Path) -> None:
+    def synthesize(self, text: str, output_path: Path) -> None:
         """Convert text to speech and save as MP3."""
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        chunks = _split_text_into_chunks(text)
+        chunks = split_text_into_chunks(text, max_chars=self.max_chunk_chars)
         if not chunks:
             return
 
         if len(chunks) == 1:
-            # Single chunk: generate directly to output
             self._run_async(self._generate_single(chunks[0], output_path))
         else:
-            # Multiple chunks: generate each, then concatenate
             self._run_async(self._generate_chunked(chunks, output_path))
 
+    def list_voices(self, language_code: Optional[str] = None) -> list[VoiceInfo]:
+        """List available Edge TTS voices via the edge-tts library."""
+        voices_data = self._run_async(self._fetch_voices())
+        result: list[VoiceInfo] = []
+        for v in voices_data:
+            lang = v.get("Locale", "")
+            if language_code and not lang.lower().startswith(language_code.lower()):
+                continue
+            gender_raw = v.get("Gender", "neutral")
+            gender = (
+                gender_raw.lower()
+                if gender_raw.lower() in ("male", "female")
+                else "neutral"
+            )
+            result.append(
+                VoiceInfo(
+                    engine=self.name,
+                    voice_id=v.get("ShortName", ""),
+                    display_name=v.get("FriendlyName", v.get("ShortName", "")),
+                    language=lang,
+                    gender=gender,
+                    quality="neural",
+                )
+            )
+        return result
+
+    def validate(self) -> tuple[bool, str]:
+        """Check that Edge TTS is reachable."""
+        try:
+            voices = self.list_voices(language_code="en-US")
+            if voices:
+                return True, "Edge TTS reachable"
+            return False, "No voices returned"
+        except Exception as e:
+            return False, str(e)
+
+    # -- internals -------------------------------------------------------------
+
     @staticmethod
-    def _run_async(coro) -> None:
+    def _run_async(coro):
         """Run an async coroutine, handling existing event loops gracefully."""
         try:
             loop = asyncio.get_running_loop()
@@ -170,29 +150,33 @@ class EdgeTTSAdapter(TTSAdapter):
             loop = None
 
         if loop and loop.is_running():
-            # We're inside an existing event loop (e.g. Jupyter, nested calls)
             try:
                 import nest_asyncio
 
                 nest_asyncio.apply()
                 loop.run_until_complete(coro)
             except ImportError:
-                # Fallback: create a new loop in a thread
                 import concurrent.futures
 
                 with concurrent.futures.ThreadPoolExecutor() as pool:
-                    pool.submit(asyncio.run, coro).result()
+                    return pool.submit(asyncio.run, coro).result()
         else:
-            asyncio.run(coro)
+            return asyncio.run(coro)
+
+    @staticmethod
+    async def _fetch_voices() -> list[dict]:
+        """Fetch the list of available voices from the Edge TTS service."""
+        import edge_tts
+
+        return await edge_tts.list_voices()
 
     async def _generate_single(self, text: str, output_path: Path) -> None:
-        """Generate a single chunk to an MP3 file with retry."""
         await self._tts_with_retry(text, output_path)
 
     async def _tts_with_retry(
         self, text: str, output_path: Path, max_retries: int = 3
     ) -> None:
-        """Call Edge TTS with retry on failure."""
+        """Call Edge TTS with retry on transient failure."""
         import edge_tts
 
         for attempt in range(1, max_retries + 1):
@@ -213,27 +197,33 @@ class EdgeTTSAdapter(TTSAdapter):
                     print(f"    Waiting {wait}s before next attempt...")
                     await asyncio.sleep(wait)
                 else:
-                    raise RuntimeError(
-                        f"Edge TTS failed after {max_retries} attempts: {exc}"
+                    exc_str = str(exc).lower()
+                    if "invalid" in exc_str or "parameter" in exc_str:
+                        raise TTSInvalidInputError(
+                            f"Edge TTS rejected input: {exc}",
+                            engine=self.name,
+                            original=exc,
+                        ) from exc
+                    raise TTSTransientError(
+                        f"Edge TTS failed after {max_retries} attempts: {exc}",
+                        engine=self.name,
+                        original=exc,
                     ) from exc
 
-    async def _generate_chunked(self, chunks: List[str], output_path: Path) -> None:
+    async def _generate_chunked(self, chunks: list[str], output_path: Path) -> None:
         """Generate multiple chunks, concatenate into final MP3."""
-        temp_files: List[Path] = []
         temp_dir = Path(tempfile.mkdtemp(prefix="edge_tts_"))
 
         try:
+            temp_files: list[Path] = []
             for idx, chunk in enumerate(chunks):
                 temp_path = temp_dir / f"chunk_{idx:04d}.mp3"
                 print(f"    Chunk {idx + 1}/{len(chunks)} ({len(chunk)} chars)")
                 await self._tts_with_retry(chunk, temp_path)
                 temp_files.append(temp_path)
 
-            # Concatenate all MP3 chunks (MP3 is concatenable by nature)
             with open(output_path, "wb") as outfile:
                 for temp_file in temp_files:
                     outfile.write(temp_file.read_bytes())
-
         finally:
-            # Clean up entire temp directory
             shutil.rmtree(temp_dir, ignore_errors=True)
