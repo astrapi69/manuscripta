@@ -1,6 +1,6 @@
 [project]
 name = "manuscripta"
-version = "0.6.2"
+version = "0.7.0"
 description = "Book production pipeline for authors and self-publishers. Multi-format export (PDF, EPUB, DOCX, HTML, Markdown), audiobook generation, translation, and manuscript tooling."
 readme = "README.md"
 license = "MIT"
@@ -143,6 +143,31 @@ pymupdf = "^1.26.4"
 edge-tts = "^7.2.7"
 ebooklib = "^0.20"
 beautifulsoup4 = "^4.14.3"
+tenacity = "^8.2.3"
+
+[tool.poetry.group.elevenlabs]
+optional = true
+
+[tool.poetry.group.elevenlabs.dependencies]
+elevenlabs = "^1.0.0"
+
+[tool.poetry.group.google-cloud-tts]
+optional = true
+
+[tool.poetry.group.google-cloud-tts.dependencies]
+google-cloud-texttospeech = "^2.17.2"
+
+[tool.poetry.group.google-translate]
+optional = true
+
+[tool.poetry.group.google-translate.dependencies]
+gtts = "^2.4.0"
+
+[tool.poetry.group.pyttsx3]
+optional = true
+
+[tool.poetry.group.pyttsx3.dependencies]
+pyttsx3 = "^2.90"
 
 [tool.poetry.group.dev.dependencies]
 hypothesis = "^6.138.13"
