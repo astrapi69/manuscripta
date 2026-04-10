@@ -304,10 +304,10 @@ def extract_chapters_from_epub(
 # --- Dependency checks -------------------------------------------------------
 
 _ENGINE_DEPENDENCIES = {
-    "edge": ("edge_tts", "edge-tts", "poetry add edge-tts"),
-    "google": ("gtts", "gTTS", "poetry add gTTS"),
-    "pyttsx3": ("pyttsx3", "pyttsx3", "poetry add pyttsx3"),
-    "elevenlabs": ("elevenlabs", "elevenlabs", "poetry add elevenlabs"),
+    "edge": ("edge_tts", "edge-tts", "poetry install"),
+    "google": ("gtts", "gTTS", "poetry install --with google-translate"),
+    "pyttsx3": ("pyttsx3", "pyttsx3", "poetry install --with pyttsx3"),
+    "elevenlabs": ("elevenlabs", "elevenlabs", "poetry install --with elevenlabs"),
 }
 
 
@@ -345,9 +345,11 @@ def get_tts_adapter(engine: str, lang: str, voice: str | None, rate: int) -> TTS
 
         return EdgeTTSAdapter(lang=lang, voice=voice)
     elif engine == "google":
-        from manuscripta.audiobook.tts.gtts_adapter import GoogleTTSAdapter
+        from manuscripta.audiobook.tts.google_translate_adapter import (
+            GoogleTranslateTTSAdapter,
+        )
 
-        return GoogleTTSAdapter(lang=lang)
+        return GoogleTranslateTTSAdapter(lang=lang)
     elif engine == "pyttsx3":
         from manuscripta.audiobook.tts.pyttsx3_adapter import Pyttsx3Adapter
 
@@ -401,7 +403,7 @@ def _clean_and_speak(
 
     try:
         t0 = time.time()
-        tts.speak(text, out_path)
+        tts.synthesize(text, out_path)
         elapsed = time.time() - t0
 
         file_size = out_path.stat().st_size / 1024 if out_path.exists() else 0
