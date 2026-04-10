@@ -18,9 +18,12 @@ class DummyTTS(TTSAdapter):
     def __init__(self) -> None:
         self.calls: list[tuple[str, Path]] = []
 
-    def speak(self, text: str, output_path: Path) -> None:
+    def synthesize(self, text: str, output_path: Path) -> None:
         self.calls.append((text, output_path))
         output_path.write_bytes(b"\x00")
+
+    def list_voices(self, language_code=None):
+        return []
 
 
 def write(p: Path, s: str):
@@ -88,9 +91,15 @@ def _install_fake_adapter_module(
                 raise ValueError("Missing API key")
             self.kwargs = kwargs
 
-        def speak(self, text, output_path: Path):
+        def synthesize(self, text, output_path: Path):
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             Path(output_path).write_bytes(b"FAKE_MP3")
+
+        def speak(self, text, output_path: Path):
+            self.synthesize(text, output_path)
+
+        def list_voices(self, language_code=None):
+            return []
 
     setattr(mod, class_name, _FakeAdapter)
     sys.modules[module_name] = mod
@@ -98,10 +107,11 @@ def _install_fake_adapter_module(
 
 def test_get_tts_adapter_google(monkeypatch):
     _install_fake_adapter_module(
-        "manuscripta.audiobook.tts.gtts_adapter", "GoogleTTSAdapter"
+        "manuscripta.audiobook.tts.google_translate_adapter",
+        "GoogleTranslateTTSAdapter",
     )
     adapter = get_tts_adapter("google", lang="en", voice=None, rate=200)
-    assert hasattr(adapter, "speak")
+    assert hasattr(adapter, "synthesize")
 
 
 def test_get_tts_adapter_pyttsx3(monkeypatch):
@@ -109,7 +119,7 @@ def test_get_tts_adapter_pyttsx3(monkeypatch):
         "manuscripta.audiobook.tts.pyttsx3_adapter", "Pyttsx3Adapter"
     )
     adapter = get_tts_adapter("pyttsx3", lang="en", voice="Alice", rate=180)
-    assert hasattr(adapter, "speak")
+    assert hasattr(adapter, "synthesize")
 
 
 def test_get_tts_adapter_elevenlabs_with_and_without_key(monkeypatch):
@@ -135,7 +145,7 @@ def test_get_tts_adapter_elevenlabs_with_and_without_key(monkeypatch):
     # With key -> should construct
     monkeypatch.setenv("ELEVENLABS_API_KEY", "XYZ")
     adapter = get_tts_adapter("elevenlabs", lang="en", voice="Rachel", rate=200)
-    assert hasattr(adapter, "speak")
+    assert hasattr(adapter, "synthesize")
 
 
 def test_get_tts_adapter_invalid_engine():

@@ -17,10 +17,13 @@ class RecordingTTS(TTSAdapter):
     def __init__(self):
         self.calls = []
 
-    def speak(self, text, out_path: Path):
+    def synthesize(self, text, out_path: Path):
         self.calls.append((text, Path(out_path)))
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
         Path(out_path).write_bytes(b"FAKE_MP3")
+
+    def list_voices(self, language_code=None):
+        return []
 
 
 def w(p: Path, s: str):
@@ -90,20 +93,29 @@ def _install_fake(module_name: str, class_name: str, fail_on_kwargs=None):
             if callable(fail_on_kwargs) and fail_on_kwargs(kw):
                 raise ValueError("Missing API key")
 
-        def speak(self, text, out_path: Path):
+        def synthesize(self, text, out_path: Path):
             Path(out_path).write_bytes(b"FAKE")
+
+        def speak(self, text, out_path: Path):
+            self.synthesize(text, out_path)
+
+        def list_voices(self, language_code=None):
+            return []
 
     setattr(mod, class_name, _Adapter)
     sys.modules[module_name] = mod
 
 
 def test_get_tts_adapter_paths(monkeypatch):
-    _install_fake("manuscripta.audiobook.tts.gtts_adapter", "GoogleTTSAdapter")
+    _install_fake(
+        "manuscripta.audiobook.tts.google_translate_adapter",
+        "GoogleTranslateTTSAdapter",
+    )
     _install_fake("manuscripta.audiobook.tts.pyttsx3_adapter", "Pyttsx3Adapter")
 
     a = get_tts_adapter("google", lang="en", voice=None, rate=200)
     b = get_tts_adapter("pyttsx3", lang="de", voice="Anna", rate=170)
-    assert hasattr(a, "speak") and hasattr(b, "speak")
+    assert hasattr(a, "synthesize") and hasattr(b, "synthesize")
 
 
 def test_get_tts_adapter_elevenlabs_key_required(monkeypatch):
@@ -126,7 +138,7 @@ def test_get_tts_adapter_elevenlabs_key_required(monkeypatch):
     # With key -> ok
     monkeypatch.setenv("ELEVENLABS_API_KEY", "XYZ")
     adapter = get_tts_adapter("elevenlabs", lang="en", voice="Rachel", rate=200)
-    assert hasattr(adapter, "speak")
+    assert hasattr(adapter, "synthesize")
 
 
 def test_invalid_engine_raises():
