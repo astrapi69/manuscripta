@@ -799,16 +799,30 @@ CI policy on these modules:
 ### Known environmental test flakiness
 
 Five tests under `tests/unit/tts/` fail **only in full-suite runs** and
-pass in isolation. Root cause is test pollution from
-`tests/unit/test_generate_audiobook_use_cases.py:95–109`, which uses
-`setattr(module, name, _LocalAdapter)` to inject a stub adapter class
-into `manuscripta.audiobook.tts` without teardown. The plain `setattr`
-is not unwound after the test, so later tests observe the stub
-`_Adapter` class in place of the real adapter (its signature is
-missing the `.name` / `.requires_credentials` / etc. class attributes).
+pass in isolation. Root cause is test pollution from **two** files
+that use plain `setattr(module, name, _LocalAdapter)` to inject a
+stub adapter class into `manuscripta.audiobook.tts` without teardown:
+
+- `tests/unit/test_generate_audiobook_use_cases.py:95–109`
+- `tests/unit/test_generate_audiobook.py` (line numbers vary)
+
+The plain `setattr` is not unwound after the test, so later tests in
+the same Python process observe the stub `_Adapter` in place of the
+real adapter (the stub is missing the real `.name` /
+`.requires_credentials` / etc. class attributes).
+
+> **Heuristic-detection note.** The original investigation found one
+> polluter via `grep _Adapter`. The second one used a different
+> identifier (`_FakeAdapter`) and was missed; Phase 4b's mutmut runs
+> exposed it because mutmut keeps the same Python process across
+> mutants. The class of problem is **`setattr`-based teardown-less
+> injection**, not a specific identifier. When triaging similar
+> regressions in the future, grep for `setattr(mod` (or
+> `setattr(.*\.audiobook`, etc.), not for whatever stub class name
+> happened to surface first.
 
 Classification: **all five are environmental**, not regressions in
-`manuscripta` source. The library code is healthy; the test file's
+`manuscripta` source. The library code is healthy; the test files'
 teardown is incomplete.
 
 | Test ID | Symptom | Env where reproduces |
@@ -819,17 +833,17 @@ teardown is incomplete.
 | `tests/unit/tts/test_pyttsx3_adapter.py::TestPyttsx3Init::test_creation` | `AttributeError: '_Adapter' object has no attribute 'name'` | Full `pytest -m unit` runs only |
 | `tests/unit/tts/test_google_translate_adapter.py::TestGoogleTranslateInit::test_deprecation_warning` | Collection error from the same cause | Full `pytest -m unit` runs only |
 
-Fixing the `setattr` polluter is a Phase 6 cleanup item (swap for
-`monkeypatch.setattr`, which auto-unwinds). Until then:
+Fixing **both** `setattr` polluters is a Phase 6 cleanup item (swap
+for `monkeypatch.setattr`, which auto-unwinds). Until then:
 
-- **Mutation baseline:** exclude `tests/unit/tts/` from the mutmut
-  runner with an inline comment in `pyproject.toml` under
-  `[tool.mutmut]` referencing this subsection, so the flakiness does
-  not distort mutation scores.
-- **CI:** is unaffected because these tests pass in the sandbox and
-  failing-only-in-full-suite is tolerable while the polluter is scoped
-  and understood. If they start failing pre-merge, the Phase 6 fix is
-  promoted to unblock.
+- **Mutation baseline:** the mutmut runner deselects both polluter
+  files via `--deselect=` entries in `[tool.mutmut].pytest_add_cli_args`
+  (see `pyproject.toml`). Inline comments there reference this
+  subsection. Remove the deselects after the Phase 6 fix.
+- **CI:** is unaffected because these tests pass in isolation and
+  failing-only-in-full-suite is tolerable while the polluters are
+  scoped and understood. If they start failing pre-merge, the Phase 6
+  fix is promoted to unblock.
 
 ---
 
@@ -875,3 +889,185 @@ Consequences:
 
 The `requires_pandoc` / `requires_latex` / `slow` markers are orthogonal
 (cross-cutting) and do not satisfy the layer requirement.
+
+---
+
+## 14. Mutation testing
+
+Mutation testing is **orthogonal to the test pyramid** — a meta-test
+that grades whether unit tests actually assert behaviour or just
+exercise code paths. It is not a fifth layer; see ADR-0002
+§"Alternatives considered" (rejected: fifth-pyramid-layer).
+
+Tests prove code runs; mutation testing proves tests assert.
+
+Policy is defined in [ADR-0002](decisions/0002-mutation-testing.md);
+this section is the consumer-facing how-to.
+
+### 14.1 Scope
+
+Mutation runs over **CORE pure-logic modules only**, and only over
+modules that are **not currently tracked as coverage debt** in §12.
+
+The seven modules in scope at the start of Phase 4b:
+
+| Module | Threshold | Why qualifies |
+|---|---:|---|
+| `src/manuscripta/exceptions.py` | 95 % | tiny surface; trivially testable |
+| `src/manuscripta/paths/to_absolute.py` | 85 % | pure path/text transform |
+| `src/manuscripta/paths/to_relative.py` | 85 % | pure path/text transform |
+| `src/manuscripta/images/convert.py` | 85 % | markdown→HTML transform |
+| `src/manuscripta/markdown/normalize_toc.py` | 85 % | pure text transform |
+| `src/manuscripta/audiobook/tts/text_chunking.py` | 80 % | pure string-splitting |
+| `src/manuscripta/audiobook/tts/retry.py` | 80 % | tenacity decorator |
+
+The thresholds live in `[tool.manuscripta.mutation_thresholds]` in
+`pyproject.toml` (single source of truth).
+
+### 14.2 Why not all modules
+
+CLI_WRAPPER and NETWORK_INTEGRATION modules (per ADR-0003) are
+out of scope for two reasons:
+
+- Mutation on subprocess-heavy code measures the subprocess wrapper,
+  not the module under test. Every mutant fails for the same
+  external reason; the signal drowns in noise.
+- Mutation on mocked-network code measures the **mocks**, not the
+  tests. A mutant that flips `status_code == 200` to `== 201`
+  survives because the mock returned what the test configured.
+  Adding NETWORK_INTEGRATION modules to mutation scope is
+  pre-refuted in ADR-0002 §"Alternatives considered".
+
+The right instrument for those modules is integration / e2e_wheel
+testing against real services or replay fixtures.
+
+### 14.3 How to run locally
+
+| Command | What it does | Budget |
+|---|---|---|
+| `make mutation-fast` | Mutate only modules changed vs `origin/main` | seconds–minutes; the dev loop |
+| `make mutation` | Full configured scope, no threshold enforcement | **budget a coffee break** (~10–25 min on the initial 7-module scope); for ad-hoc deep-dives, NOT a routine pre-commit check |
+| `make mutation-check` | Full scope + threshold enforcement (CI gate equivalent) | same as `make mutation` plus a few seconds |
+| `make mutation-report` | Print human-readable surviving-mutant list (no run) | < 2 s |
+
+The dev loop is `make mutation-fast`. Running the full suite locally
+is fine for one-off investigations but not as a pre-commit check; CI
+runs the full scope nightly and posts results to the audit file.
+
+### 14.4 Score formula
+
+```
+score = killed / (total - skipped - equivalent)
+killed = total - survived - timeout - suspicious - skipped - equivalent - no_tests
+```
+
+Timeouts, no-tests, and suspicious mutants count **against** the
+score (strict reading). Rationale in ADR-0002 §Decision: a timeout
+is not an assertion the test made about the mutant's behaviour.
+
+### 14.5 Response protocol for surviving mutants
+
+Every survivor falls into exactly one of four categories. The Phase
+4b baseline report and every nightly audit categorise survivors this
+way; ad-hoc local triage should follow the same discipline.
+
+**A — Killed by new test.** Preferred outcome. Add a test that
+asserts a specific behaviour distinguishing the original from the
+mutant. The assertion must trace to a specification, docstring, or
+inferable contract — *not* to the code's current literal values.
+
+> **Forbidden (A-class anti-pattern):** writing a test that re-pins
+> the mutated literal without explaining *why*. `assert
+> wait.multiplier == 2` is a hash check, not a test. The test that
+> earns the kill says *why* the multiplier matters: "an exponential
+> wait with multiplier 1 collapses to constant backoff and would
+> retry too aggressively under the upstream rate limit."
+
+**B — Documented equivalent.** The mutant produces identical
+observable behaviour to the original. Annotate inline on the
+mutated line:
+
+```python
+# mutmut: equivalent — both branches reach `return None` because
+# the calling layer always discards the value when self.draft is
+# truthy.
+```
+
+> **Forbidden (B-class anti-pattern):** marking equivalent without
+> a verifiable reason. "mutant is equivalent" is not a comment; it's
+> a label. Reviewer rule: if I cannot see the equivalence after
+> reading the comment, the comment is insufficient.
+
+**C — Documented specification gap.** The mutant survives because
+the specification itself is silent about the behaviour the mutation
+changes. Add to the "Specification gaps surfaced by mutation
+testing" subsection of the Phase 4b report (and any future audit)
+listing: module, function, mutation, current behaviour, what a
+specification would need to say to resolve it. **Do NOT pin current
+behaviour as correct** — same rule as Phase 4 Priority 1's handling
+of `normalize_toc.replace_extension` (see Phase 6 cleanup list).
+
+> C is the highest-value output of mutation testing and the one most
+> often lost when projects just chase scores. Treat it as the
+> primary deliverable.
+
+**D — Accepted below-threshold.** Module's mutation score lands
+below its configured threshold, and the gap is composed of C-class
+mutants. Do NOT lower the threshold silently. Do NOT write theatre
+tests to compensate. Report the gap honestly; ratchet the threshold
+DOWN temporarily via explicit ADR amendment if needed; track the
+spec work as Phase 6 material.
+
+> **Forbidden (D-class anti-pattern):** lowering a threshold without
+> ADR amendment. Same rule as ADR-0001 / ADR-0003 for coverage
+> thresholds.
+
+### 14.6 Trade-off statement: nightly signal, not a merge gate
+
+Mutation testing is a **quality signal**, not a **merge contract**.
+ADR-0001's coverage gate is the merge contract.
+
+Why not gate on mutation:
+
+- Mutation runtime (~10–25 min on the initial 7-module scope) makes
+  per-PR enforcement either prohibitive or async-and-too-late.
+- A score drop from 88 % to 84 % may mean the test suite weakened OR
+  it may mean a refactor extracted a function whose new mutants
+  happen to be easier to survive than the inlined originals. The
+  first warrants action; the second is noise. Treating both as
+  merge-blockers either chills legitimate refactors or trains
+  reviewers to bypass the gate.
+
+What "nightly signal" looks like in practice:
+
+- Cron runs `make mutation-check` on the configured scope.
+- Result is written to `docs/audits/current-mutation.md` on **every
+  successful run**, not only on regression. Previous current-* file
+  is rotated to `docs/audits/history/YYYY-MM-DD-mutation.md` first.
+- A regression below threshold also files a tracking issue via the
+  CI workflow, but the merge isn't blocked. The regression is
+  triaged the same way as any other quality signal: investigate,
+  decide A/B/C/D, act.
+
+Audit-on-success keeps the "everything is still fine" signal
+distinguishable from "the cron broke and nobody noticed". This was
+a deliberate design decision; see ADR-0002 §"Why audit on success".
+
+### 14.7 Adding a module to mutation scope
+
+When a debt-tracked module graduates (its line in §12 is removed),
+the same commit that updates `baseline-coverage.json` should:
+
+1. Add the module to `[tool.mutmut].paths_to_mutate` in
+   `pyproject.toml`.
+2. Add a threshold entry to `[tool.manuscripta.mutation_thresholds]`
+   following the tier structure: 95 % for tiny exception-style
+   modules, 85 % for pure transforms, 80 % for retry / chunking-style
+   logic, 75 % default.
+3. Update §14.1 above with a row in the in-scope table.
+4. Update ADR-0002's "Initial in-scope list" header to "Current
+   in-scope list" and add the row.
+
+Do not skip step 4. The ADR documents the decision; if the table
+drifts from the active configuration, the rationale becomes harder
+to defend.
