@@ -261,6 +261,64 @@ file-keyed percentages; mutmut's state is per-mutant survival
 status that needs aggregation). The script split keeps each one
 small and single-purpose.
 
+### Score formula treatment of trampoline-induced equivalence
+
+mutmut 3.x wraps every mutated function in a trampoline that
+resolves the original signature's defaults at the wrapper level and
+forwards concrete arguments to the selected mutant. Mutations whose
+only effect is to change a default parameter value in the mutation
+target's own signature are therefore never exercised by the test
+runner — the mutant receives the original's defaults and produces
+identical behaviour by construction. TESTING.md §14.8.3 documents
+this as a standing equivalence policy with its own citation tag
+(`# B: TESTING.md §14.8.3 — trampoline forwards defaults; mutation
+unreachable`).
+
+From the score formula's perspective, §14.8.3-annotated mutants are
+equivalents: they enter the `equivalent` bucket in the `killed /
+(total - skipped - equivalent)` quotient, identical to §14.8.1 and
+§14.8.2 / ADR-0004 B-annotations. The distinction between
+behavioural equivalence (two reachable paths producing the same
+state — §14.8.1, §14.8.2) and tool-artifact equivalence (the
+mutation is unreachable because the framework short-circuits it —
+§14.8.3) is preserved in audit output by counting the two
+populations separately, so a rising §14.8.3 count signals "the
+tool's instrumentation is hiding mutations" while a rising
+§14.8.1 / §14.8.2 count signals "the codebase has grown more
+policy-exempt wording" — two different maintenance prompts.
+
+**Zero-denominator case.** A module whose entire mutant population
+is §14.8.3-equivalent has `score = 0 / 0`. This is treated as
+**insufficient mutable surface**, not as a threshold failure: the
+tool's instrumentation cannot produce a meaningful measurement on
+the module. The response is scope exclusion under a third,
+distinct rationale tier alongside the two already established in
+this ADR:
+
+| Exclusion tier | Trigger | Re-entry condition |
+|---|---|---|
+| Category exclusion | Module is CLI_WRAPPER / NETWORK_INTEGRATION per ADR-0003 | Never (superseding ADR required) |
+| Debt exclusion | Module is in TESTING.md §12 debt table | Graduates from debt table (ADR §Debt-graduation rule) |
+| **Insufficient-surface exclusion (§14.8.3)** | Module's entire mutant population is §14.8.3-equivalent under current mutmut version | Module grows additional testable surface, OR a future mutmut release exposes default-argument mutations |
+
+Insufficient-surface exclusions are recorded in the "Excluded with
+explicit rationale" table with a `§14.8.3` citation in the "Why
+excluded" column, and in the corresponding `[tool.mutmut]` config
+block with a `# reason: §14.8.3 — insufficient mutable surface`
+comment beside the prior entry. Re-entry is a normal scope
+addition (four-surface update per the inclusion criteria above).
+
+**Version-pin coupling.** The trampoline shape is an mutmut 3.x
+internal, not a Python semantics guarantee. This ADR's treatment
+of §14.8.3-equivalents is conditional on the pinned
+`mutmut = "^3.5"` in `pyproject.toml`. Bumping the pin requires
+re-verifying that default-argument mutations remain structurally
+unreachable on the new version; if they do not, every §14.8.3
+annotation and every insufficient-surface exclusion must be
+re-categorised in the same commit that bumps the pin. The
+version pin is therefore load-bearing and cannot be relaxed to a
+bare `mutmut = "*"` without a superseding ADR.
+
 ### Why "100 % mutation score is not a goal"
 
 Mutmut generates many mutants where the killed/survived distinction
