@@ -80,3 +80,63 @@ src/manuscripta/exceptions.py:manuscripta.exceptions.xǁManuscriptaPandocErrorǁ
 # ImageError __init__ mutant 5: ', '.join(self.unresolved) -> 'XX, XX'.join —
 #   separator literal in the rendered message; self.unresolved unchanged
 src/manuscripta/exceptions.py:manuscripta.exceptions.xǁManuscriptaImageErrorǁ__init____mutmut_5
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/audiobook/tts/text_chunking.py — 6 equivalents
+# 1 under §14.8.3 (trampoline-default) + 5 ad-hoc (three reasoning clusters)
+# ---------------------------------------------------------------------------
+
+# --- §14.8.3 — trampoline-induced equivalence ---
+# split_text_into_chunks mutant 1: max_chars default 4000 -> 4001 — the
+# mutation is unreachable under mutmut 3.x's trampoline (see
+# docs/TESTING.md §14.8.3 and ADR-0002 §"Score formula treatment of
+# trampoline-induced equivalence"). One trampoline-equivalent per free-
+# function target is the expected signature of §14.8.3.
+src/manuscripta/audiobook/tts/text_chunking.py:manuscripta.audiobook.tts.text_chunking.x_split_text_into_chunks__mutmut_1
+
+# --- Ad-hoc cluster #1: '' <-> None falsiness interchangeable ---
+# Reasoning (shared for mutants 10, 20, 47): both '' and None are falsy;
+# every consumer of current_chunk after one of these three reset sites
+# is either a bare `if current_chunk:` test or an `f"..." if current_chunk
+# else X` conditional, both of which short-circuit identically on '' and
+# None. No observable output difference on any input. Not a §14.8 policy
+# case: this is an implementation-level falsiness coincidence documented
+# per-mutant under ADR-0002 §"Response protocol" §B.
+#
+# mutant 10: line-20 init current_chunk = "" -> None
+src/manuscripta/audiobook/tts/text_chunking.py:manuscripta.audiobook.tts.text_chunking.x_split_text_into_chunks__mutmut_10
+# mutant 20: line-34 reset current_chunk = "" -> None (after outer push)
+src/manuscripta/audiobook/tts/text_chunking.py:manuscripta.audiobook.tts.text_chunking.x_split_text_into_chunks__mutmut_20
+# mutant 47: line-54 reset current_chunk = "" -> None (after hard-split)
+src/manuscripta/audiobook/tts/text_chunking.py:manuscripta.audiobook.tts.text_chunking.x_split_text_into_chunks__mutmut_47
+
+# --- Ad-hoc cluster #2: regex cannot emit blank sentence mid-list ---
+# Reasoning (mutant 24 only): the producing regex
+# re.split(r'(?<=[.!?])\s+', ...) requires a preceding punctuation
+# character AND at least one following whitespace character to emit a
+# split point. A blank element can appear in the result list only as a
+# trailing tail (when the input ends in `.?! \s+`), never mid-list.
+# Therefore `continue` and `break` on a blank sentence differ only at
+# the already-terminating element, where both behave identically. Not
+# §14.8: this is a property of the specific regex, not a standing
+# policy about sentence text.
+#
+# mutant 24: line-43 sentence-loop `if not sentence.strip(): continue`
+#            -> `break`
+src/manuscripta/audiobook/tts/text_chunking.py:manuscripta.audiobook.tts.text_chunking.x_split_text_into_chunks__mutmut_24
+
+# --- Ad-hoc cluster #3: range(0, n, n) == [0] degenerate ---
+# Reasoning (mutant 37 only): at the boundary len(sentence) == max_chars,
+# the orig else-branch assigns current_chunk = sentence (a string of
+# length max_chars) and the mutant hard-split iterates
+# range(0, max_chars, max_chars) == [0], appending sentence[0:max_chars]
+# (the whole sentence) to chunks. Any subsequent concatenation attempt in
+# orig yields candidate length > max_chars (current_chunk already equals
+# max_chars; any non-empty addition exceeds), so the orig's
+# current_chunk = sentence is inevitably pushed intact on the next
+# iteration. The final chunks list is identical either way. Not §14.8:
+# this is range-arithmetic at the len == max_chars edge, not a standing
+# policy about slicing.
+#
+# mutant 37: line-51 `if len(sentence) > max_chars:` -> `>= max_chars:`
+src/manuscripta/audiobook/tts/text_chunking.py:manuscripta.audiobook.tts.text_chunking.x_split_text_into_chunks__mutmut_37
