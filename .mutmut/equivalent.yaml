@@ -140,3 +140,91 @@ src/manuscripta/audiobook/tts/text_chunking.py:manuscripta.audiobook.tts.text_ch
 #
 # mutant 37: line-51 `if len(sentence) > max_chars:` -> `>= max_chars:`
 src/manuscripta/audiobook/tts/text_chunking.py:manuscripta.audiobook.tts.text_chunking.x_split_text_into_chunks__mutmut_37
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/images/convert.py — 13 equivalents across 4 policy paths
+#   §14.8.1 (print-None)   : 3 mutants — file 4, 41, 57
+#   §14.8.3 (trampoline)   : 4 mutants — file 1, 2; dir 1, 2
+#   §14.8.4 (empty-slice)  : 4 mutants — split_outside_code 5, 13, 22, 30
+#   ad-hoc (codec-alias)   : 2 mutants — file 9, 56
+# ---------------------------------------------------------------------------
+
+# --- §14.8.1 — diagnostic print content is not a contract ---
+# All three mutants replace a status-line f-string with print(None), which
+# renders as the literal "None". The print statement remains, no caller
+# depends on its content, the parser's return values are unchanged. Direct
+# analogue of ADR-0004 §14.8.2's ruling on super().__init__(None).
+#
+# convert_markdown_file mutant 4: print(f"❌ File not found: ...") -> print(None)
+src/manuscripta/images/convert.py:manuscripta.images.convert.x_convert_markdown_file__mutmut_4
+# convert_markdown_file mutant 41: print(f"🧪 Dry-Run: ...") -> print(None)
+src/manuscripta/images/convert.py:manuscripta.images.convert.x_convert_markdown_file__mutmut_41
+# convert_markdown_file mutant 57: print(f"✅ ... converted: ...") -> print(None)
+src/manuscripta/images/convert.py:manuscripta.images.convert.x_convert_markdown_file__mutmut_57
+
+# --- §14.8.3 — trampoline-induced equivalence ---
+# Two public free-function targets (convert_markdown_file,
+# convert_markdown_dir) each carry two `bool=False` keyword-only defaults
+# (backup, dry_run). The trampoline forwards the wrapper's concrete defaults
+# to every mutant, so the mutant's own default literal is never consulted.
+# §14.8.3 expected-count signature is Σ(literal-default kwargs per free-
+# function target) = 2 × 2 = 4. No anomaly.
+#
+# convert_markdown_file mutant 1: backup: bool = False -> True
+src/manuscripta/images/convert.py:manuscripta.images.convert.x_convert_markdown_file__mutmut_1
+# convert_markdown_file mutant 2: dry_run: bool = False -> True
+src/manuscripta/images/convert.py:manuscripta.images.convert.x_convert_markdown_file__mutmut_2
+# convert_markdown_dir mutant 1: backup: bool = False -> True
+src/manuscripta/images/convert.py:manuscripta.images.convert.x_convert_markdown_dir__mutmut_1
+# convert_markdown_dir mutant 2: dry_run: bool = False -> True
+src/manuscripta/images/convert.py:manuscripta.images.convert.x_convert_markdown_dir__mutmut_2
+
+# --- §14.8.4 — empty-slice append with downstream no-op consumption ---
+# Per-mutant downstream traces required (not shared). Each of the four
+# _split_outside_code guards admits a different empty-slice path; the
+# trace names the specific downstream guard that absorbs each.
+
+# mutant 5: `if m.start() > last:` -> `>= last`. Admits text[last:m.start()]
+# when last == m.start() (adjacent code fences, no gap). Slice is "".
+# Downstream trace: the refined-list builder loops `for im in
+# INLINE_CODE_RE.finditer(""): ...` which yields no matches; the trailing
+# `if pos < len(seg):` is `if 0 < 0` = False, so no (False, "") tuple
+# reaches the refined list. convert_markdown_file's segment loop therefore
+# iterates the same non-empty segment sequence in orig and mutant.
+src/manuscripta/images/convert.py:manuscripta.images.convert.x__split_outside_code__mutmut_5
+
+# mutant 13: `if last < len(text):` -> `<=`. Admits text[last:] when
+# last == len(text) (input ends exactly at a code fence). Slice is "".
+# Downstream trace: identical to mutant 5 — the refined-list builder
+# treats (False, "") as no-op (empty finditer, falsy length guard).
+src/manuscripta/images/convert.py:manuscripta.images.convert.x__split_outside_code__mutmut_13
+
+# mutant 22: `if im.start() > pos:` -> `>= pos`. In the inline-code
+# refinement pass, admits seg[pos:im.start()] when pos == im.start()
+# (back-to-back inline-code spans, no gap). Slice is "". Downstream
+# trace: the empty (False, "") tuple enters refined; downstream in
+# convert_markdown_file's segment loop, `_replace_inline("", ...)` and
+# `_replace_reference("", ...)` run but their regex .sub calls match
+# nothing in an empty string, and count deltas are 0 — `converted.append("")`
+# and `total += 0` leave output identical.
+src/manuscripta/images/convert.py:manuscripta.images.convert.x__split_outside_code__mutmut_22
+
+# mutant 30: `if pos < len(seg):` -> `<=`. Admits seg[pos:] when
+# pos == len(seg) (segment ends exactly at an inline-code span). Slice
+# is "". Downstream trace: identical to mutant 22 — the empty (False, "")
+# tuple enters refined, _replace_inline/_replace_reference on "" modify
+# nothing, total += 0, "".join(converted + [""]) == "".join(converted).
+src/manuscripta/images/convert.py:manuscripta.images.convert.x__split_outside_code__mutmut_30
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# Reasoning (shared for mutants 9, 56): codecs.lookup("utf-8") and
+# codecs.lookup("UTF-8") return the identical CodecInfo object by
+# language-level guarantee (the codec registry canonicalises via
+# codecs._lookup with a hyphen/underscore/case-insensitive normalization).
+# The two literals are interchangeable identifiers for the same decoder;
+# no observable behaviour differs.
+#
+# convert_markdown_file mutant 9: read_text(encoding="utf-8") -> encoding="UTF-8"
+src/manuscripta/images/convert.py:manuscripta.images.convert.x_convert_markdown_file__mutmut_9
+# convert_markdown_file mutant 56: write_text(..., encoding="utf-8") -> encoding="UTF-8"
+src/manuscripta/images/convert.py:manuscripta.images.convert.x_convert_markdown_file__mutmut_56
