@@ -59,6 +59,7 @@ assigned on write and never reused. Titles are short and descriptive.
 | 0001     | Test pyramid and coverage policy                                 | Accepted | 2026-04-14 |
 | 0002     | Mutation testing scope and policy                                | Accepted | 2026-04-14 |
 | 0003     | Module categories for coverage threshold differentiation         | Accepted | 2026-04-14 |
+| 0004     | Exception string representation is not part of the public API    | Accepted | 2026-04-14 |
 
 ADR numbers are identifiers, not timestamps. ADR-0002 was reserved
 during Phase 2 and filled in during Phase 4b, so its index entry's
