@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from manuscripta.audiobook.tts.exceptions import (
     TTSCredentialsMissingError,
     TTSEngineNotInstalledError,

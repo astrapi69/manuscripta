@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 """Tests for text_chunking.split_text_into_chunks."""
 
 from manuscripta.audiobook.tts.text_chunking import split_text_into_chunks

@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_replace_md_bullet_points.py
 
 from manuscripta.markdown.bullet_points import convert_bullets_in_text

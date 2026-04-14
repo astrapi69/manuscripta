@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_pandoc_batch_patch_markdown_text.py
 from manuscripta.utils.pandoc_batch import patch_markdown_text
 

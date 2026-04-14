@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from manuscripta.audiobook.tts.base import VoiceInfo
 from manuscripta.audiobook.tts.edge_tts_adapter import EdgeTTSAdapter
 

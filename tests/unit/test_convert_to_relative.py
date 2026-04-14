@@ -5,6 +5,8 @@ import textwrap
 import os
 import pytest
 
+pytestmark = pytest.mark.unit
+
 
 def import_ctr(module_path: Path):
     spec = importlib.util.spec_from_file_location(

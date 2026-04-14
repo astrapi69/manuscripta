@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_validate_epub.py
 import manuscripta.export.validation as vf
 

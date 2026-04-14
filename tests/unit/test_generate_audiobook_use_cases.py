@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_generate_audiobook_use_cases.py
 from pathlib import Path
 from types import ModuleType

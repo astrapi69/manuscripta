@@ -3,6 +3,8 @@
 import json
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from manuscripta.export.book import (
     load_export_settings,
     get_section_order_from_settings,

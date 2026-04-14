@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 import manuscripta.markdown.unbold_headers as m
 
 

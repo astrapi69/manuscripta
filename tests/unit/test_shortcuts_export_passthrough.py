@@ -1,5 +1,7 @@
 # tests/test_shortcuts_export_passthrough.py
 import pytest
+
+pytestmark = pytest.mark.unit
 from unittest.mock import patch
 import manuscripta.export.shortcuts as se
 

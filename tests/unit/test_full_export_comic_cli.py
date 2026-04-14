@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_full_export_comic_cli.py
 from pathlib import Path
 import manuscripta.export.comic as fec

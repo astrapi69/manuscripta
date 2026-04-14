@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_convert_to_absolute_extra.py
 from pathlib import Path
 import os

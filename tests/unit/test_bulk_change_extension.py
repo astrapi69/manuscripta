@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_bulk_change_extension.py
 from pathlib import Path
 import subprocess

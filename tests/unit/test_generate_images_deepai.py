@@ -1,5 +1,9 @@
 # tests/test_generate_images_deepai.py
 from __future__ import annotations
+import pytest
+
+pytestmark = pytest.mark.unit
+
 
 import json
 from types import SimpleNamespace

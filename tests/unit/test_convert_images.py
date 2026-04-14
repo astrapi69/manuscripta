@@ -3,6 +3,8 @@ from pathlib import Path
 import re
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from manuscripta.images.convert import convert_markdown_file, convert_markdown_dir
 
 FIG_RE = re.compile(

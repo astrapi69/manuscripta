@@ -4,6 +4,8 @@ import warnings
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from manuscripta.audiobook.tts.base import QuotaInfo, TTSAdapter, VoiceInfo
 
 

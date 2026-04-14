@@ -17,6 +17,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from manuscripta import ManuscriptaImageError, ManuscriptaLayoutError
 from manuscripta.export import book as book_mod
 
@@ -257,45 +259,3 @@ def test_cli_main_honors_source_dir_flag(tmp_path, monkeypatch):
     book_mod.main(["--source-dir", str(tmp_path), "--format", "pdf"])
     assert called["source_dir"] == tmp_path.resolve()
 
-
-# ---------------------------------------------------------------------------
-# Integration: real Pandoc build with pdfimages verification
-# ---------------------------------------------------------------------------
-
-
-def _tool(name: str) -> bool:
-    return shutil.which(name) is not None
-
-
-@pytest.mark.skipif(
-    not (_tool("pandoc") and _tool("pdfimages") and _tool("xelatex")),
-    reason="pandoc + xelatex + pdfimages required for the embedded-image check",
-)
-def test_image_is_embedded_in_pdf_when_called_from_outside_repo(tmp_path, monkeypatch):
-    project = tmp_path / "book"
-    _make_consumer_project(project)
-    monkeypatch.chdir(tmp_path)  # invoke from OUTSIDE the project
-
-    book_mod.run_export(
-        project,
-        formats="pdf",
-        strict_images=True,
-        skip_images=True,  # don't rely on path-rewrite helpers
-    )
-
-    pdf = project / "output" / "book_ebook.pdf"
-    # OUTPUT_FILE may be derived from project name; fall back to any pdf in output/
-    if not pdf.exists():
-        candidates = list((project / "output").glob("*.pdf"))
-        assert candidates, "No PDF produced"
-        pdf = candidates[0]
-
-    result = subprocess.run(
-        ["pdfimages", "-list", str(pdf)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    # Header + at least one image row.
-    lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
-    assert len(lines) >= 3, f"pdfimages -list did not show an embedded image:\n{result.stdout}"

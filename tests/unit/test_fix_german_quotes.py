@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 #!/usr/bin/env python3
 """Unit tests for fix_german_quotes.py - German typographic quote conversion."""
 

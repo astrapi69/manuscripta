@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_replace_emojis_walk_and_cli.py
 from pathlib import Path
 

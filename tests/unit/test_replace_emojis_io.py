@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_replace_emojis_io.py
 from pathlib import Path
 from manuscripta.markdown.emojis import process_file

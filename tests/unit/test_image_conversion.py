@@ -1,5 +1,7 @@
 # tests/test_image_conversion.py
 import pytest
+
+pytestmark = pytest.mark.unit
 import os
 import shutil
 from pathlib import Path

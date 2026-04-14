@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_print_version_build_run_script.py
 import manuscripta.export.print_version as bp
 

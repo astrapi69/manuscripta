@@ -2,6 +2,8 @@
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from manuscripta.audiobook.tts.exceptions import TTSError, TTSTransientError
 from manuscripta.audiobook.tts.retry import with_retry
 

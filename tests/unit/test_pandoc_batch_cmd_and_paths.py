@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_pandoc_batch_cmd_and_paths.py
 from pathlib import Path
 from manuscripta.utils.pandoc_batch import build_cmd, rel_output_path, EXT_BY_TO

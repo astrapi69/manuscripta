@@ -3,6 +3,8 @@ from pathlib import Path
 import subprocess
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from manuscripta.utils.git_cache import clean_git_cache
 
 

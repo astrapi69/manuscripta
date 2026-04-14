@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_convert_links_to_plain_text_extra.py
 from pathlib import Path
 from manuscripta.markdown.links_to_plain import convert_links_in_text, convert_file

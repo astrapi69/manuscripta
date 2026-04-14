@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_strip_links_io.py
 from pathlib import Path
 from manuscripta.markdown.strip_links import process_file

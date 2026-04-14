@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 # Import module under test
 import manuscripta.project.tag_message as mtm
 

@@ -3,6 +3,8 @@ import argparse
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.unit
 import manuscripta.utils.pandoc_batch as mod
 
 

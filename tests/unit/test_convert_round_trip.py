@@ -5,6 +5,8 @@ from pathlib import Path
 import textwrap
 import pytest
 
+pytestmark = pytest.mark.unit
+
 
 def _import(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, str(path))

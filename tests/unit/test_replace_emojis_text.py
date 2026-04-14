@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_replace_emojis_text.py
 from manuscripta.markdown.emojis import replace_emojis_in_text
 

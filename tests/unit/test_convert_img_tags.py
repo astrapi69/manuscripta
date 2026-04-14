@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_convert_img_tags.py
 from pathlib import Path
 import os

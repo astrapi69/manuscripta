@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_generate_audiobook.py
 
 from types import ModuleType

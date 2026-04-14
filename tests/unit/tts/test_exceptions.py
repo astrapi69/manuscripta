@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 """Tests for the TTSError exception hierarchy."""
 
 from manuscripta.audiobook.tts.exceptions import (

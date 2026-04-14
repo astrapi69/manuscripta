@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 # Importiere direkt aus deinem Script
 from manuscripta.project.reorder import (
     load_mapping_file,

@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_validate_docx_and_md.py
 import zipfile
 import manuscripta.export.validation as vf

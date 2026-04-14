@@ -5,6 +5,8 @@ import json
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 import manuscripta.images.inject as mod
 
 

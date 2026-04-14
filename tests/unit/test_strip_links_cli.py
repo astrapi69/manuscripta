@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_strip_links_cli.py
 import manuscripta.markdown.strip_links as sl
 

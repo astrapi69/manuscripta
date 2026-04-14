@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_init_book_project.py
 from pathlib import Path
 import yaml

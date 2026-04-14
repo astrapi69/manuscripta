@@ -7,6 +7,10 @@ patterns so the constraint survives future refactors.
 """
 
 from __future__ import annotations
+import pytest
+
+pytestmark = pytest.mark.unit
+
 
 import re
 from pathlib import Path

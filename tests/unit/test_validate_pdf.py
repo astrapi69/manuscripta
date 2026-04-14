@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_validate_pdf.py
 import manuscripta.export.validation as vf
 

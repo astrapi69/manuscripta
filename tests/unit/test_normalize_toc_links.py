@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_normalize_toc_links.py
 import sys
 import subprocess

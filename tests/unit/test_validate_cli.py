@@ -1,5 +1,7 @@
 # tests/test_validate_cli.py
 import pytest
+
+pytestmark = pytest.mark.unit
 import manuscripta.export.validation as vf
 
 

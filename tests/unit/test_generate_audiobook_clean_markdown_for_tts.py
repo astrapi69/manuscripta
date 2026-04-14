@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_generate_audiobook_clean_markdown_for_tts.py
 import textwrap
 from manuscripta.audiobook.generator import clean_markdown_for_tts

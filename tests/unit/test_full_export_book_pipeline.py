@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 import pytest
 
+pytestmark = pytest.mark.unit
+
 import manuscripta.export.book as feb
 
 

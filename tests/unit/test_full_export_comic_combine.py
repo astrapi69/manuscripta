@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # tests/test_full_export_comic_combine.py
 from pathlib import Path
 
