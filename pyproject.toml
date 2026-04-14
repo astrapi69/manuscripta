@@ -205,11 +205,17 @@ mutmut = "^3.5"
 # Explicit list of in-scope modules (no globs — consistency with the
 # coverage threshold contract in TESTING.md §3).
 paths_to_mutate = [
+    # Per ADR-0002 "Initial in-scope list" — 7 modules. Adding/removing
+    # an entry requires updating ADR-0002, this list, and TESTING.md §14.
+    # markdown/german_quotes is intentionally NOT here: it is currently
+    # debt-tracked at 84 % coverage (target 85 %), and ADR-0002's
+    # debt-graduation rule excludes debt modules from mutation scope.
+    # Add it back in the same commit that removes it from
+    # baseline-coverage.json.
     "src/manuscripta/exceptions.py",
     "src/manuscripta/paths/to_absolute.py",
     "src/manuscripta/paths/to_relative.py",
     "src/manuscripta/images/convert.py",
-    "src/manuscripta/markdown/german_quotes.py",
     "src/manuscripta/markdown/normalize_toc.py",
     "src/manuscripta/audiobook/tts/text_chunking.py",
     "src/manuscripta/audiobook/tts/retry.py",
@@ -279,10 +285,13 @@ default = 75
 "src/manuscripta/paths/to_absolute.py" = 85
 "src/manuscripta/paths/to_relative.py" = 85
 "src/manuscripta/images/convert.py" = 85
-"src/manuscripta/markdown/german_quotes.py" = 85
 "src/manuscripta/markdown/normalize_toc.py" = 85
 "src/manuscripta/audiobook/tts/text_chunking.py" = 80
 "src/manuscripta/audiobook/tts/retry.py" = 80
+# Threshold for markdown/german_quotes is intentionally absent until
+# the module exits the coverage debt table (per ADR-0002 §debt-
+# graduation rule). When re-added: 85 % per the "pure transforms"
+# tier in the same ADR.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

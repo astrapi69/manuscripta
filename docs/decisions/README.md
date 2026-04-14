@@ -57,7 +57,10 @@ assigned on write and never reused. Titles are short and descriptive.
 | ID       | Title                                                            | Status   | Date       |
 |----------|------------------------------------------------------------------|----------|------------|
 | 0001     | Test pyramid and coverage policy                                 | Accepted | 2026-04-14 |
+| 0002     | Mutation testing scope and policy                                | Accepted | 2026-04-14 |
 | 0003     | Module categories for coverage threshold differentiation         | Accepted | 2026-04-14 |
 
-*(ADR-0002 "Mutation testing" is reserved and will be added as part of
-Phase 4b.)*
+ADR numbers are identifiers, not timestamps. ADR-0002 was reserved
+during Phase 2 and filled in during Phase 4b, so its index entry's
+date is later than ADR-0003's even though the number is lower. That is
+correct.
