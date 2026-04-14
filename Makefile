@@ -79,6 +79,33 @@ test-xml: ## Run tests with XML coverage (for CI)
 	poetry run pytest -q --maxfail=1 --disable-warnings --cov=manuscripta --cov-report=xml
 
 # ---------------------------------------------------------------------------
+# Mutation testing (Phase 4b)
+# ---------------------------------------------------------------------------
+# Runs nightly in CI, not per-PR (~10+ min). Not a merge gate; a quality
+# signal. Scope and thresholds live in pyproject.toml; policy in
+# docs/decisions/0002-mutation-testing.md; response workflow in TESTING.md §14.
+
+.PHONY: mutation mutation-check mutation-report mutation-fast
+
+mutation: ## Run mutation tests on the configured scope (no threshold enforcement)
+	poetry run --with mutation mutmut run
+
+mutation-check: mutation ## Run mutation tests + enforce per-module thresholds (CI gate)
+	poetry run python scripts/check_mutation_thresholds.py
+
+mutation-report: ## Print a human-readable report of surviving mutants
+	poetry run --with mutation mutmut results
+
+mutation-fast: ## Dev loop — mutate only modules changed since main
+	@CHANGED=$$(git diff --name-only origin/main...HEAD -- 'src/manuscripta/**/*.py' | tr '\n' ' '); \
+	if [ -z "$$CHANGED" ]; then \
+		echo "No Python sources changed vs origin/main; nothing to mutate."; \
+		exit 0; \
+	fi; \
+	echo "Mutating only: $$CHANGED"; \
+	poetry run --with mutation mutmut run $$CHANGED
+
+# ---------------------------------------------------------------------------
 # CI
 # ---------------------------------------------------------------------------
 

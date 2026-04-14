@@ -227,3 +227,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# mutmut working tree
+mutants/
+.mutmut-cache
+mutants.lock
