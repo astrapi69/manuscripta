@@ -168,6 +168,34 @@ def built_wheel(tmp_path_factory) -> Path:
 
 This is the contract. Phase 4 implements it; Phase 3 does not touch it.
 
+#### Case study: CLI short-circuit bug caught by this layer
+
+In Phase 4, the first run of `tests/e2e_wheel/test_wheel_install.py::
+test_wheel_cli_entry_point_smoke` failed with `ManuscriptaLayoutError`
+when invoking `manuscripta-export --help` from a fresh venv whose cwd
+was not a valid book project. The bug: `main()` called
+`_validate_layout()` before `argparse` could handle `--help` / `-h`,
+so every CLI short-circuit flag failed from any non-project cwd — the
+exact path a new user takes on first install.
+
+The bug had been live since the v0.8.0 CLI refactor. The unit suite
+did not catch it because existing `main()` tests always ran against a
+pre-built valid project; the integration layer did not catch it
+because it does not invoke the installed console scripts. Only a test
+that installs the wheel and runs its entry-points can surface this
+class of packaging-boundary bug — which is the reason ADR-0001
+introduced this tier.
+
+Fix and pins: commit `5753983` moves `_validate_layout` from `main()`
+into `_run_pipeline` (after `argparse.parse_args`) and pins the
+contract with two unit tests in
+`tests/unit/test_run_export_api.py`:
+
+- `test_main_help_succeeds_outside_valid_project[--help|-h]`
+- `test_main_build_fails_outside_valid_project`
+
+Concrete evidence that the layer pays for itself.
+
 ---
 
 ## 2. Decision tree: which layer for my new test?
@@ -767,6 +795,41 @@ CI policy on these modules:
   enforces the full Phase 2 target from that commit forward.
 - No merge may lower a module's recorded baseline. Only the target
   itself may be adjusted, and only via ADR.
+
+### Known environmental test flakiness
+
+Five tests under `tests/unit/tts/` fail **only in full-suite runs** and
+pass in isolation. Root cause is test pollution from
+`tests/unit/test_generate_audiobook_use_cases.py:95–109`, which uses
+`setattr(module, name, _LocalAdapter)` to inject a stub adapter class
+into `manuscripta.audiobook.tts` without teardown. The plain `setattr`
+is not unwound after the test, so later tests observe the stub
+`_Adapter` class in place of the real adapter (its signature is
+missing the `.name` / `.requires_credentials` / etc. class attributes).
+
+Classification: **all five are environmental**, not regressions in
+`manuscripta` source. The library code is healthy; the test file's
+teardown is incomplete.
+
+| Test ID | Symptom | Env where reproduces |
+|---|---|---|
+| `tests/unit/tts/test_elevenlabs_adapter.py::TestElevenLabsInit::test_missing_api_key_raises` | Wrong exception type because stub `_Adapter` replaces `ElevenLabsAdapter` | Full `pytest -m unit` runs only |
+| `tests/unit/tts/test_elevenlabs_adapter.py::TestElevenLabsInit::test_valid_api_key` | Same as above | Full `pytest -m unit` runs only |
+| `tests/unit/tts/test_factory.py::TestCreateAdapter::test_google_translate_warns` | Factory resolves the stub instead of the real `GoogleTranslateTTSAdapter` | Full `pytest -m unit` runs only |
+| `tests/unit/tts/test_pyttsx3_adapter.py::TestPyttsx3Init::test_creation` | `AttributeError: '_Adapter' object has no attribute 'name'` | Full `pytest -m unit` runs only |
+| `tests/unit/tts/test_google_translate_adapter.py::TestGoogleTranslateInit::test_deprecation_warning` | Collection error from the same cause | Full `pytest -m unit` runs only |
+
+Fixing the `setattr` polluter is a Phase 6 cleanup item (swap for
+`monkeypatch.setattr`, which auto-unwinds). Until then:
+
+- **Mutation baseline:** exclude `tests/unit/tts/` from the mutmut
+  runner with an inline comment in `pyproject.toml` under
+  `[tool.mutmut]` referencing this subsection, so the flakiness does
+  not distort mutation scores.
+- **CI:** is unaffected because these tests pass in the sandbox and
+  failing-only-in-full-suite is tolerable while the polluter is scoped
+  and understood. If they start failing pre-merge, the Phase 6 fix is
+  promoted to unblock.
 
 ---
 
