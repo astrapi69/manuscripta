@@ -6,9 +6,24 @@ and the most recent ``mutmut`` results, computes a per-file mutation
 score, and exits non-zero if any in-scope module is below its
 threshold.
 
-Mutation score (per the Phase 2 / ADR-0002 definition):
+Score formula (per ADR-0002 §"Score definition" and §"Score formula
+treatment of trampoline-induced equivalence"):
 
-    score = killed / (total - skipped - equivalent - no_tests - segfault)
+    denom         = total − equivalent
+    survived_live = |survived_from_mutmut \\ equivalent_yaml|
+    killed        = total − survived_live − timeout − suspicious − equivalent
+    score         = killed / denom
+
+Equivalent mutants appear in mutmut's ``survived`` output because mutmut
+has no intrinsic concept of equivalence; annotation via
+``.mutmut/equivalent.yaml`` is manuscripta's mechanism for routing them
+into the ``equivalent`` bucket. The script must subtract the overlap
+once (out of ``survived``), not twice (out of both ``survived`` and
+``equivalent``). The ``survived_live`` step is what enforces that
+discipline; without it, a B-annotated mutant that genuinely survives
+mutmut is counted against the score twice and the module FAILs even
+when its response work is correct. See the regression test in
+``tests/unit/test_check_mutation_thresholds.py``.
 
 In mutmut 3.x, ``mutmut results`` lists the mutants that did NOT die
 (``survived`` and ``timeout`` only). Killed mutants are those mentioned
@@ -119,11 +134,18 @@ def count_total_mutants() -> dict[str, int]:
     return counts
 
 
-def collect_results() -> tuple[dict[str, dict[str, int]], list[str]]:
-    """Run ``mutmut results`` and aggregate non-dead statuses per file.
+def collect_results() -> tuple[
+    dict[str, dict[str, set[str]]], list[str]
+]:
+    """Run ``mutmut results`` and group non-dead mutant **names** per file
+    and status.
 
-    Returns (per_file_counts, raw_lines) where per_file_counts maps
-    ``src/manuscripta/foo.py -> {"survived": 3, "timeout": 1}``.
+    Returns (per_file_names, raw_lines) where per_file_names maps
+    ``src/manuscripta/foo.py -> {"survived": {"…__mutmut_3", …}, "timeout":
+    {"…__mutmut_7"}}``. Names (not just counts) are required so the caller
+    can compute the overlap with ``.mutmut/equivalent.yaml`` and route
+    annotated equivalents out of the ``survived`` bucket — see the module
+    docstring's "score formula" block.
     """
     try:
         proc = subprocess.run(
@@ -139,7 +161,9 @@ def collect_results() -> tuple[dict[str, dict[str, int]], list[str]]:
             f"stderr:\n{e.stderr}"
         )
     raw = proc.stdout.splitlines()
-    per_file: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    per_file: dict[str, dict[str, set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
     for line in raw:
         m = MUTANT_NAME_PATTERN.match(line)
         if not m:
@@ -151,8 +175,58 @@ def collect_results() -> tuple[dict[str, dict[str, int]], list[str]]:
         file_path = mutant_name_to_file(name)
         if file_path is None:
             continue
-        per_file[file_path][status] += 1
+        per_file[file_path][status].add(name)
     return per_file, raw
+
+
+def compute_module_score(
+    *,
+    total: int,
+    survived_names: set[str],
+    timeout_names: set[str],
+    suspicious_names: set[str],
+    equivalent_names: set[str],
+) -> dict[str, "int | float | set[str]"]:
+    """Pure scoring function — exposed for ``tests/unit/
+    test_check_mutation_thresholds.py``.
+
+    Implements the formula in the module docstring. Returns a dict with
+    the per-module counts that ``main()`` prints, plus the orphan-
+    annotation set (equivalent ids in the YAML that do not appear in any
+    non-dead status — usually a stale annotation left over from a
+    refactor that removed the mutant).
+    """
+    survived_live = survived_names - equivalent_names
+    timeout_live = timeout_names - equivalent_names
+    suspicious_live = suspicious_names - equivalent_names
+    orphans = equivalent_names - (
+        survived_names | timeout_names | suspicious_names
+    )
+    eq_count = len(equivalent_names)
+    denom = total - eq_count
+    if denom <= 0:
+        score: int | float | None = None
+    else:
+        killed = (
+            total
+            - len(survived_live)
+            - len(timeout_live)
+            - len(suspicious_live)
+            - eq_count
+        )
+        score = round(100.0 * killed / denom, 1)
+    return {
+        "total": total,
+        "killed": (total - len(survived_live) - len(timeout_live)
+                   - len(suspicious_live) - eq_count) if denom > 0 else 0,
+        "survived": len(survived_live),
+        "timeout": len(timeout_live),
+        "suspicious": len(suspicious_live),
+        "equivalent": eq_count,
+        "denom": denom,
+        "score": score,
+        "orphan_equivalents": orphans,
+    }
 
 
 def mutant_name_to_file(name: str) -> str | None:
@@ -205,24 +279,32 @@ def main() -> int:
     print("-" * 110)
 
     failures: list[str] = []
+    orphans_anywhere: list[tuple[str, str]] = []
     for path in in_scope:
         threshold = per_file_thresholds.get(path, default_threshold)
         total = totals.get(path, 0)
-        survived = non_dead.get(path, {}).get("survived", 0)
-        timeout = non_dead.get(path, {}).get("timeout", 0)
-        suspicious = non_dead.get(path, {}).get("suspicious", 0)
-        eq = len(equivalents.get(path, set()))
-        # Killed = total - (alive + equivalent + suspicious).
-        # We DON'T subtract timeouts or suspicious from the denominator —
-        # they count against the score, since the test could not prove
-        # the mutant dead.
-        denom = total - eq
-        if denom <= 0:
+        non_dead_for_path = non_dead.get(path, {})
+        result = compute_module_score(
+            total=total,
+            survived_names=set(non_dead_for_path.get("survived", set())),
+            timeout_names=set(non_dead_for_path.get("timeout", set())),
+            suspicious_names=set(non_dead_for_path.get("suspicious", set())),
+            equivalent_names=set(equivalents.get(path, set())),
+        )
+        for orph in sorted(result["orphan_equivalents"]):  # type: ignore[arg-type]
+            orphans_anywhere.append((path, orph))
+
+        eq = result["equivalent"]
+        if result["score"] is None:
             print(f"{path:<55} {'-':>7} {'-':>5} {'-':>5} {eq:>4} {total:>6} "
                   f"{'n/a':>6} {threshold:>5} ?  no mutants")
             continue
-        killed = total - survived - timeout - suspicious - eq
-        score = round(100.0 * killed / denom, 1)
+
+        killed = result["killed"]
+        survived = result["survived"]
+        timeout = result["timeout"]
+        score = result["score"]
+        assert isinstance(score, (int, float))
         if score >= threshold:
             verdict = "OK"
         else:
@@ -236,6 +318,14 @@ def main() -> int:
               f"{total:>6} {score:>5}% {threshold:>4}% {verdict}")
 
     print()
+    if orphans_anywhere:
+        print("⚠  Orphan equivalent annotations (in .mutmut/equivalent.yaml "
+              "but not in current mutmut output):")
+        for path, name in orphans_anywhere:
+            print(f"  {path}: {name}")
+        print("  These were likely left behind when a source change removed "
+              "the mutant. Clean up the YAML or re-run mutmut.")
+        print()
     if failures:
         print("FAIL — the following modules are below their mutation threshold:")
         for f in failures:

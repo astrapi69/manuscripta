@@ -29,6 +29,33 @@ to stop current work. Close each with its own commit or ADR.
   anchor". Align the two, then convert the two `xfail` tests in
   `tests/unit/test_normalize_toc_direct.py` accordingly.
 
+## Audit tooling hardening
+
+- **[P2] Pre-commit guard against stale mutmut state in threshold-script
+  runs.** Surfaced during Phase 4b Pass 2 Commit 10 fresh-triage on
+  `paths/to_absolute.py`. The double-subtraction bug in
+  `scripts/check_mutation_thresholds.py` (now fixed in `fix(mutation):
+  de-duplicate equivalent mutants from survived counts`) existed for
+  three response commits (7, 8, 9) before being caught, because each
+  prior verification step ran the threshold script against a **narrow**
+  mutmut sub-run state — narrow runs leave the equivalent mutants as
+  `not_checked`, which is filtered out of `NON_DEAD_STATUSES`, so the
+  double-subtract never triggered. Detection was structural (running
+  against a module with pre-existing YAML annotations plus a full
+  mutmut state), not accidental. Hardening proposals to evaluate:
+  - Pre-commit hook that refuses to run `make mutation-check` when the
+    `mutants/` directory contains a high proportion of `not_checked`
+    entries (heuristic: > 50 % of in-scope mutants).
+  - The threshold script itself emits a loud warning when it observes
+    > 50 % `not_checked` and exits non-zero unless an explicit
+    `--allow-stale-state` flag is passed.
+  - The `mutation-check` Make target always invokes a clean `mutmut
+    run` first (slowest, safest); leave the narrow-mode invocation as
+    a separate `mutation-fast-check` target gated for dev-loop use only.
+  Pick one. The orphan-equivalent warning added to the threshold script
+  in the same fix is a partial mitigation, but does not catch the
+  inverse case (full state + missing equivalents).
+
 ## Build / CI hygiene
 
 - **[P1] Regenerate `poetry.lock` against the current `pyproject.toml`
