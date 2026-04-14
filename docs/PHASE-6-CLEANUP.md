@@ -29,6 +29,21 @@ to stop current work. Close each with its own commit or ADR.
   anchor". Align the two, then convert the two `xfail` tests in
   `tests/unit/test_normalize_toc_direct.py` accordingly.
 
+## Build / CI hygiene
+
+- **[P1] Regenerate `poetry.lock` against the current `pyproject.toml`
+  before Phase 6 completion.** Surfaced during Phase 4b Pass 2
+  Commit 3: `poetry install` refuses with "pyproject.toml changed
+  significantly since poetry.lock was last generated. Run `poetry
+  lock` to fix the lock file." The nightly mutation workflow
+  (`.github/workflows/…`) will hit exactly this wall. Lock
+  regeneration was intentionally **not** done during Pass 2 —
+  pulling dependency updates mid-mutation-stream would have muddied
+  the diagnostic (a behaviour change attributable to a bumped
+  tenacity or mutmut version would be indistinguishable from a
+  response-to-survivor regression). Do it once, standalone, with
+  a nightly-CI re-run to confirm green.
+
 ## Policy revisits
 
 - **Integration-layer target range** — Phase 2 set 20–30 % of the
