@@ -58,7 +58,7 @@ mutmut by default.
 > module exits the debt table, it is added to the mutation scope in
 > the same commit that removes it from `baseline-coverage.json`.
 
-**Initial in-scope list (7 modules)**:
+**Current in-scope list (6 modules)**:
 
 | Module path | Threshold | Inclusion criterion satisfied |
 |---|---:|---|
@@ -68,7 +68,10 @@ mutmut by default.
 | `src/manuscripta/images/convert.py` | 85 % | CORE markdown→HTML transform |
 | `src/manuscripta/markdown/normalize_toc.py` | 85 % | CORE pure text transform |
 | `src/manuscripta/audiobook/tts/text_chunking.py` | 80 % | CORE pure string-splitting |
-| `src/manuscripta/audiobook/tts/retry.py` | 80 % | CORE tenacity decorator |
+
+(The list was seven modules at ADR acceptance. `audiobook/tts/retry.py`
+was removed during Phase 4b Pass 2 under the insufficient-surface
+tier; see the Excluded table below.)
 
 **Excluded with explicit rationale**:
 
@@ -79,6 +82,7 @@ mutmut by default.
 | `manuscripta.paths.img_tags` | CORE shape but debt-tracked at 72 %. |
 | `manuscripta.config.loader` | CORE shape but debt-tracked at 0 % (no tests). |
 | `manuscripta.utils.*` | Mix of debt and unrelated utilities. |
+| `manuscripta.audiobook.tts.retry` | Insufficient mutable surface per §14.8.3 — all three mutmut-3.x mutants are trampoline-equivalent (default-value changes on `with_retry`'s signature; the wrapper forwards concrete args, so the mutant defaults are never consulted). Re-add when the module grows additional testable surface OR when a future mutmut release exposes default-argument mutations. Annotations retained in `.mutmut/equivalent.yaml` as audit history. |
 | Everything CLI_WRAPPER or NETWORK_INTEGRATION (per ADR-0003) | Out of scope by category. |
 
 **Inclusion criteria for future additions** (reviewers should consult

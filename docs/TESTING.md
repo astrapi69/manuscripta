@@ -909,7 +909,8 @@ this section is the consumer-facing how-to.
 Mutation runs over **CORE pure-logic modules only**, and only over
 modules that are **not currently tracked as coverage debt** in §12.
 
-The seven modules in scope at the start of Phase 4b:
+The six modules currently in scope (seven at the start of Phase 4b;
+`audiobook/tts/retry.py` was removed during Pass 2 — see §14.8.3):
 
 | Module | Threshold | Why qualifies |
 |---|---:|---|
@@ -919,7 +920,6 @@ The seven modules in scope at the start of Phase 4b:
 | `src/manuscripta/images/convert.py` | 85 % | markdown→HTML transform |
 | `src/manuscripta/markdown/normalize_toc.py` | 85 % | pure text transform |
 | `src/manuscripta/audiobook/tts/text_chunking.py` | 80 % | pure string-splitting |
-| `src/manuscripta/audiobook/tts/retry.py` | 80 % | tenacity decorator |
 
 The thresholds live in `[tool.manuscripta.mutation_thresholds]` in
 `pyproject.toml` (single source of truth).

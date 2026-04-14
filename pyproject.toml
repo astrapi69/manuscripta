@@ -218,7 +218,14 @@ paths_to_mutate = [
     "src/manuscripta/images/convert.py",
     "src/manuscripta/markdown/normalize_toc.py",
     "src/manuscripta/audiobook/tts/text_chunking.py",
-    "src/manuscripta/audiobook/tts/retry.py",
+    # src/manuscripta/audiobook/tts/retry.py removed — insufficient
+    # mutable surface per ADR-0002 §"Score formula treatment of
+    # trampoline-induced equivalence". All three mutmut-3.x mutants
+    # (default-value changes on with_retry's signature) are §14.8.3-
+    # equivalent; annotations are retained in .mutmut/equivalent.yaml
+    # as audit history. Re-add when the module grows additional
+    # testable surface OR when a future mutmut release exposes
+    # default-argument mutations.
 ]
 
 # Drive mutants through the unit layer only. The integration, e2e, and
@@ -287,7 +294,9 @@ default = 75
 "src/manuscripta/images/convert.py" = 85
 "src/manuscripta/markdown/normalize_toc.py" = 85
 "src/manuscripta/audiobook/tts/text_chunking.py" = 80
-"src/manuscripta/audiobook/tts/retry.py" = 80
+# "src/manuscripta/audiobook/tts/retry.py" = 80 — removed alongside
+# its paths_to_mutate entry above (§14.8.3 insufficient mutable
+# surface). Restore this line to 80 when the module re-enters scope.
 # Threshold for markdown/german_quotes is intentionally absent until
 # the module exits the coverage debt table (per ADR-0002 §debt-
 # graduation rule). When re-added: 85 % per the "pure transforms"
