@@ -1,0 +1,42 @@
+# Operator-marked equivalent mutants — per the response protocol in
+# docs/decisions/0002-mutation-testing.md §"Response protocol" and the
+# standing equivalence policies in docs/TESTING.md §14.8.
+#
+# Format (tiny flat YAML-ish; see scripts/check_mutation_thresholds.py:
+# load_equivalents):
+#
+#   src/path/to/mutated/file.py:manuscripta.dotted.module.x_func__mutmut_N
+#
+# One entry per mutant id, one per line. Inline trailing comments are
+# NOT supported by the parser — put rationale above the entry as
+# full-line `#` comments. Citation tags:
+#
+#   §14.8.1           — CLI help-text wording is incidental
+#   §14.8.2 / ADR-0004 — exception __str__() format is diagnostic, not
+#                        contractual
+#   §14.8.3           — mutmut-3.x trampoline forwards defaults;
+#                        mutation unreachable
+#
+# This file complements the inline `# B:` annotation convention
+# documented in TESTING.md §14.8 for mutants whose source location is
+# not amenable to a line-level comment (e.g. default-argument
+# trampoline equivalents, per §14.8.3).
+
+# ---------------------------------------------------------------------------
+# §14.8.3 — trampoline-induced equivalence on audiobook.tts.retry.with_retry
+# ---------------------------------------------------------------------------
+# All three mutants change a default parameter value in the signature of
+# with_retry. mutmut 3.x rewrites the function into a trampoline that
+# resolves the *original* signature's defaults at the wrapper level and
+# forwards concrete args to the selected mutant, so the mutant's own
+# default is never consulted. Behaviour is identical to the original by
+# construction. See docs/TESTING.md §14.8.3 for the full derivation and
+# docs/decisions/0002-mutation-testing.md §"Score formula treatment of
+# trampoline-induced equivalence" for the companion ADR note.
+
+# x_with_retry__mutmut_1: max_attempts default 3 -> 4 — unreachable
+src/manuscripta/audiobook/tts/retry.py:manuscripta.audiobook.tts.retry.x_with_retry__mutmut_1
+# x_with_retry__mutmut_2: min_wait default 1.0 -> 2.0 — unreachable
+src/manuscripta/audiobook/tts/retry.py:manuscripta.audiobook.tts.retry.x_with_retry__mutmut_2
+# x_with_retry__mutmut_3: max_wait default 8.0 -> 9.0 — unreachable
+src/manuscripta/audiobook/tts/retry.py:manuscripta.audiobook.tts.retry.x_with_retry__mutmut_3
