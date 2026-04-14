@@ -1414,3 +1414,122 @@ empty-slice-with-downstream-no-op shape. Four co-located instances
 plus the high expected recurrence rate in text-processing code
 (split-then-rebuild is a common idiom) justified elevating the
 pattern from ad-hoc per-mutant reasoning to a standing subsection.
+
+#### 14.8.5 Opaque-token renaming in tokenize/detokenize round-trips
+
+> **Policy.** When a function generates internal **opaque tokens**
+> (placeholder strings of the form `{{PREFIX_N}}` or similar) that
+> stand in for protected text spans, stores them paired with the
+> originals in a `mapping` dict, and a downstream consumer
+> mechanically restores them via a `text.replace(token, original)`
+> loop without inspecting the token's spelling, mutations that
+> change the **token text** (the prefix literal, the starting
+> integer, the increment step) are equivalent **if and only if
+> token uniqueness is preserved** across the round trip. The
+> consumer never reads the token; it only round-trips it. Any
+> renaming that keeps the encoder/decoder bijective is invisible
+> to the observable output.
+
+This policy is a sibling to §14.8.4. Both are
+**consumer-short-circuits-the-mutation** equivalences (distinct
+from §14.8.3, where the framework short-circuits the mutation
+before it propagates). §14.8.4 covers boundary-degenerate empty
+slices absorbed by no-op iteration; §14.8.5 covers opaque-token
+spelling absorbed by mechanical-replace round-trips. The shared
+discipline: name the consumer that absorbs the mutation, do not
+hand-wave.
+
+Worked example. [src/manuscripta/paths/to_absolute.py](../src/manuscripta/paths/to_absolute.py)
+defines `_protect_segments(text)` which builds tokens like
+`{{FENCE_0}}`, `{{INLINE_3}}` from a prefix literal (`"FENCE"` /
+`"INLINE"`) and a counter (`idx`, starting at `0`, incrementing
+by `1`). The companion `_restore_segments(text, mapping)` loops
+`for token, original in mapping.items(): text = text.replace(token,
+original)`. The consumer's only contract on the token: it must
+appear in `text` exactly where the encoder placed it and nowhere
+else — i.e. tokens must be **unique** within the encoded text and
+**not collide** with any literal substring of the user's input.
+Any mutation on the token-spelling axis that preserves both
+properties is equivalent.
+
+**Qualifying conditions (all must hold).** A B-annotation under
+§14.8.5 is valid only when every one of these is true:
+
+- The mutation site produces a token literal that is consumed only
+  through a bijective round-trip (typically `text.replace(token,
+  original)` or equivalent). No code inspects the token text
+  except for that replace.
+- The mutation **preserves token uniqueness**: every distinct
+  protected span still gets a distinct token, no two spans collide.
+- The mutation **preserves token non-collision-with-input**: the
+  mutated token text remains unlikely to appear as a literal
+  substring of any plausible user input. (`{{FENCE_0}}`,
+  `{{None_0}}`, `{{XXFENCEXX_5}}`, `{{fence_-2}}` all qualify;
+  `{{X}}` would not — too short, plausibly a literal.)
+- The downstream consumer is enumerated **per-mutant** in
+  `.mutmut/equivalent.yaml` and verified to round-trip the
+  mutated tokens correctly. Same downstream-trace discipline as
+  §14.8.4.
+
+**Mutations that do NOT qualify (still A-category):**
+
+- Mutations that **break uniqueness** — the canonical negative
+  example is `idx += 1` → `idx = 1` in the worked example: every
+  token after the first becomes `{{FENCE_1}}`, the mapping dict
+  loses information (last-write-wins), and the round trip
+  corrupts. `_protect_segments.__mutmut_8` is exactly this shape
+  and is **A**, not B. The boundary between this case and the
+  qualifying cases is sharp: integer mutations that preserve
+  monotonicity and uniqueness are B; integer mutations that
+  collapse the counter are A.
+- Mutations that **break non-collision-with-input** — shortening
+  the token to a sequence likely to appear as a literal substring
+  (`{{X_N}}`, `_N`, plain integers) lets the round-trip replace
+  unrelated substrings of the user's text.
+- Mutations on the consumer side rather than the encoder side
+  (e.g. modifying the `text.replace` call itself, or the
+  `mapping.items()` iteration). Those touch the round-trip
+  contract directly and are A by the same logic that protects any
+  observable channel.
+- Mutations on functions that do not have a paired
+  encoder/decoder — a token-emitting function whose tokens are
+  written to disk, parsed by external tooling, or compared by
+  string equality elsewhere is **not** opaque, and renaming
+  changes its observable surface.
+
+**Annotation format for §14.8.5 mutants:**
+
+```
+# B: TESTING.md §14.8.5 — opaque-token renaming, uniqueness preserved
+# Round-trip trace: _restore_segments() at to_absolute.py:55 mechanically
+#   replaces every mapping key with its original; mutated token spelling
+#   `{{<MUTATED_FORM>}}` is bijective with the orig spelling.
+```
+
+Two lines per mutant in `.mutmut/equivalent.yaml`. The round-trip
+trace is required, not optional — same audit-artefact discipline as
+§14.8.4. A reviewer must be able to re-verify the bijection from
+the trace alone, without re-running mutmut or re-reading the
+encoder/decoder pair.
+
+Cross-links:
+
+- §14.8.4 is the parallel consumer-short-circuit policy for
+  empty-slice tuple appends.
+- §14.8.3 is the framework-short-circuit sibling (mutation never
+  reaches the runtime; here it does, and the consumer absorbs it).
+- The "uniqueness-preserved is B / uniqueness-broken is A" rule
+  is the same shape as ADR-0004's "behaviour vs wording" rule for
+  exception strings, restated for the tokenization domain: pin
+  the contract (uniqueness, non-collision), do not pin the
+  literal spelling.
+
+This policy was added in response to a diagnostic finding during
+Phase 4b Pass 2 Commit 10 triage on `paths/to_absolute.py`: nine
+`_protect_segments` survivors all followed the same opaque-token-
+renaming shape. Tokenize-then-detokenize is a common idiom in
+text-processing pipelines (macro expansion, citation
+preprocessing, syntax-protection passes), so the pattern has
+plausible recurrence — meeting the same elevation bar as §14.8.4
+(co-located instances + plausible recurrence + a sharp boundary
+that distinguishes B from A).
