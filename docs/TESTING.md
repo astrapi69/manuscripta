@@ -1171,3 +1171,123 @@ Analogous annotation for CLI help-text mutants (§14.8.1):
 Both forms obey the same rule: one line, prefix `# B:`, citation
 first, one-sentence summary of the policy second. No ad-hoc
 rewordings — the grep target is the citation, not the summary.
+
+#### 14.8.3 Trampoline-induced equivalence
+
+> **Policy.** mutmut 3.x rewrites every mutated function into a thin
+> wrapper that keeps the **original** signature, resolves the
+> signature's default arguments at the wrapper level, and forwards
+> the resulting concrete positional/keyword arguments to the
+> selected mutant via an internal trampoline. Any mutation whose
+> sole effect is to change a **default parameter value in the
+> mutated function's own signature** is therefore structurally
+> unreachable: the mutant function is invoked with the original's
+> defaults, its own defaults are never consulted, and its runtime
+> behaviour is identical to the original by construction. Such
+> mutations are documented as **equivalent** by policy under this
+> subsection.
+
+This is not ordinary equivalence. The §14.8.1 and §14.8.2 / ADR-0004
+policies describe **behavioural equivalence**: two distinct code
+paths that produce the same observable state, where pinning the
+distinction to a test would invite a dependency the project does
+not intend to take on. §14.8.3 describes **tool-artifact
+equivalence**: the mutation exists in the mutant source file but is
+never exercised by the test runner, because the mutation-testing
+framework short-circuits it before control reaches the mutated
+expression. The distinction matters for audit readers: a B-annotation
+under §14.8.3 says "the tool cannot reach this line", not "the
+project has decided this line is not contractual". We preserve the
+distinction with a separate citation tag so the two populations can
+be counted and trended independently.
+
+Worked example. [src/manuscripta/audiobook/tts/retry.py](../src/manuscripta/audiobook/tts/retry.py)
+declares `with_retry(max_attempts=3, min_wait=1.0, max_wait=8.0)`.
+mutmut generates three mutants — one per default — each changing a
+single default to a different numeric constant. The corresponding
+entry in `mutants/src/.../retry.py` rewrites the wrapper as:
+
+```python
+def with_retry(max_attempts: int = 3, min_wait: float = 1.0, max_wait: float = 8.0):
+    args = [max_attempts, min_wait, max_wait]
+    kwargs = {}
+    return _mutmut_trampoline(x_with_retry__mutmut_orig,
+                              x_with_retry__mutmut_mutants,
+                              args, kwargs, None)
+```
+
+A test that calls `with_retry()` with no arguments binds the
+**wrapper's** defaults (3, 1.0, 8.0) into `args`, then the
+trampoline calls the selected mutant as
+`x_with_retry__mutmut_N(3, 1.0, 8.0)`. The mutant's own default
+annotation — e.g. `max_attempts: int = 4` in mutant 1 — is never
+consulted. All three mutants are §14.8.3-equivalent.
+
+Mutations that qualify under §14.8.3:
+
+- Default value changes in the signature of a module-level or
+  free-function mutation target, where the default is a literal
+  constant (`int`, `float`, `str`, `bool`, `None`, tuple of same).
+
+Mutations that do **not** qualify (still A- or B-category under
+other policies):
+
+- Mutations inside the function body that change how a bound
+  argument is used (e.g. `max_attempts - 1` → `max_attempts + 1`).
+  These run in the mutant; they are reachable and must be tested.
+- Default value changes on class attributes, `__init__` parameters,
+  or `dataclass` field defaults. mutmut handles method and
+  dataclass mutations through different instrumentation paths; the
+  trampoline argument-forwarding described above does not apply
+  uniformly, and each case needs its own reachability analysis
+  before a §14.8.3 citation is valid.
+- Default value changes where the default is a mutable call
+  expression (`list()`, `dict()`, `field(default_factory=…)`). These
+  are evaluated per-call and the mutmut trampoline does not
+  short-circuit the evaluation; they remain A-category.
+
+Annotation format for §14.8.3 mutants:
+
+```python
+# B: TESTING.md §14.8.3 — trampoline forwards defaults; mutation unreachable
+```
+
+Same rules as §14.8.1 / §14.8.2: one line, `# B:` prefix, citation
+first, summary second. The citation string is the grep target.
+
+**Score-formula treatment.** §14.8.3-annotated mutants count as
+equivalents in the score denominator, identical to §14.8.1 and
+§14.8.2 B-annotations. They are reported under a separate tag in
+audit output so the trampoline-equivalent population can be tracked
+independently — useful for the version-pin review described below.
+The full formula treatment lives in ADR-0002's score-formula section.
+
+**Zero-denominator case.** A module whose entire mutant population
+is §14.8.3-equivalent has an undefined mutation score
+(`0 / (N − N) = 0 / 0`). This is **not** a threshold failure; it is
+a signal that the module has insufficient testable mutation surface
+for the tool to produce a meaningful measurement. The response is
+documented in ADR-0002: such modules are removed from
+`tool.mutmut.paths_to_mutate` and recorded as scope exclusions with
+a `# reason: §14.8.3 — insufficient mutable surface` comment beside
+their prior entry, pending either (i) the module growing additional
+testable surface or (ii) a future mutmut release whose trampoline
+semantics expose default-argument mutations.
+
+**Version-pin dependency.** This policy is a statement about
+mutmut's internal wrapper generation, not about Python semantics.
+The trampoline shape was introduced in mutmut 3.x and may change in
+future releases. mutmut is pinned in [pyproject.toml](../pyproject.toml)
+under `[tool.poetry.group.mutation.dependencies]`; bumping the
+pinned version requires re-reading this subsection and running a
+one-off audit to confirm that default-argument mutations remain
+structurally unreachable on the new version. If they do not, every
+§14.8.3 annotation becomes unsound and must be re-categorised in
+the same commit that bumps the pin.
+
+This policy was added in response to a diagnostic finding during
+Phase 4b Pass 2 Commit 3: all three `retry.py` surviving mutants,
+which the Pass 1 report had categorised as A (killable by
+behavioural test), were found to be structurally unreachable under
+mutmut 3.5. The Pass 1 misclassification is the reason this
+subsection exists and is the canonical example of the policy.
