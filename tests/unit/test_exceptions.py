@@ -187,3 +187,34 @@ def test_image_error_repr_is_useful():
     assert "ManuscriptaImageError" in rendered
     assert "foo.png" in rendered
     assert "bar.png" in rendered
+
+
+# 18–19 ManuscriptaPandocError attribute-contract pinning ------------------
+# Per ADR-0004 the rendered __str__() output is diagnostic, not contractual;
+# the attributes (.returncode, .stderr, .cmd) are the programmatic surface.
+# These two tests pin the attribute surface so that mutations which silently
+# coerce them to sentinel values (the "XXXX" and None mutants surfaced by
+# Phase 4b Pass 2 triage against src/manuscripta/exceptions.py) fail here.
+
+
+def test_pandoc_error_stderr_attribute_preserves_empty_string():
+    """Pins that .stderr preserves empty-string input; consumers doing
+    ``if err.stderr:`` rely on empty staying empty (and specifically not
+    being coerced to some sentinel like ``"XXXX"`` or ``None``).
+    """
+    err = ManuscriptaPandocError(returncode=1, stderr="", cmd=["pandoc"])
+    assert err.stderr == ""
+    assert err.stderr is not None
+    assert isinstance(err.stderr, str)
+
+
+def test_pandoc_error_cmd_attribute_is_list():
+    """Pins that .cmd is the argv list as a ``list``; consumers logging
+    or serialising it depend on the list type (not ``None``, not a
+    tuple, not the original iterable).
+    """
+    argv = ["pandoc", "--to=pdf", "input.md"]
+    err = ManuscriptaPandocError(returncode=2, stderr="boom", cmd=argv)
+    assert isinstance(err.cmd, list)
+    assert err.cmd == ["pandoc", "--to=pdf", "input.md"]
+    assert err.cmd is not None

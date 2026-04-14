@@ -40,3 +40,43 @@ src/manuscripta/audiobook/tts/retry.py:manuscripta.audiobook.tts.retry.x_with_re
 src/manuscripta/audiobook/tts/retry.py:manuscripta.audiobook.tts.retry.x_with_retry__mutmut_2
 # x_with_retry__mutmut_3: max_wait default 8.0 -> 9.0 — unreachable
 src/manuscripta/audiobook/tts/retry.py:manuscripta.audiobook.tts.retry.x_with_retry__mutmut_3
+
+# ---------------------------------------------------------------------------
+# ADR-0004 / §14.8.2 — exception __str__() format is diagnostic, not
+# contractual — on src/manuscripta/exceptions.py
+# ---------------------------------------------------------------------------
+# Per ADR-0004, the rendered text of these exceptions (the message passed to
+# super().__init__, i.e. what str(e) produces) is a human-readable diagnostic
+# aid, not an API surface. Mutations that only perturb the rendered string —
+# separator literals, snippet-slice bounds, or replacing the message entirely
+# with None — do not change the attribute-level contract that library
+# consumers pin against (.returncode / .stderr / .cmd / .missing /
+# .unresolved / .source_dir / .reason). See docs/TESTING.md §14.8.2 for the
+# inline-annotation convention this file complements; the A-category
+# attribute contracts are pinned in tests/unit/test_exceptions.py.
+
+# LayoutError __init__ mutant 16: ', '.join(self.missing) -> 'XX, XX'.join —
+#   separator literal in the rendered message; self.missing attribute unchanged
+src/manuscripta/exceptions.py:manuscripta.exceptions.xǁManuscriptaLayoutErrorǁ__init____mutmut_16
+
+# PandocError __init__ mutant 8: splitlines()[-5:] -> splitlines()[+5:] —
+#   stderr-tail range for the rendered message; self.stderr attribute unchanged
+src/manuscripta/exceptions.py:manuscripta.exceptions.xǁManuscriptaPandocErrorǁ__init____mutmut_8
+
+# PandocError __init__ mutant 9: splitlines()[-5:] -> splitlines()[-6:] —
+#   stderr-tail count for the rendered message; self.stderr attribute unchanged
+src/manuscripta/exceptions.py:manuscripta.exceptions.xǁManuscriptaPandocErrorǁ__init____mutmut_9
+
+# PandocError __init__ mutant 10: super().__init__(msg) -> super().__init__(None)
+#   — flips str(e) to "None" and e.args to (None,); attributes (.returncode,
+#   .stderr, .cmd) remain correctly set. str(e) is the diagnostic surface
+#   ADR-0004 explicitly rules non-contractual.
+src/manuscripta/exceptions.py:manuscripta.exceptions.xǁManuscriptaPandocErrorǁ__init____mutmut_10
+
+# PandocError __init__ mutant 13: "\n".join(snippet) -> "XX\nXX".join —
+#   inter-line separator in the rendered stderr snippet; attributes unchanged
+src/manuscripta/exceptions.py:manuscripta.exceptions.xǁManuscriptaPandocErrorǁ__init____mutmut_13
+
+# ImageError __init__ mutant 5: ', '.join(self.unresolved) -> 'XX, XX'.join —
+#   separator literal in the rendered message; self.unresolved unchanged
+src/manuscripta/exceptions.py:manuscripta.exceptions.xǁManuscriptaImageErrorǁ__init____mutmut_5
