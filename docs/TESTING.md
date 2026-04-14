@@ -1107,6 +1107,13 @@ The distinction is presence vs wording:
 - Mutation that changes `default="md"` to `default="MD"` → defaulted
   value differs, observable when the flag is omitted → **A**
   (behaviour change, not wording).
+- Mutation that replaces a diagnostic `print(f"…")` with `print(None)`
+  → the rendered output changes (literal `"None"` is printed) but no
+  caller behaviour depends on the print content → **B** per this
+  policy. The diagnostic surface is operator-visible only; the
+  precedent is the parallel ruling on `super().__init__(None)` in
+  ADR-0004 §14.8.2, where the same "replace-with-None" shape on a
+  user-visible rendered string is diagnostic, not contractual.
 
 Rationale: CLI help text is consumed by humans reading `--help`,
 not by parsers in downstream libraries. Pinning its exact wording
@@ -1246,6 +1253,17 @@ other policies):
   are evaluated per-call and the mutmut trampoline does not
   short-circuit the evaluation; they remain A-category.
 
+**Expected-count signature (triage stop-rule).** The §14.8.3 mutant
+count for a module is approximately `Σ(literal-default kwargs per
+free-function target)` — two `bool=False` kwargs on one function
+produce two trampoline-equivalents; the same pair on two functions
+produce four. A count that exceeds `2 × (number of free-function
+targets)` is the signal to stop and investigate; a count at or
+below that bound is the expected signature, not an anomaly. The
+Pass 2 triage protocol (§14.5) uses this as the stop-rule threshold
+for §14.8.3 density, replacing the earlier flat "more than 2 per
+module" rule that assumed single-function modules.
+
 Annotation format for §14.8.3 mutants:
 
 ```python
@@ -1291,3 +1309,108 @@ which the Pass 1 report had categorised as A (killable by
 behavioural test), were found to be structurally unreachable under
 mutmut 3.5. The Pass 1 misclassification is the reason this
 subsection exists and is the canonical example of the policy.
+
+#### 14.8.4 Empty-slice append with downstream no-op consumption
+
+> **Policy.** When a function builds a list of `(predicate, slice)`
+> tuples via index-guarded `append` calls, and a mutation admits
+> empty slices (`text[a:b]` with `a == b`) into that list, the
+> mutation is equivalent **if and only if** the downstream consumer
+> of the list treats empty slices as no-ops — through empty-iterator
+> contracts (`re.finditer("")` yields nothing), falsy-guarded
+> `if x:` conditionals that short-circuit on zero-length input, or
+> iteration that trivially completes on an empty sequence. Both
+> code paths produce identical observable output because the empty
+> tuples never influence any downstream state.
+
+This policy shares §14.8.3's shape as a tool-artifact-adjacent
+equivalence — the mutation runs and its effect propagates, but the
+propagation is absorbed by the consumer's no-op contract rather
+than short-circuited by the framework. The distinction matters for
+audit readers: §14.8.3 mutants are unreachable by instrumentation,
+§14.8.4 mutants are reachable but downstream-verified inert.
+
+**Qualifying conditions (all must hold).** A B-annotation under
+§14.8.4 is valid only when every one of these is true:
+
+- The append site is guarded by a boundary comparison
+  (`>` vs `>=`, `<` vs `<=`) where the mutation flips the bound.
+- The appended value is a slice expression `text[a:b]` (or
+  `seg[a:b]`, or any equivalent) where the mutation admits the
+  `a == b` case, producing an empty string/list.
+- The downstream consumer is enumerated **per-mutant** and
+  verified to treat empty slices as no-ops. The trace must be
+  explicit — not "the consumer looks like it handles this" but
+  the specific method calls and guards that each produce a null
+  effect on the empty input.
+- The `.mutmut/equivalent.yaml` annotation carries the downstream
+  trace inline, not by footnote.
+
+**Mutations that do NOT qualify:**
+
+- Mutations that admit **non-empty** spurious slices (off-by-one
+  that includes an extra character). Those are A — the slice
+  changes observable output.
+- Mutations where the downstream consumer's no-op treatment is
+  **itself a bug** rather than a contract. If a consumer silently
+  swallows empty input because of a missing validation and that
+  is a latent issue, pinning the mutation as B perpetuates the
+  bug. The maintainer's judgement call: "is this no-op the
+  intended contract, or the accidental absence of one?" If the
+  latter, the right response is a code fix in a separate commit,
+  not a §14.8.4 annotation.
+- Cases where a test or assertion downstream would catch the
+  empty slice (e.g. `assert len(segments) == expected_count`). A
+  test observing segment-list length distinguishes original from
+  mutant and the mutant is A-killable.
+- Mutations that affect state other than the appended list
+  (updating `last` or `pos` before/after the guard in a way that
+  influences subsequent iterations). The empty-slice is only one
+  part of the diff; the other part may be observable.
+
+**Annotation format for §14.8.4 mutants:**
+
+```
+# B: TESTING.md §14.8.4 — boundary-degenerate empty slice, downstream no-op
+# Downstream trace: <specific method calls and guards, per mutant>
+```
+
+Two lines per mutant in `.mutmut/equivalent.yaml`. The downstream
+trace is required, not optional; it is what distinguishes verified
+equivalence from hand-waved equivalence. A maintainer reviewing the
+annotation six months from now must be able to re-verify the claim
+from the trace alone, without re-running mutmut or re-reading the
+consumer function. The trace is the audit artefact.
+
+**Worked example.** `_split_outside_code` in
+[src/manuscripta/images/convert.py](../src/manuscripta/images/convert.py)
+uses four index-guarded appends to build a `List[Tuple[bool, str]]`
+of `(is_code, segment)` tuples. Four mutants flip the guards
+(`>` ↔ `>=`, `<` ↔ `<=`), each admitting one case where an empty
+slice enters the list. The downstream consumer (the refined-list
+builder in the same function, followed by `convert_markdown_file`'s
+per-segment loop) treats empty non-code segments as no-ops:
+`INLINE_CODE_RE.finditer("")` yields nothing, `if pos < len(seg):`
+is False on `len(seg) == 0`, and `_replace_inline("")` /
+`_replace_reference("")` run but modify nothing. The per-mutant
+traces in `.mutmut/equivalent.yaml` spell out which specific guard
+each mutant admits the empty slice into, and which specific
+downstream guard absorbs it.
+
+Cross-links:
+
+- §14.8.3 is the sibling tool-artifact-adjacent policy (framework
+  short-circuits the mutation; §14.8.4 is consumer short-circuits
+  the mutation's effect).
+- ADR-0004 is the prior-art precedent for "user-visible surface is
+  not pinned by default" — both policies share the discipline of
+  naming exactly which observable channel is held inert and
+  requiring the reasoning inline.
+
+This policy was added in response to a diagnostic finding during
+Phase 4b Pass 2 Commit 9 triage on `convert.py`: four
+`_split_outside_code` survivors all followed the same
+empty-slice-with-downstream-no-op shape. Four co-located instances
+plus the high expected recurrence rate in text-processing code
+(split-then-rebuild is a common idiom) justified elevating the
+pattern from ad-hoc per-mutant reasoning to a standing subsection.
