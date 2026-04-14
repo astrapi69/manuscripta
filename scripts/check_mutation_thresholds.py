@@ -61,7 +61,12 @@ EQUIVALENT_FILE = REPO_ROOT / ".mutmut" / "equivalent.yaml"
 # mutated source is killed.
 NON_DEAD_STATUSES = {"survived", "timeout", "suspicious"}
 
-MUTANT_DEF_RE = re.compile(r"^def\s+(x[\u01c0-\u01cfa-zA-Z0-9_]*__mutmut_\d+)\s*\(", re.MULTILINE)
+MUTANT_DEF_RE = re.compile(
+    # Class methods are indented (`    def xǁClassǁmethod__mutmut_N(...)`),
+    # module-level functions are not. Match both.
+    r"^\s*def\s+(x[\u01c0-\u01cfa-zA-Z0-9_]*__mutmut_\d+)\s*\(",
+    re.MULTILINE,
+)
 MUTANT_NAME_PATTERN = re.compile(
     r"^\s*(?P<name>[\w.\u01c0-\u01cf]+__mutmut_\d+)\s*:\s*(?P<status>\w+)\s*$"
 )
