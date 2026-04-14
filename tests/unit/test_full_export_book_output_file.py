@@ -25,7 +25,11 @@ def run_main_with_args(
     # Fake pyproject.toml if content provided
     if pyproject_content:
         (tmp_path / "pyproject.toml").write_text(pyproject_content, encoding="utf-8")
-        monkeypatch.chdir(tmp_path)
+    # Satisfy v0.8.0 source_dir layout contract (cwd-based CLI default).
+    (tmp_path / "manuscript").mkdir(exist_ok=True)
+    (tmp_path / "config").mkdir(exist_ok=True)
+    (tmp_path / "assets").mkdir(exist_ok=True)
+    monkeypatch.chdir(tmp_path)
 
     # Reset OUTPUT_FILE
     full_export_book.OUTPUT_FILE = preset_output

@@ -57,7 +57,7 @@ def test_pipeline_runs_convert_scripts_in_correct_order(
     feb = wired_module
     calls = []
 
-    def fake_run_script(module_path, arg=None):
+    def fake_run_script(module_path, arg=None, **kwargs):
         calls.append((module_path.split(".")[-1], arg))
 
     compile_calls = []
@@ -90,7 +90,7 @@ def test_skip_images_flag_skips_pre_and_post(wired_module, temp_project, monkeyp
     feb = wired_module
     calls = []
 
-    def fake_run_script(module_path, arg=None):
+    def fake_run_script(module_path, arg=None, **kwargs):
         calls.append((module_path.split(".")[-1], arg))
 
     monkeypatch.setattr(feb, "run_script", fake_run_script)

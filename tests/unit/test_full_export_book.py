@@ -36,6 +36,7 @@ def test_run_script_success(mock_run):
     mock_run.assert_called_with(
         ["python3", "-m", "manuscripta.paths.to_absolute"],
         check=True,
+        cwd=None,
         stdout=ANY,
         stderr=ANY,
     )

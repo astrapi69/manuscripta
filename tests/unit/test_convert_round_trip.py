@@ -41,7 +41,7 @@ def test_convert_absolute_then_back_relative_round_trip(project, monkeypatch):
     root, md, img = project
 
     # Import real modules from repo (not temp copies)
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
     to_abs = _import(
         "convert_to_absolute",
         repo_root / "src" / "manuscripta" / "paths" / "to_absolute.py",

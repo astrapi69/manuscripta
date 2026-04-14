@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 # Resolve the real repository root as two levels up from this test file
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "src" / "manuscripta" / "markdown" / "normalize_toc.py"
 
 
