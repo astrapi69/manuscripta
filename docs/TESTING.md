@@ -998,6 +998,12 @@ mutated line:
 > a label. Reviewer rule: if I cannot see the equivalence after
 > reading the comment, the comment is insufficient.
 
+Two classes of mutation are declared equivalent by **standing policy**
+rather than per-mutant argument — see §14.8. Annotations citing
+§14.8.1 (CLI help-text) or ADR-0004 (exception `__str__()` format)
+are valid B-category references without a per-line equivalence
+argument, because the argument lives in the cited document.
+
 **C — Documented specification gap.** The mutant survives because
 the specification itself is silent about the behaviour the mutation
 changes. Add to the "Specification gaps surfaced by mutation
@@ -1071,3 +1077,97 @@ the same commit that updates `baseline-coverage.json` should:
 Do not skip step 4. The ADR documents the decision; if the table
 drifts from the active configuration, the rationale becomes harder
 to defend.
+
+### 14.8 Standing equivalence policies (B-category shortcuts)
+
+Two classes of mutation are declared equivalent by policy, not by
+per-mutant annotation. A Pass 2 response that lands a B-annotation
+citing one of these sections does **not** need a fresh equivalence
+argument on the line — the policy is the argument.
+
+#### 14.8.1 CLI help-text wording
+
+> **Policy.** CLI help-text wording (argparse `description=`, `help=`,
+> `--help` rendering, and status-line print strings) is considered
+> incidental and not part of the API contract. Mutations that alter
+> help-text literals — including case changes, `XX…XX` wrapping, and
+> re-phrasings — without changing parser **behaviour** (defaults,
+> choices, required flags, argument count / position) are documented
+> as **equivalent**. Mutations that alter parser behaviour remain
+> **A-category**.
+
+The distinction is presence vs wording:
+
+- Mutation that removes a `help="…"` kwarg entirely → `--help`
+  output loses a line → **A** (observable presence change; a test
+  can assert the line is there).
+- Mutation that changes `help="Pfad zur TOC-Datei"` to
+  `help="XXPfad zur TOC-DateiXX"` → `--help` wording differs but
+  parser behaviour is unchanged → **B** per this policy.
+- Mutation that changes `default="md"` to `default="MD"` → defaulted
+  value differs, observable when the flag is omitted → **A**
+  (behaviour change, not wording).
+
+Rationale: CLI help text is consumed by humans reading `--help`,
+not by parsers in downstream libraries. Pinning its exact wording
+to tests would invite the same invited-dependency problem that
+ADR-0004 rules out for exception messages, and would block
+legitimate iteration (typo fixes, phrasing improvements,
+translations).
+
+Cross-links:
+
+- This is the CLI analogue of [ADR-0004](decisions/0004-exception-strings-not-api.md)
+  for exception `__str__()` output. The policies are parallel; the
+  ADR carries the long-form reasoning that this footnote doesn't
+  re-state.
+- Status-line print strings in `if __name__ == "__main__":` /
+  `main()` blocks (e.g. `print("🔄 All Markdown files reverted...")`)
+  are covered by this section. They are operator-visible
+  diagnostics, not API surfaces.
+
+The narrow scope of this policy is deliberate. It covers
+**help-text wording** only. It does **not** extend to:
+
+- Logging format (log records may be consumed by log aggregators
+  that parse them; not covered by this policy; would require its
+  own ADR).
+- HTTP response bodies (obvious API surface; out of scope for
+  this library anyway).
+- File output formats (PDF, EPUB, Markdown — the library's
+  product, explicitly contractual).
+
+If we later need a broader "user-facing text is incidental"
+principle, it gets a proper ADR. This one-section policy is
+intentionally narrow to close the 19 Pass 1 C-category gaps that
+motivated it, without over-committing the project to a philosophy.
+
+**Inline annotation format** for §14.8.1 B-category mutants is
+shown side-by-side with the §14.8.2 (ADR-0004) format below.
+
+#### 14.8.2 Exception `__str__()` format
+
+Covered in full by [ADR-0004](decisions/0004-exception-strings-not-api.md).
+Pass 2 B-annotations on `manuscripta.exceptions` format mutations
+cite ADR-0004 directly. This subsection exists to surface the
+cross-reference where response-protocol readers will look for it,
+and to document the **inline annotation format** for both standing
+policies together, because a reader who is about to annotate a
+mutant is most often uncertain which of §14.8.1 / ADR-0004 applies.
+
+Annotation format for exception-format mutants (§14.8.2 /
+ADR-0004):
+
+```python
+# B: ADR-0004 — str() format is diagnostic, not contractual
+```
+
+Analogous annotation for CLI help-text mutants (§14.8.1):
+
+```python
+# B: TESTING.md §14.8.1 — CLI help-text wording is incidental
+```
+
+Both forms obey the same rule: one line, prefix `# B:`, citation
+first, one-sentence summary of the policy second. No ad-hoc
+rewordings — the grep target is the citation, not the summary.
