@@ -1,25 +1,37 @@
 # tests/conftest.py
-"""Shared fixtures and helpers for the PDF-generation test suite.
+"""Shared pytest configuration for the manuscripta test suite.
 
-Markers:
-    requires_pandoc:  pandoc binary must be present on PATH
-    requires_latex:   xelatex binary must be present on PATH
-    slow:             expensive test (visual diff or 50-chapter scale)
+Responsibilities:
+  * Register the layer markers (``unit``, ``integration``, ``e2e``,
+    ``e2e_wheel``) and the external-tool markers (``requires_pandoc``,
+    ``requires_latex``, ``slow``).
+  * Auto-skip tests whose external-tool requirement is not met.
+  * **Enforce** that every collected test carries exactly one layer
+    marker. See ``docs/TESTING.md`` §13.
+
+Helpers and assertion utilities live under ``tests/helpers/``; they are
+re-exported here so long-standing ``from conftest import ...`` imports
+in existing test files keep working.
 """
 
 from __future__ import annotations
 
 import shutil
-import struct
-import subprocess
-import zlib
-from pathlib import Path
 
 import pytest
 
+from helpers.pdf import (  # noqa: F401  (re-export)
+    assert_pdf_contains_text,
+    assert_pdf_has_images,
+    pdf_text,
+    pdfimages_count as _pdfimages_count,
+)
+from helpers.png import write_png  # noqa: F401  (re-export)
+from helpers.project import scaffold as _scaffold
+
 
 # --------------------------------------------------------------------------
-# Markers
+# Markers + auto-skip + layer enforcement
 # --------------------------------------------------------------------------
 
 
@@ -76,57 +88,12 @@ def pytest_collection_modifyitems(config, items):
 
 
 # --------------------------------------------------------------------------
-# PNG generator (avoids a Pillow dependency for tests)
-# --------------------------------------------------------------------------
-
-
-def _png_bytes(width: int = 8, height: int = 8, rgb: tuple[int, int, int] = (255, 0, 0)) -> bytes:
-    """Return bytes of a tiny solid-color PNG."""
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        return (
-            struct.pack(">I", len(data))
-            + tag
-            + data
-            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-        )
-
-    sig = b"\x89PNG\r\n\x1a\n"
-    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-    row = b"\x00" + bytes(rgb) * width
-    raw = row * height
-    idat = chunk(b"IDAT", zlib.compress(raw))
-    iend = chunk(b"IEND", b"")
-    return sig + ihdr + idat + iend
-
-
-def write_png(path: Path, **kwargs) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(_png_bytes(**kwargs))
-
-
-# --------------------------------------------------------------------------
-# Layout builder
-# --------------------------------------------------------------------------
-
-
-def _scaffold(root: Path, *, title: str = "Test Book", lang: str = "en") -> None:
-    (root / "manuscript" / "chapters").mkdir(parents=True, exist_ok=True)
-    (root / "manuscript" / "front-matter").mkdir(parents=True, exist_ok=True)
-    (root / "manuscript" / "back-matter").mkdir(parents=True, exist_ok=True)
-    (root / "config").mkdir(parents=True, exist_ok=True)
-    (root / "assets").mkdir(parents=True, exist_ok=True)
-    (root / "config" / "metadata.yaml").write_text(
-        f'title: "{title}"\nauthor: "Tester"\nlang: "{lang}"\n', encoding="utf-8"
-    )
-
-
-# --------------------------------------------------------------------------
-# Fixtures
+# Fixtures (thin wrappers around helpers/)
 # --------------------------------------------------------------------------
 
 
 @pytest.fixture
-def minimal_book_fixture(tmp_path: Path) -> Path:
+def minimal_book_fixture(tmp_path):
     """Single chapter, single image."""
     _scaffold(tmp_path, title="Minimal Book")
     write_png(tmp_path / "assets" / "sample.png")
@@ -138,7 +105,7 @@ def minimal_book_fixture(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def multi_chapter_fixture(tmp_path: Path) -> Path:
+def multi_chapter_fixture(tmp_path):
     """Three chapters, one image each, image filenames distinct."""
     _scaffold(tmp_path, title="Multi-chapter Book")
     for i in range(1, 4):
@@ -154,7 +121,7 @@ def multi_chapter_fixture(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def broken_image_fixture(tmp_path: Path) -> Path:
+def broken_image_fixture(tmp_path):
     """Markdown references an image that does not exist."""
     _scaffold(tmp_path, title="Broken Book")
     (tmp_path / "manuscript" / "chapters" / "chapter1.md").write_text(
@@ -165,7 +132,7 @@ def broken_image_fixture(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def mixed_image_fixture(tmp_path: Path) -> Path:
+def mixed_image_fixture(tmp_path):
     """One present image, one missing image, in a single chapter."""
     _scaffold(tmp_path, title="Mixed Book")
     write_png(tmp_path / "assets" / "present.png")
@@ -177,7 +144,7 @@ def mixed_image_fixture(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def nested_assets_fixture(tmp_path: Path) -> Path:
+def nested_assets_fixture(tmp_path):
     """Images live under per-chapter subdirectories of assets/."""
     _scaffold(tmp_path, title="Nested Book")
     write_png(tmp_path / "assets" / "chapter1" / "figure1.png", rgb=(10, 200, 10))
@@ -192,7 +159,7 @@ def nested_assets_fixture(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def absolute_path_fixture(tmp_path: Path) -> Path:
+def absolute_path_fixture(tmp_path):
     """Markdown references an image via absolute path outside the project."""
     _scaffold(tmp_path, title="Absolute Path Book")
     external_dir = tmp_path / "external"
@@ -207,7 +174,7 @@ def absolute_path_fixture(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def unicode_fixture(tmp_path: Path) -> Path:
+def unicode_fixture(tmp_path):
     """Non-ASCII filenames and content (Greek, German, French)."""
     _scaffold(tmp_path, title="Λόγος und Élan", lang="de")
     img = tmp_path / "assets" / "Bücher.png"
@@ -222,74 +189,7 @@ def unicode_fixture(tmp_path: Path) -> Path:
     return tmp_path
 
 
-# --------------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------------
-
-
-def _pdfimages_count(pdf_path: Path) -> int:
-    """Return the number of embedded image streams in ``pdf_path``."""
-    if shutil.which("pdfimages") is None:
-        pytest.skip("pdfimages binary not on PATH")
-    result = subprocess.run(
-        ["pdfimages", "-list", str(pdf_path)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    # Header is two lines (column titles + dashes), then one line per image.
-    rows = [ln for ln in result.stdout.splitlines() if ln.strip()]
-    if len(rows) < 2:
-        return 0
-    return max(0, len(rows) - 2)
-
-
-def assert_pdf_has_images(pdf_path: Path, expected_count: int) -> None:
-    """Assert ``pdf_path`` contains exactly ``expected_count`` image streams."""
-    if not pdf_path.exists():
-        raise AssertionError(f"PDF does not exist: {pdf_path}")
-    actual = _pdfimages_count(pdf_path)
-    assert actual == expected_count, (
-        f"Expected {expected_count} embedded image(s) in {pdf_path}, "
-        f"got {actual}.\nRun: pdfimages -list {pdf_path}"
-    )
-
-
-def assert_pdf_contains_text(pdf_path: Path, text: str) -> None:
-    """Assert that ``text`` appears in the PDF's extracted text."""
-    if shutil.which("pdftotext") is None:
-        pytest.skip("pdftotext binary not on PATH")
-    if not pdf_path.exists():
-        raise AssertionError(f"PDF does not exist: {pdf_path}")
-    result = subprocess.run(
-        ["pdftotext", "-layout", str(pdf_path), "-"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert text in result.stdout, (
-        f"Expected substring {text!r} in PDF text. First 500 chars:\n"
-        f"{result.stdout[:500]}"
-    )
-
-
-def pdf_text(pdf_path: Path) -> str:
-    """Return the full extracted text of ``pdf_path``."""
-    if shutil.which("pdftotext") is None:
-        pytest.skip("pdftotext binary not on PATH")
-    result = subprocess.run(
-        ["pdftotext", "-layout", str(pdf_path), "-"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return result.stdout
-
-
-# Re-export helpers as fixtures so tests can declare them in their signatures
-# (they're called directly in most cases — both styles are convenient).
-
-
+# Helper-as-fixture wrappers — some tests declare these in their signatures.
 @pytest.fixture
 def assert_pdf_images():
     return assert_pdf_has_images
