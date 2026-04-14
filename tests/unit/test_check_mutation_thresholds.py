@@ -25,6 +25,19 @@ pytestmark = pytest.mark.unit
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "check_mutation_thresholds.py"
 
+# Skip cleanly under mutmut: mutmut mirrors src/ and tests/ into mutants/
+# but not scripts/, so the script-under-test is absent from the mirrored
+# tree at test-collection time. Adding scripts/ to [tool.mutmut].also_copy
+# would also work, but the script is not under mutation — skipping the
+# regression test from mutmut's runs costs nothing (the regression
+# coverage is in normal `pytest -m unit`).
+pytestmark = [pytest.mark.unit, pytest.mark.skipif(
+    not SCRIPT_PATH.exists(),
+    reason="scripts/check_mutation_thresholds.py not present in this tree "
+           "(typical for mutmut-mirrored mutants/ runs); regression coverage "
+           "lives in non-mutmut pytest -m unit invocations.",
+)]
+
 
 def _load_module():
     """Import the script-under-test as a module."""
