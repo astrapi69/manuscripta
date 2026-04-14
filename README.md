@@ -82,6 +82,57 @@ my-book/
   pyproject.toml
 ```
 
+## Using images (v0.8.0+)
+
+Images referenced from your Markdown (`![alt](images/foo.png)`) are resolved
+against the book repository's `assets/` directory. As of v0.8.0 the library
+has an **explicit contract** about where that directory lives — the caller
+passes it in, there is no cwd fallback inside the library.
+
+### From the CLI
+
+Invoke from the project root (default behavior — cwd is used as the source
+dir at the CLI layer):
+
+```bash
+export-pdf
+```
+
+Or pass `--source-dir` explicitly to build from anywhere:
+
+```bash
+export-pdf --source-dir=/path/to/my-book
+```
+
+Missing images fail the build by default. Opt out with `--no-strict-images`
+to continue with warnings. Extra asset directories can be appended with
+`--resource-path` (repeatable).
+
+### From Python
+
+```python
+from pathlib import Path
+from manuscripta.export.book import run_export
+from manuscripta import ManuscriptaImageError, ManuscriptaLayoutError
+
+try:
+    run_export(
+        Path("/abs/path/to/my-book"),  # REQUIRED — no cwd fallback
+        formats="pdf",
+        resource_paths=[Path("/abs/shared/assets")],
+        strict_images=True,            # default
+    )
+except ManuscriptaLayoutError as e:
+    print(f"Bad project layout: missing {e.missing}")
+except ManuscriptaImageError as e:
+    print(f"Unresolved images: {e.unresolved}")
+```
+
+`source_dir` must contain `manuscript/`, `config/`, and `assets/` — a
+`ManuscriptaLayoutError` is raised otherwise, naming the missing pieces.
+
+Migrating from v0.7.x? See [MIGRATION.md](MIGRATION.md).
+
 ## Configuration
 
 ### export-settings.yaml
