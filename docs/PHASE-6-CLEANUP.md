@@ -29,6 +29,38 @@ to stop current work. Close each with its own commit or ADR.
   anchor". Align the two, then convert the two `xfail` tests in
   `tests/unit/test_normalize_toc_direct.py` accordingly.
 
+## Working-tree hygiene events
+
+- **[record] `tests/fixtures/` (9 files) deleted from working tree
+  between sessions, no commit / stash.** Detected at the start of the
+  Pass 2 Commit 10 push prep (after commit `d10b05e`), via `git
+  status` showing 9 deletions of tracked files under
+  `tests/fixtures/dsk_like/` (README, config metadata, four
+  manuscript chapters, three asset PNGs). HEAD and the remote
+  retained all nine files; no commit, branch, or stash recorded the
+  deletion. Restored via `git checkout HEAD -- tests/fixtures/` at
+  the start of the session following detection. e2e_wheel tier
+  (`pytest -m e2e_wheel`) was re-run post-restore: 3 passed, 804
+  deselected — fixtures intact and functional. No data loss; git
+  history intact end-to-end.
+
+  Root cause **unidentified**. Plausible candidates: editor cleanup
+  on session close, IDE refactor abort, manual `git clean -d` from
+  an adjacent terminal, cross-project script interference (the
+  parent directory hosts ~50 sibling Poetry projects). Not pursued
+  further at this time; recording as documented incident.
+
+  Mitigations to consider when this recurs (do **not** act on now —
+  this is a single observation, not yet a pattern):
+  - Pre-session `git status` check as the first action in any new
+    Claude Code session resume prompt.
+  - Git hook (pre-push or post-checkout) that warns on
+    working-tree-only deletions of tracked files above some
+    threshold (e.g. > 5 files at once).
+  - Audit IDE / editor configurations for cleanup-on-close or
+    similar features that may be touching the working tree across
+    project boundaries.
+
 ## Audit tooling hardening
 
 - **[P2] Pre-commit guard against stale mutmut state in threshold-script
