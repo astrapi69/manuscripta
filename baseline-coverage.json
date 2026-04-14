@@ -1,0 +1,21 @@
+{
+  "_comment": "Baseline coverage for CORE modules tracked as debt per docs/TESTING.md \u00a712. The coverage-check script enforces actual >= baseline (zero buffer). Captured at end of a coverage-work session, per TESTING.md \u00a73 'Baseline timing'. Baseline captured with 5 known-failing TTS tests per TESTING.md \u00a712 'Known environmental test flakiness'. Coverage values for affected modules may be marginally under-reported; will be recaptured post-Phase-6 polluter fix.",
+  "_captured": "2026-04-14T13:37:06Z",
+  "baseline": {
+    "src/manuscripta/project/init.py": 56.1,
+    "src/manuscripta/project/reorder.py": 68.3,
+    "src/manuscripta/project/chapters.py": 0.0,
+    "src/manuscripta/project/metadata.py": 0.0,
+    "src/manuscripta/project/shortcuts_init.py": 0.0,
+    "src/manuscripta/markdown/unbold_headers.py": 52.1,
+    "src/manuscripta/markdown/bullet_points.py": 72.1,
+    "src/manuscripta/markdown/emojis.py": 79.5,
+    "src/manuscripta/markdown/german_quotes.py": 83.7,
+    "src/manuscripta/paths/img_tags.py": 71.9,
+    "src/manuscripta/utils/bulk_extension.py": 71.7,
+    "src/manuscripta/utils/pandoc_batch.py": 79.9,
+    "src/manuscripta/utils/git_cache.py": 74.2,
+    "src/manuscripta/images/generate.py": 0.0,
+    "src/manuscripta/config/loader.py": 0.0
+  }
+}
