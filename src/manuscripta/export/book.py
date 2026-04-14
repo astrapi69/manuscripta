@@ -1,5 +1,7 @@
 # manuscripta/export/book.py
+import logging
 import os
+import re
 import shutil
 import subprocess
 import argparse
@@ -9,6 +11,11 @@ import threading
 import tempfile
 from pathlib import Path
 from manuscripta.enums.book_type import BookType
+from manuscripta.exceptions import (
+    ManuscriptaImageError,
+    ManuscriptaLayoutError,
+    ManuscriptaPandocError,
+)
 from manuscripta.export.validation import (
     validate_epub_with_epubcheck,
     validate_pdf,
@@ -100,6 +107,183 @@ _BUILTIN_EPUB_SKIP_TOC_FILES = [
 # - Depth 3 (# ## ###): Good for technical/academic books with many subsections
 # - Depth 1: Too shallow for most use cases
 _BUILTIN_TOC_DEPTH = 2
+
+
+_logger = logging.getLogger(__name__)
+
+
+# --- source_dir contract (v0.8.0) --------------------------------------------
+
+# Subdirectories that must exist in a valid manuscripta source directory.
+REQUIRED_SOURCE_SUBDIRS: tuple[str, ...] = ("manuscript", "config", "assets")
+
+# Regex for Pandoc's "could not fetch resource" warnings.
+# Matches lines like:
+#   [WARNING] Could not fetch resource "images/foo.png": ...
+#   [WARNING] Could not fetch resource 'images/foo.png'
+_UNRESOLVED_IMAGE_RE = re.compile(
+    r"Could not fetch resource\s+['\"]?([^'\"\n]+?)['\"]?(?:\s*:|\s*$)",
+    re.IGNORECASE,
+)
+
+
+def _parse_unresolved_images(stderr_text: str) -> list[str]:
+    """Extract the unresolved resource paths from Pandoc's stderr."""
+    seen: list[str] = []
+    for match in _UNRESOLVED_IMAGE_RE.finditer(stderr_text):
+        res = match.group(1).strip()
+        if res and res not in seen:
+            seen.append(res)
+    return seen
+
+
+def _validate_layout(source_dir: Path) -> None:
+    """Validate that ``source_dir`` has the expected directory layout.
+
+    Raises:
+        ManuscriptaLayoutError: if ``source_dir`` does not exist or is missing
+            any of :data:`REQUIRED_SOURCE_SUBDIRS`.
+    """
+    source_dir = Path(source_dir)
+    if not source_dir.exists():
+        raise ManuscriptaLayoutError(source_dir, reason="nonexistent")
+    if not source_dir.is_dir():
+        raise ManuscriptaLayoutError(source_dir, reason="not_a_directory")
+    missing = [d for d in REQUIRED_SOURCE_SUBDIRS if not (source_dir / d).is_dir()]
+    if missing:
+        raise ManuscriptaLayoutError(source_dir, missing)
+
+
+def _configure_paths(
+    source_dir: Path,
+    resource_paths: list[Path] | None = None,
+) -> str:
+    """Anchor module-level path globals on an explicit ``source_dir``.
+
+    Returns the ``--resource-path`` value (``os.pathsep``-joined absolute
+    directories) that should be passed to Pandoc.
+
+    .. note::
+        This mutates module-level globals. It never calls :func:`os.chdir` —
+        the library must not change the process working directory.
+    """
+    src = Path(source_dir).resolve()
+
+    global BOOK_DIR, OUTPUT_DIR, BACKUP_DIR, CONFIG_DIR
+    global METADATA_FILE, EXPORT_SETTINGS_FILE, TOC_FILE, LOG_FILE
+
+    BOOK_DIR = str(src / "manuscript")
+    OUTPUT_DIR = str(src / "output")
+    BACKUP_DIR = str(src / "output_backup")
+    CONFIG_DIR = str(src / "config")
+    METADATA_FILE = src / "config" / "metadata.yaml"
+    EXPORT_SETTINGS_FILE = src / "config" / "export-settings.yaml"
+    TOC_FILE = Path(BOOK_DIR) / "front-matter" / "toc.md"
+    LOG_FILE = str(src / "export.log")
+
+    abs_paths: list[str] = [str(src / "assets")]
+    if resource_paths:
+        for p in resource_paths:
+            p_abs = str(Path(p).resolve())
+            if p_abs not in abs_paths:
+                abs_paths.append(p_abs)
+    return os.pathsep.join(abs_paths)
+
+
+def run_export(
+    source_dir: Path | str,
+    *,
+    resource_paths: list[Path] | None = None,
+    strict_images: bool = True,
+    formats: list[str] | str | None = None,
+    book_type: BookType | str = BookType.EBOOK,
+    section_order: list[str] | None = None,
+    cover: str | None = None,
+    epub2: bool = False,
+    lang: str | None = None,
+    extension: str | None = None,
+    output_file: str | None = None,
+    no_type_suffix: bool = False,
+    toc_depth: int | None = None,
+    use_manual_toc: bool = False,
+    skip_images: bool = False,
+    keep_relative_paths: bool = False,
+    copy_epub_to: str | None = None,
+    output_path: Path | str | None = None,
+) -> None:
+    """Canonical library API for producing a book.
+
+    Parameters:
+        source_dir: Path to the book repository root. Must contain
+            ``manuscript/``, ``config/``, and ``assets/`` subdirectories.
+            **Required** — no cwd fallback, no environment discovery.
+        resource_paths: Extra asset directories, resolved to absolute paths
+            and appended after ``source_dir / "assets"`` in Pandoc's
+            ``--resource-path``.
+        strict_images: If ``True`` (default), raise
+            :class:`ManuscriptaImageError` when Pandoc cannot resolve any
+            image resource. If ``False``, log a warning and continue.
+        formats: Comma-separated string or list of output formats
+            (``pdf``, ``epub``, ``docx``, ``markdown``, ``html``). If
+            ``None``, all built-in formats are produced.
+
+    Raises:
+        ManuscriptaLayoutError: if ``source_dir`` is missing required
+            subdirectories.
+        ManuscriptaImageError: if ``strict_images=True`` and Pandoc reports
+            unresolved image resources.
+        TypeError: if ``source_dir`` is omitted (positional-argument
+            contract).
+    """
+    if source_dir is None:
+        raise TypeError(
+            "run_export() requires an explicit source_dir; there is no cwd fallback."
+        )
+
+    src = Path(source_dir).resolve()
+    _validate_layout(src)
+    resource_path = _configure_paths(src, resource_paths)
+
+    # Build synthetic CLI argv to reuse existing ``main()`` pipeline logic.
+    argv: list[str] = []
+    if isinstance(formats, list):
+        argv += ["--format", ",".join(formats)]
+    elif isinstance(formats, str):
+        argv += ["--format", formats]
+    if section_order is not None:
+        argv += ["--order", ",".join(section_order)]
+    if cover is not None:
+        argv += ["--cover", cover]
+    if epub2:
+        argv += ["--epub2"]
+    if lang is not None:
+        argv += ["--lang", lang]
+    if extension is not None:
+        argv += ["--extension", extension]
+    bt_value = book_type.value if isinstance(book_type, BookType) else str(book_type)
+    argv += ["--book-type", bt_value]
+    if output_file is not None:
+        argv += ["--output-file", output_file]
+    if no_type_suffix:
+        argv += ["--no-type-suffix"]
+    if toc_depth is not None:
+        argv += ["--toc-depth", str(toc_depth)]
+    if use_manual_toc:
+        argv += ["--use-manual-toc"]
+    if skip_images:
+        argv += ["--skip-images"]
+    elif keep_relative_paths:
+        argv += ["--keep-relative-paths"]
+    if copy_epub_to is not None:
+        argv += ["--copy-epub-to", copy_epub_to]
+
+    _run_pipeline(
+        argv=argv,
+        source_dir=src,
+        resource_path=resource_path,
+        strict_images=strict_images,
+        output_path=Path(output_path) if output_path is not None else None,
+    )
 
 
 # --- Config loading from export-settings.yaml --------------------------------
@@ -240,14 +424,24 @@ def get_metadata_language():
             return None
 
 
-def run_script(module_path, arg=None):
-    """Run a manuscripta module with optional arguments and log output."""
+def run_script(module_path, arg=None, cwd=None):
+    """Run a manuscripta module with optional arguments and log output.
+
+    Parameters:
+        module_path: Dotted Python module to run via ``python3 -m``.
+        arg: Optional single positional argument.
+        cwd: Optional working directory to launch the subprocess in.
+    """
     try:
         cmd = ["python3", "-m", module_path]
         if arg:
             cmd.append(arg)
         subprocess.run(
-            cmd, check=True, stdout=open(LOG_FILE, "a"), stderr=open(LOG_FILE, "a")
+            cmd,
+            check=True,
+            cwd=cwd,
+            stdout=open(LOG_FILE, "a"),
+            stderr=open(LOG_FILE, "a"),
         )
         print(f"Successfully executed: {module_path} {arg if arg else ''}")
     except subprocess.CalledProcessError as e:
@@ -339,6 +533,10 @@ def compile_book(
     custom_ext=None,
     toc_depth=DEFAULT_TOC_DEPTH,
     use_manual_toc=False,
+    resource_path: str | None = None,
+    strict_images: bool = True,
+    run_cwd: str | None = None,
+    output_path_override: str | None = None,
 ):
     """
     Compiles the book into a specific format using Pandoc.
@@ -398,15 +596,36 @@ def compile_book(
         print(f"❌ No Markdown files found for format {format}. Skipping.")
         return
 
+    # --resource-path: caller-supplied wins; otherwise fall back to legacy
+    # "./assets" (resolved against run_cwd if provided, else current cwd).
+    if resource_path is None:
+        base = Path(run_cwd) if run_cwd else Path.cwd()
+        resource_path = str((base / "assets").resolve())
+
+    # Metadata file: if not absolute, resolve against run_cwd (if provided).
+    metadata_file_arg = METADATA_FILE
+    if run_cwd and not Path(metadata_file_arg).is_absolute():
+        metadata_file_arg = str((Path(run_cwd) / metadata_file_arg).resolve())
+
+    # Output path: caller override wins; otherwise fall back to derived path,
+    # resolved against run_cwd (if provided).
+    if output_path_override is not None:
+        pandoc_output = str(Path(output_path_override).resolve())
+        Path(pandoc_output).parent.mkdir(parents=True, exist_ok=True)
+    else:
+        pandoc_output = output_path
+        if run_cwd and not Path(pandoc_output).is_absolute():
+            pandoc_output = str((Path(run_cwd) / pandoc_output).resolve())
+
     # Construct Pandoc command
     pandoc_cmd = [
         "pandoc",
         "--verbose",
         "--from=markdown",
         f"--to={FORMATS[format]}",
-        f"--output={output_path}",
-        f"--resource-path={os.path.abspath('./assets')}",  # To resolve images and assets
-        f"--metadata-file={METADATA_FILE}",
+        f"--output={pandoc_output}",
+        f"--resource-path={resource_path}",  # To resolve images and assets
+        f"--metadata-file={metadata_file_arg}",
     ] + md_files  # Append all markdown files to compile
 
     # EPUB-specific options
@@ -453,16 +672,64 @@ def compile_book(
             ]
         )
 
-    # Run Pandoc and log output
+    # Run Pandoc, capture stderr (for image-warning parsing), and tee to log.
+    def _cleanup_partial() -> None:
+        try:
+            Path(pandoc_output).unlink(missing_ok=True)
+        except OSError:
+            pass
+
     try:
-        with open(LOG_FILE, "a") as log_file:
-            subprocess.run(pandoc_cmd, check=True, stdout=log_file, stderr=log_file)
-        print(f"✅ Successfully generated: {output_path}")
+        completed = subprocess.run(
+            pandoc_cmd,
+            check=True,
+            cwd=run_cwd,
+            capture_output=True,
+            text=True,
+        )
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error compiling {format}: {e}")
+        # Tee captured output to the log so the operator sees it.
+        stderr_text = e.stderr if isinstance(e.stderr, str) else ""
+        stdout_text = e.stdout if isinstance(e.stdout, str) else ""
+        with open(LOG_FILE, "a") as log_file:
+            if stdout_text:
+                log_file.write(stdout_text)
+            if stderr_text:
+                log_file.write(stderr_text)
+        _cleanup_partial()
+        # If the failure was caused by an unresolvable image and strict mode
+        # is on, prefer the more specific exception.
+        unresolved = _parse_unresolved_images(stderr_text)
+        if unresolved and strict_images:
+            raise ManuscriptaImageError(unresolved) from e
+        raise ManuscriptaPandocError(
+            returncode=e.returncode, stderr=stderr_text, cmd=pandoc_cmd
+        ) from e
+
+    stdout_text = completed.stdout if isinstance(completed.stdout, str) else ""
+    stderr_text = completed.stderr if isinstance(completed.stderr, str) else ""
+    with open(LOG_FILE, "a") as log_file:
+        if stdout_text:
+            log_file.write(stdout_text)
+        if stderr_text:
+            log_file.write(stderr_text)
+
+    unresolved = _parse_unresolved_images(stderr_text)
+    if unresolved:
+        if strict_images:
+            _cleanup_partial()
+            raise ManuscriptaImageError(unresolved)
+        for u in unresolved:
+            _logger.warning("manuscripta: unresolved image resource: %s", u)
+        print(
+            f"⚠️ Pandoc reported {len(unresolved)} unresolved image resource(s) "
+            f"(strict_images=False, continuing): {', '.join(unresolved)}"
+        )
+
+    print(f"✅ Successfully generated: {pandoc_output}")
 
 
-def normalize_toc_if_needed(toc_path: Path, extension: str | None = None):
+def normalize_toc_if_needed(toc_path: Path, extension: str | None = None, cwd: str | None = None):
     """
     Normalize TOC links (only for web/ebook ToC 'toc.md').
 
@@ -486,6 +753,7 @@ def normalize_toc_if_needed(toc_path: Path, extension: str | None = None):
                     toc_ext,
                 ],
                 check=True,
+                cwd=cwd,
                 stdout=open(LOG_FILE, "a"),
                 stderr=open(LOG_FILE, "a"),
             )
@@ -496,8 +764,7 @@ def normalize_toc_if_needed(toc_path: Path, extension: str | None = None):
         print(f"❌ Error normalizing TOC: {e}")
 
 
-def main():
-    """Main script execution logic."""
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Export your book into multiple formats."
     )
@@ -578,11 +845,39 @@ def main():
         help="Do not rewrite image/URL paths to absolute and back; keeps relative paths (skips Steps 1 and 4).",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def _run_pipeline(
+    *,
+    argv: list[str],
+    source_dir: Path,
+    resource_path: str,
+    strict_images: bool,
+    output_path: Path | None = None,
+) -> None:
+    """Full export pipeline. Anchors all paths on ``source_dir``.
+
+    This function does NOT call ``os.chdir``. Child processes that need a
+    working directory are launched with ``cwd=source_dir``.
+    """
+    parser = _build_arg_parser()
+    # argparse handles --help/-h here and exits before we do any validation,
+    # so CLI short-circuit flags work from any cwd. See fix(cli) commit.
+    args = parser.parse_args(argv)
+
+    # Validate layout AFTER argparse so --help/-h can short-circuit even
+    # outside a valid book project. run_export() validates earlier for its
+    # library contract; this second call is a cheap no-op for valid layouts
+    # and the only call on the CLI path.
+    _validate_layout(source_dir)
+
+    run_cwd = str(source_dir)
 
     # Load export settings (already loaded at module level, but re-read for
     # CLI-overridable defaults that live under an "export_defaults" key)
-    config = _EXPORT_SETTINGS.get("export_defaults", {})
+    settings = load_export_settings(EXPORT_SETTINGS_FILE)
+    config = settings.get("export_defaults", {})
 
     # Log --copy-epub-to early so user sees it was recognized
     copy_epub_to = args.copy_epub_to or config.get("copy_epub_to", None)
@@ -609,7 +904,9 @@ def main():
         op = Path(output_file_arg)
         OUTPUT_FILE = op.stem
     elif OUTPUT_FILE is None or OUTPUT_FILE == "":
-        project_name = get_project_name_from_pyproject()
+        project_name = get_project_name_from_pyproject(
+            str(Path(run_cwd) / "pyproject.toml") if run_cwd else "pyproject.toml"
+        )
         OUTPUT_FILE = project_name
 
     if add_type_suffix:
@@ -669,6 +966,7 @@ def main():
                     toc_ext,
                 ],
                 check=True,
+                cwd=run_cwd,
                 stdout=open(LOG_FILE, "a"),
                 stderr=open(LOG_FILE, "a"),
             )
@@ -681,8 +979,8 @@ def main():
     # Step 1: Convert image paths to absolute
     # Run pre-processing scripts unless user opts out or wants to keep relative paths
     if not skip_images and not keep_relative_paths:
-        run_script(_MOD_PATHS_TO_ABSOLUTE)  # Convert relative paths to absolute
-        run_script(_MOD_PATHS_IMG_TAGS, "--to-absolute")  # Process image tags
+        run_script(_MOD_PATHS_TO_ABSOLUTE, cwd=run_cwd)
+        run_script(_MOD_PATHS_IMG_TAGS, "--to-absolute", cwd=run_cwd)
     elif skip_images:
         print("⏭️  Skipping Step 1 (skip-images).")
     else:
@@ -737,7 +1035,7 @@ def main():
                 )
             )
             if toc_candidate.exists():
-                normalize_toc_if_needed(toc_candidate, extension)
+                normalize_toc_if_needed(toc_candidate, extension, cwd=run_cwd)
 
         compile_book(
             fmt,
@@ -749,13 +1047,17 @@ def main():
             extension,
             toc_depth,
             use_manual_toc,
+            resource_path=resource_path,
+            strict_images=strict_images,
+            run_cwd=run_cwd,
+            output_path_override=str(output_path) if output_path else None,
         )
 
     # Step 4: Restore original image paths
     # Revert any image/URL changes made before compilation unless we kept relative paths
     if not skip_images and not keep_relative_paths:
-        run_script(_MOD_PATHS_TO_RELATIVE)  # Convert absolute paths back to relative
-        run_script(_MOD_PATHS_IMG_TAGS, "--to-relative")  # Revert image tag changes
+        run_script(_MOD_PATHS_TO_RELATIVE, cwd=run_cwd)
+        run_script(_MOD_PATHS_IMG_TAGS, "--to-relative", cwd=run_cwd)
     elif skip_images:
         print("⏭️  Skipping Step 4 (skip-images).")
     else:
@@ -849,6 +1151,60 @@ def main():
             print(f"🗑️ Deleted temporary metadata file: {METADATA_FILE}")
         except OSError as e:
             print(f"⚠️ Could not delete temporary metadata file {METADATA_FILE}: {e}")
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI entry point.
+
+    Parses ``--source-dir`` and ``--strict-images`` / ``--no-strict-images``
+    at the CLI layer. If ``--source-dir`` is omitted, the current working
+    directory is used as the source_dir. **Only the CLI layer is allowed to
+    fall back to cwd — the library API (:func:`run_export`) never does.**
+    """
+    import sys
+
+    argv_in = list(sys.argv[1:]) if argv is None else list(argv)
+
+    # Peel off --source-dir and strict-images toggles before delegating to the
+    # full parser. We do this with a small parser rather than adding them to
+    # the main parser so that argv parsing stays shared with run_export().
+    cli = argparse.ArgumentParser(add_help=False)
+    cli.add_argument("--source-dir", type=str, default=None)
+    cli.add_argument(
+        "--resource-path",
+        action="append",
+        default=None,
+        help="Extra resource directory (repeatable).",
+    )
+    strict_group = cli.add_mutually_exclusive_group()
+    strict_group.add_argument(
+        "--strict-images", dest="strict_images", action="store_true", default=None
+    )
+    strict_group.add_argument(
+        "--no-strict-images", dest="strict_images", action="store_false"
+    )
+    ns, remaining = cli.parse_known_args(argv_in)
+
+    source_dir = Path(ns.source_dir) if ns.source_dir else Path.cwd()
+    resource_paths = [Path(p) for p in (ns.resource_path or [])] or None
+    strict_images = True if ns.strict_images is None else ns.strict_images
+
+    # NOTE: _validate_layout is deliberately NOT called here. It must run
+    # only after _run_pipeline's argparse has had a chance to handle short-
+    # circuit flags (--help/-h), otherwise ``manuscripta-export --help``
+    # fails from any cwd that isn't a valid book project. See
+    # fix(cli): defer layout validation past argparse short-circuit flags.
+    # _configure_paths below is side-effecting but cheap and has no failure
+    # mode that affects --help; leaving it here keeps module-global setup
+    # symmetric with run_export().
+    resource_path = _configure_paths(source_dir, resource_paths)
+
+    _run_pipeline(
+        argv=remaining,
+        source_dir=source_dir.resolve(),
+        resource_path=resource_path,
+        strict_images=strict_images,
+    )
 
 
 # Entry point

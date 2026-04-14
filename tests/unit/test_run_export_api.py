@@ -259,3 +259,37 @@ def test_cli_main_honors_source_dir_flag(tmp_path, monkeypatch):
     book_mod.main(["--source-dir", str(tmp_path), "--format", "pdf"])
     assert called["source_dir"] == tmp_path.resolve()
 
+
+# ---------------------------------------------------------------------------
+# Regression pins for fix(cli): argparse short-circuit flags must bypass
+# layout validation. The only short-circuit flag in the current parser is
+# --help / -h; if --version or --list-formats is added later, extend this
+# parametrisation rather than adding separate tests.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_main_help_succeeds_outside_valid_project(tmp_path, monkeypatch, capsys, flag):
+    """--help / -h must exit 0 from any cwd, even one missing the
+    manuscripta layout subdirs."""
+    monkeypatch.chdir(tmp_path)  # empty dir, no manuscript/config/assets
+    with pytest.raises(SystemExit) as exc_info:
+        book_mod.main([flag])
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    # argparse default help text — a minimal pin that the parser actually ran.
+    assert "usage:" in out.lower()
+    assert "--format" in out  # known flag from _build_arg_parser
+
+
+def test_main_build_fails_outside_valid_project(tmp_path, monkeypatch):
+    """A build invocation (no short-circuit flag) must still raise
+    ManuscriptaLayoutError when cwd lacks the required subdirs. Pins
+    that the fix did not weaken the CLI's validation contract — it only
+    deferred validation past argparse."""
+    monkeypatch.chdir(tmp_path)  # empty dir
+    with pytest.raises(ManuscriptaLayoutError) as exc_info:
+        book_mod.main(["--format", "pdf"])
+    missing = set(exc_info.value.missing)
+    assert missing == {"manuscript", "config", "assets"}
+
