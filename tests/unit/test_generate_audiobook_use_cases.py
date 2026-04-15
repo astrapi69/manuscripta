@@ -88,8 +88,14 @@ def test_nested_output_dir_creation_and_text_content(tmp_path: Path):
 # ---------- Engine selection coverage with fakes (no real deps) --------------
 
 
-def _install_fake(module_name: str, class_name: str, fail_on_kwargs=None):
-    """Install a minimal fake adapter module under sys.modules."""
+def _install_fake(monkeypatch, module_name: str, class_name: str, fail_on_kwargs=None):
+    """Install a minimal fake adapter module under sys.modules.
+
+    Uses ``monkeypatch.setitem`` so the sys.modules replacement is
+    auto-undone at test teardown — otherwise the fake adapter persists
+    across subsequent tests in the same Python process. See TESTING.md
+    §12 for the polluter incident this protects against.
+    """
     mod = ModuleType(module_name)
 
     class _Adapter:
@@ -107,15 +113,18 @@ def _install_fake(module_name: str, class_name: str, fail_on_kwargs=None):
             return []
 
     setattr(mod, class_name, _Adapter)
-    sys.modules[module_name] = mod
+    monkeypatch.setitem(sys.modules, module_name, mod)
 
 
 def test_get_tts_adapter_paths(monkeypatch):
     _install_fake(
+        monkeypatch,
         "manuscripta.audiobook.tts.google_translate_adapter",
         "GoogleTranslateTTSAdapter",
     )
-    _install_fake("manuscripta.audiobook.tts.pyttsx3_adapter", "Pyttsx3Adapter")
+    _install_fake(
+        monkeypatch, "manuscripta.audiobook.tts.pyttsx3_adapter", "Pyttsx3Adapter"
+    )
 
     a = get_tts_adapter("google", lang="en", voice=None, rate=200)
     b = get_tts_adapter("pyttsx3", lang="de", voice="Anna", rate=170)
@@ -125,6 +134,7 @@ def test_get_tts_adapter_paths(monkeypatch):
 def test_get_tts_adapter_elevenlabs_key_required(monkeypatch):
     # Fake module that fails if api_key not passed
     _install_fake(
+        monkeypatch,
         "manuscripta.audiobook.tts.elevenlabs_adapter",
         "ElevenLabsAdapter",
         fail_on_kwargs=lambda kw: not kw.get("api_key"),

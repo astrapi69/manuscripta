@@ -796,7 +796,19 @@ CI policy on these modules:
 - No merge may lower a module's recorded baseline. Only the target
   itself may be adjusted, and only via ADR.
 
-### Known environmental test flakiness
+### Known environmental test flakiness — RESOLVED
+
+> **Status (resolved 2026-04-15).** The polluter described below was
+> fixed by switching the two `_install_fake[_adapter_module]` helpers
+> from raw `sys.modules[name] = mod` to
+> `monkeypatch.setitem(sys.modules, name, mod)`, which auto-unwinds
+> at test teardown. The five formerly-flaky tests under
+> `tests/unit/tts/` now pass in full-suite runs (`make test`,
+> `pytest -m unit` without deselects). The mutmut deselects for the
+> two polluter files have been removed from
+> `[tool.mutmut].pytest_add_cli_args`. The historical record below is
+> retained because the heuristic-detection note remains useful for
+> future triage of similar `setattr`/`sys.modules`-based pollution.
 
 Five tests under `tests/unit/tts/` fail **only in full-suite runs** and
 pass in isolation. Root cause is test pollution from **two** files
@@ -833,17 +845,17 @@ teardown is incomplete.
 | `tests/unit/tts/test_pyttsx3_adapter.py::TestPyttsx3Init::test_creation` | `AttributeError: '_Adapter' object has no attribute 'name'` | Full `pytest -m unit` runs only |
 | `tests/unit/tts/test_google_translate_adapter.py::TestGoogleTranslateInit::test_deprecation_warning` | Collection error from the same cause | Full `pytest -m unit` runs only |
 
-Fixing **both** `setattr` polluters is a Phase 6 cleanup item (swap
-for `monkeypatch.setattr`, which auto-unwinds). Until then:
-
-- **Mutation baseline:** the mutmut runner deselects both polluter
-  files via `--deselect=` entries in `[tool.mutmut].pytest_add_cli_args`
-  (see `pyproject.toml`). Inline comments there reference this
-  subsection. Remove the deselects after the Phase 6 fix.
-- **CI:** is unaffected because these tests pass in isolation and
-  failing-only-in-full-suite is tolerable while the polluters are
-  scoped and understood. If they start failing pre-merge, the Phase 6
-  fix is promoted to unblock.
+Fix applied (see resolution note above). The actual polluter was the
+`sys.modules[module_name] = mod` assignment inside the helpers, not
+the `setattr(mod, class_name, ...)` line — `setattr` operated on a
+freshly-built `ModuleType` object that nothing else referenced, so
+it was inert by itself; it was the `sys.modules` rebinding that
+persisted across tests in the same Python process. The fix uses
+`monkeypatch.setitem(sys.modules, module_name, mod)` to make the
+rebinding teardown-aware. The original "swap for `monkeypatch.setattr`"
+phrasing in this section was directionally right (use the monkeypatch
+fixture) but pointed at the wrong line; the actual fix targets
+`setitem` on `sys.modules`.
 
 ---
 

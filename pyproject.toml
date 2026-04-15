@@ -250,16 +250,6 @@ pytest_add_cli_args = [
     "-x",
     "--no-cov",
     "--deselect=tests/unit/test_normalize_toc_links.py",
-    # tests/unit/test_generate_audiobook_use_cases.py is the polluter
-    # documented in docs/TESTING.md §12 "Known environmental test
-    # flakiness". It uses plain setattr(...) on the manuscripta.audiobook
-    # .tts module without teardown, breaking adapter tests later in the
-    # same process. Mutmut runs the full suite per mutant; the pollution
-    # is more visible there than in normal test runs because mutmut keeps
-    # the same Python process. Phase 6 cleanup will swap the polluter to
-    # monkeypatch.setattr; remove this deselect entry then.
-    "--deselect=tests/unit/test_generate_audiobook_use_cases.py",
-    "--deselect=tests/unit/test_generate_audiobook.py",
 ]
 
 # Only mutate lines that coverage.py reports as covered by at least one
@@ -267,9 +257,6 @@ pytest_add_cli_args = [
 # tell us nothing we don't already see in the coverage report.
 mutate_only_covered_lines = true
 
-# Skip the polluter that blocks TTS tests (see TESTING.md §12 "Known
-# environmental test flakiness"). The polluter is a test-file issue,
-# not a library bug; once Phase 6 cleanup fixes it, remove this entry.
 do_not_mutate = []
 
 # mutmut mirrors only paths_to_mutate into mutants/ by default, which

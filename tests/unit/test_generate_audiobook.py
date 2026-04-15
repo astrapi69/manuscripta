@@ -79,13 +79,18 @@ def test_generate_skips_meaningless_text(tmp_path: Path):
 
 
 def _install_fake_adapter_module(
-    module_name: str, class_name: str, raises_on_kwargs=None
+    monkeypatch, module_name: str, class_name: str, raises_on_kwargs=None
 ):
     """
     Install a minimal fake adapter module into sys.modules:
     module_name (e.g., 'scripts.tts.gtts_adapter') containing class_name
     (e.g., 'GoogleTTSAdapter') with .speak() that writes bytes.
     If raises_on_kwargs is provided (callable), it may raise in __init__.
+
+    Uses ``monkeypatch.setitem`` so the sys.modules replacement is
+    auto-undone at test teardown. Plain ``sys.modules[name] = mod`` is
+    persistent across tests in the same process and was the root cause
+    of the polluter incident documented in TESTING.md §12.
     """
     mod = ModuleType(module_name)
 
@@ -106,11 +111,12 @@ def _install_fake_adapter_module(
             return []
 
     setattr(mod, class_name, _FakeAdapter)
-    sys.modules[module_name] = mod
+    monkeypatch.setitem(sys.modules, module_name, mod)
 
 
 def test_get_tts_adapter_google(monkeypatch):
     _install_fake_adapter_module(
+        monkeypatch,
         "manuscripta.audiobook.tts.google_translate_adapter",
         "GoogleTranslateTTSAdapter",
     )
@@ -120,7 +126,7 @@ def test_get_tts_adapter_google(monkeypatch):
 
 def test_get_tts_adapter_pyttsx3(monkeypatch):
     _install_fake_adapter_module(
-        "manuscripta.audiobook.tts.pyttsx3_adapter", "Pyttsx3Adapter"
+        monkeypatch, "manuscripta.audiobook.tts.pyttsx3_adapter", "Pyttsx3Adapter"
     )
     adapter = get_tts_adapter("pyttsx3", lang="en", voice="Alice", rate=180)
     assert hasattr(adapter, "synthesize")
@@ -132,6 +138,7 @@ def test_get_tts_adapter_elevenlabs_with_and_without_key(monkeypatch):
         return not kwargs.get("api_key")
 
     _install_fake_adapter_module(
+        monkeypatch,
         "manuscripta.audiobook.tts.elevenlabs_adapter",
         "ElevenLabsAdapter",
         raises_on_kwargs,
