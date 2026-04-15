@@ -44,7 +44,7 @@ def _two_missing_images_fixture(root: Path) -> Path:
 
 
 def _one_valid_image_fixture(root: Path) -> Path:
-    from conftest import write_png  # type: ignore[import-not-found]
+    from helpers.png import write_png
 
     _scaffold(root)
     write_png(root / "assets" / "ok.png")

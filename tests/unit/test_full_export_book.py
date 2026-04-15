@@ -25,10 +25,18 @@ def setup_teardown():
     os.makedirs(TEST_OUTPUT_DIR, exist_ok=True)
     os.makedirs(TEST_BACKUP_DIR, exist_ok=True)
     yield
-    # Cleanup
-    for p in (TEST_OUTPUT_DIR, TEST_BACKUP_DIR, "tests/fixtures"):
+    # Cleanup. Note: do NOT rmtree "tests/fixtures" — that directory holds
+    # persistent fixtures shared with other suites (e.g. dsk_like/ for
+    # e2e_wheel). Clean only the scratch sub-paths this module creates in
+    # test_compile_book.
+    for p in (TEST_OUTPUT_DIR, TEST_BACKUP_DIR):
         if os.path.isdir(p):
             shutil.rmtree(p, ignore_errors=True)
+    for p in ("tests/fixtures/manuscript", "tests/fixtures/metadata.yaml"):
+        if os.path.isdir(p):
+            shutil.rmtree(p, ignore_errors=True)
+        elif os.path.exists(p):
+            os.remove(p)
 
 
 @patch("subprocess.run")
