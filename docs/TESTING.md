@@ -890,6 +890,10 @@ Consequences:
 The `requires_pandoc` / `requires_latex` / `slow` markers are orthogonal
 (cross-cutting) and do not satisfy the layer requirement.
 
+The `pytestmark = pytest.mark.<layer>` assignment between `import pytest`
+and other imports triggers ruff E402 by design. Per-file ignore is
+configured in `pyproject.toml` `[tool.ruff.lint.per-file-ignores]`.
+
 ---
 
 ## 14. Mutation testing

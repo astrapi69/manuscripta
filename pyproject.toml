@@ -328,5 +328,12 @@ check_untyped_defs = false
 fix = true
 unsafe-fixes = true
 
+[tool.ruff.lint.per-file-ignores]
+# Tests use `pytestmark = pytest.mark.<layer>` between `import pytest` and the
+# rest of the imports to declare layer membership. This is mandatory project
+# convention (TESTING.md §13 layer-marker enforcement). E402 fires on every
+# import after the assignment; per-file ignore is the documented waiver.
+"tests/**/*.py" = ["E402"]
+
 [tool.codespell]
 ignore-words-list = "prozess"
