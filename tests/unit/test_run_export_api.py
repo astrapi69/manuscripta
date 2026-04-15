@@ -289,4 +289,3 @@ def test_main_build_fails_outside_valid_project(tmp_path, monkeypatch):
         book_mod.main(["--format", "pdf"])
     missing = set(exc_info.value.missing)
     assert missing == {"manuscript", "config", "assets"}
-

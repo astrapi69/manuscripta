@@ -69,7 +69,9 @@ def test_split_valid_invalid_separates_flags():
 
 def test_split_valid_invalid_handles_no_value_flag_at_end():
     # A flag with no value and nothing after should just go into the right bucket.
-    valid, invalid = sc._split_valid_invalid_options(["--epub2"], sc.FULL_EXPORT_ALLOWED_OPTS)
+    valid, invalid = sc._split_valid_invalid_options(
+        ["--epub2"], sc.FULL_EXPORT_ALLOWED_OPTS
+    )
     assert valid == ["--epub2"]
     assert invalid == []
 

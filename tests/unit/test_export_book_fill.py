@@ -78,11 +78,15 @@ def test_pick_section_order_ebook():
 
 
 def test_pick_section_order_paperback():
-    assert bm.pick_section_order(BookType.PAPERBACK, "pdf") == bm.PAPERBACK_SECTION_ORDER
+    assert (
+        bm.pick_section_order(BookType.PAPERBACK, "pdf") == bm.PAPERBACK_SECTION_ORDER
+    )
 
 
 def test_pick_section_order_hardcover():
-    assert bm.pick_section_order(BookType.HARDCOVER, "pdf") == bm.HARDCOVER_SECTION_ORDER
+    assert (
+        bm.pick_section_order(BookType.HARDCOVER, "pdf") == bm.HARDCOVER_SECTION_ORDER
+    )
 
 
 def test_get_project_name_from_pyproject_reads_tool_poetry_name(tmp_path):
@@ -375,9 +379,7 @@ def test_compile_book_no_markdown_files_returns_early(monkeypatch, tmp_path, cap
 # --------------------------------------------------------------------------
 
 
-def test_compile_book_wraps_calledprocesserror_as_pandoc_error(
-    monkeypatch, tmp_path
-):
+def test_compile_book_wraps_calledprocesserror_as_pandoc_error(monkeypatch, tmp_path):
     chapters = tmp_path / "chapters"
     chapters.mkdir()
     (chapters / "ch1.md").write_text("# x", encoding="utf-8")
@@ -417,14 +419,10 @@ def test_compile_book_strict_image_error_beats_pandoc_error(monkeypatch, tmp_pat
     monkeypatch.setattr(bm.subprocess, "run", fake_run)
 
     with pytest.raises(ManuscriptaImageError):
-        bm.compile_book(
-            "pdf", ["chapters/ch1.md"], BookType.EBOOK, strict_images=True
-        )
+        bm.compile_book("pdf", ["chapters/ch1.md"], BookType.EBOOK, strict_images=True)
 
 
-def test_compile_book_lenient_mode_logs_and_continues(
-    monkeypatch, tmp_path, caplog
-):
+def test_compile_book_lenient_mode_logs_and_continues(monkeypatch, tmp_path, caplog):
     import logging
 
     chapters = tmp_path / "chapters"
@@ -435,15 +433,11 @@ def test_compile_book_lenient_mode_logs_and_continues(
     monkeypatch.setattr(bm, "OUTPUT_FILE", "book")
 
     def fake_run(cmd, **kw):
-        return _CP(
-            stderr='[WARNING] Could not fetch resource "images/missing.png"\n'
-        )
+        return _CP(stderr='[WARNING] Could not fetch resource "images/missing.png"\n')
 
     monkeypatch.setattr(bm.subprocess, "run", fake_run)
     with caplog.at_level(logging.WARNING, logger="manuscripta.export.book"):
-        bm.compile_book(
-            "pdf", ["chapters/ch1.md"], BookType.EBOOK, strict_images=False
-        )
+        bm.compile_book("pdf", ["chapters/ch1.md"], BookType.EBOOK, strict_images=False)
     assert any(
         "unresolved image" in r.getMessage() and "missing.png" in r.getMessage()
         for r in caplog.records
@@ -705,8 +699,13 @@ def test_run_pipeline_with_toc_and_copy_epub_to(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(bm.subprocess, "run", fake_run)
 
-    for name in ("validate_pdf", "validate_epub_with_epubcheck", "validate_docx",
-                 "validate_markdown", "validate_html"):
+    for name in (
+        "validate_pdf",
+        "validate_epub_with_epubcheck",
+        "validate_docx",
+        "validate_markdown",
+        "validate_html",
+    ):
         monkeypatch.setattr(bm, name, lambda *a, **k: None)
 
     copy_dest = tmp_path / "dest"
@@ -732,8 +731,13 @@ def test_run_pipeline_copy_epub_to_when_epub_missing_warns(
         return _CP()
 
     monkeypatch.setattr(bm.subprocess, "run", fake_run)
-    for name in ("validate_pdf", "validate_epub_with_epubcheck", "validate_docx",
-                 "validate_markdown", "validate_html"):
+    for name in (
+        "validate_pdf",
+        "validate_epub_with_epubcheck",
+        "validate_docx",
+        "validate_markdown",
+        "validate_html",
+    ):
         monkeypatch.setattr(bm, name, lambda *a, **k: None)
 
     bm.run_export(
