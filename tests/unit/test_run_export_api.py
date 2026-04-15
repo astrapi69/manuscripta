@@ -8,12 +8,9 @@ availability checks.
 from __future__ import annotations
 
 import os
-import shutil
 import struct
-import subprocess
 import zlib
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 

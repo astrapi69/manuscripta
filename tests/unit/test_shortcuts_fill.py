@@ -12,8 +12,6 @@ filtered, and how --strict-opts aborts propagation.
 
 from __future__ import annotations
 
-import sys
-from typing import Any, Callable
 
 import pytest
 

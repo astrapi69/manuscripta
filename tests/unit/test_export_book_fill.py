@@ -16,7 +16,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import yaml
 
 pytestmark = pytest.mark.unit
 
