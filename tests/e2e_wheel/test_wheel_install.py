@@ -48,7 +48,8 @@ def _copy_fixture(tmp_path: Path) -> Path:
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
 def test_wheel_install_produces_pdf_with_embedded_image(
-    tmp_path, wheel_venv: WheelVenv  # noqa: F811 — pytest fixture injection by parameter name
+    tmp_path,
+    wheel_venv: WheelVenv,  # noqa: F811 — pytest fixture injection by parameter name
 ):
     if shutil.which("pdfimages") is None:
         pytest.skip("pdfimages binary not on PATH")
@@ -91,9 +92,9 @@ def test_wheel_install_produces_pdf_with_embedded_image(
     )
     # Header (2 lines) + at least one image row.
     rows = [ln for ln in listed.stdout.splitlines() if ln.strip()]
-    assert len(rows) >= 3, (
-        f"pdfimages -list did not show an embedded image:\n{listed.stdout}"
-    )
+    assert (
+        len(rows) >= 3
+    ), f"pdfimages -list did not show an embedded image:\n{listed.stdout}"
 
 
 # =========================================================================
@@ -101,7 +102,9 @@ def test_wheel_install_produces_pdf_with_embedded_image(
 # =========================================================================
 
 
-def test_wheel_package_data_audit(built_wheel: Path):  # noqa: F811 — pytest fixture injection by parameter name
+def test_wheel_package_data_audit(
+    built_wheel: Path,
+):  # noqa: F811 — pytest fixture injection by parameter name
     """Every .py under src/manuscripta/ (except test-only files) must
     also appear in the wheel. Catches ``[tool.poetry.packages]`` /
     ``include`` mis-configuration that would hide modules from
@@ -120,7 +123,8 @@ def test_wheel_package_data_audit(built_wheel: Path):  # noqa: F811 — pytest f
     # Enumerate .py files actually inside the wheel zip.
     with zipfile.ZipFile(built_wheel) as zf:
         wheel_modules = {
-            name for name in zf.namelist()
+            name
+            for name in zf.namelist()
             if name.startswith("manuscripta/") and name.endswith(".py")
         }
 
@@ -133,12 +137,12 @@ def test_wheel_package_data_audit(built_wheel: Path):  # noqa: F811 — pytest f
     # Also verify package metadata is present.
     with zipfile.ZipFile(built_wheel) as zf:
         names = zf.namelist()
-    assert any(n.endswith(".dist-info/METADATA") for n in names), (
-        f"Wheel {built_wheel.name} missing METADATA"
-    )
-    assert any(n.endswith(".dist-info/WHEEL") for n in names), (
-        f"Wheel {built_wheel.name} missing WHEEL"
-    )
+    assert any(
+        n.endswith(".dist-info/METADATA") for n in names
+    ), f"Wheel {built_wheel.name} missing METADATA"
+    assert any(
+        n.endswith(".dist-info/WHEEL") for n in names
+    ), f"Wheel {built_wheel.name} missing WHEEL"
 
 
 # =========================================================================
@@ -146,7 +150,9 @@ def test_wheel_package_data_audit(built_wheel: Path):  # noqa: F811 — pytest f
 # =========================================================================
 
 
-def test_wheel_cli_entry_point_smoke(wheel_venv: WheelVenv):  # noqa: F811 — pytest fixture injection by parameter name
+def test_wheel_cli_entry_point_smoke(
+    wheel_venv: WheelVenv,
+):  # noqa: F811 — pytest fixture injection by parameter name
     """The ``manuscripta-export`` console script installed by the wheel
     must at least respond to ``--help`` with a zero exit code. This is
     intentionally minimal — full CLI feature coverage belongs in unit
@@ -163,6 +169,6 @@ def test_wheel_cli_entry_point_smoke(wheel_venv: WheelVenv):  # noqa: F811 — p
         f"manuscripta-export --help failed (rc={result.returncode}).\n"
         f"stderr:\n{result.stderr}"
     )
-    assert "--format" in result.stdout or "--format" in result.stderr, (
-        "Expected --format option in help text"
-    )
+    assert (
+        "--format" in result.stdout or "--format" in result.stderr
+    ), "Expected --format option in help text"

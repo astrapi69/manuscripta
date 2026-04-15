@@ -40,7 +40,9 @@ from manuscripta.export import book as bm
 # -------------------------------------------------------------------------
 
 
-def _make_project(root: Path, *, with_image: bool = True, image_name: str = "sample.png") -> Path:
+def _make_project(
+    root: Path, *, with_image: bool = True, image_name: str = "sample.png"
+) -> Path:
     from helpers.png import write_png  # type: ignore[import-not-found]
     from helpers.project import scaffold  # type: ignore[import-not-found]
 
@@ -153,7 +155,10 @@ def test_stderr_malformed_metadata_yaml_raises_pandoc_error(tmp_path, monkeypatc
     assert not isinstance(excinfo.value, subprocess.CalledProcessError)
     # Stderr from pandoc should mention YAML / parse.
     if isinstance(excinfo.value, ManuscriptaPandocError):
-        assert "yaml" in excinfo.value.stderr.lower() or "parse" in excinfo.value.stderr.lower()
+        assert (
+            "yaml" in excinfo.value.stderr.lower()
+            or "parse" in excinfo.value.stderr.lower()
+        )
 
 
 def test_stderr_successful_build_with_warnings_parses_but_does_not_raise(
@@ -205,7 +210,9 @@ def test_rp_ii_missing_subdirs_raises_layout_error_naming_all(tmp_path, monkeypa
     assert "config" in msg and "assets" in msg
 
 
-def test_rp_iii_strict_images_missing_raises_with_unresolved_list(tmp_path, monkeypatch):
+def test_rp_iii_strict_images_missing_raises_with_unresolved_list(
+    tmp_path, monkeypatch
+):
     """(iii) strict_images=True + missing image → ManuscriptaImageError
     with .unresolved populated."""
     _stub_validators(monkeypatch)

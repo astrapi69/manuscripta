@@ -29,13 +29,12 @@ def test_no_chdir_calls_in_library_sources():
     for py in PACKAGE_ROOT.rglob("*.py"):
         text = py.read_text(encoding="utf-8")
         # Strip triple-quoted docstrings to avoid false positives.
-        text_no_docstrings = re.sub(
-            r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'', "", text
-        )
+        text_no_docstrings = re.sub(r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'', "", text)
         for match in _FORBIDDEN.finditer(text_no_docstrings):
             line_no = text_no_docstrings[: match.start()].count("\n") + 1
             offenders.append(f"{py.relative_to(PACKAGE_ROOT)}:{line_no}")
-    assert not offenders, (
-        "manuscripta library must never call os.chdir(); offenders:\n  "
-        + "\n  ".join(offenders)
+    assert (
+        not offenders
+    ), "manuscripta library must never call os.chdir(); offenders:\n  " + "\n  ".join(
+        offenders
     )

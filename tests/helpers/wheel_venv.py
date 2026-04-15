@@ -60,9 +60,7 @@ class WheelVenv:
             check=check,
         )
 
-    def run_python(
-        self, *args: str, **kwargs
-    ) -> subprocess.CompletedProcess[str]:
+    def run_python(self, *args: str, **kwargs) -> subprocess.CompletedProcess[str]:
         """Run the venv's python with the given argv."""
         return self.run(str(self.python), *args, **kwargs)
 
@@ -135,9 +133,7 @@ def wheel_venv(tmp_path: Path, built_wheel: Path) -> WheelVenv:
             text=True,
         )
         if result.returncode != 0:
-            pytest.skip(
-                f"python -m venv failed; see stderr:\n{result.stderr}"
-            )
+            pytest.skip(f"python -m venv failed; see stderr:\n{result.stderr}")
 
     python = venv_dir / "bin" / "python"
     assert python.exists(), f"venv python not at {python}"
@@ -151,8 +147,6 @@ def wheel_venv(tmp_path: Path, built_wheel: Path) -> WheelVenv:
         text=True,
     )
     if install.returncode != 0:
-        pytest.skip(
-            f"pip install of built wheel failed:\n{install.stderr}"
-        )
+        pytest.skip(f"pip install of built wheel failed:\n{install.stderr}")
 
     return WheelVenv(venv_dir=venv_dir, python=python)

@@ -185,9 +185,7 @@ def test_inject_main_missing_file_returns_2(tmp_path, monkeypatch, capsys):
         raise FileNotFoundError("prompts.json missing")
 
     monkeypatch.setattr(imod, "process", fake)
-    rc = imod.main(
-        ["--prompt-file", str(tmp_path / "nope.json")]
-    )
+    rc = imod.main(["--prompt-file", str(tmp_path / "nope.json")])
     assert rc == 2
     out = capsys.readouterr().out
     assert "prompts.json missing" in out

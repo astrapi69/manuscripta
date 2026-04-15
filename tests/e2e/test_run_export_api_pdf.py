@@ -87,4 +87,6 @@ def test_image_is_embedded_in_pdf_when_called_from_outside_repo(tmp_path, monkey
         check=True,
     )
     lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
-    assert len(lines) >= 3, f"pdfimages -list did not show an embedded image:\n{result.stdout}"
+    assert (
+        len(lines) >= 3
+    ), f"pdfimages -list did not show an embedded image:\n{result.stdout}"

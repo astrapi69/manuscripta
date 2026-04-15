@@ -139,9 +139,9 @@ def test_image_actually_visible_not_just_embedded(minimal_book_fixture, monkeypa
         if r > 200 and g < 80 and b < 80:
             found_red = True
             break
-    assert found_red, (
-        "Embedded image was not rendered (no red pixel found in rasterised page)"
-    )
+    assert (
+        found_red
+    ), "Embedded image was not rendered (no red pixel found in rasterised page)"
 
 
 # --------------------------------------------------------------------------
@@ -151,7 +151,9 @@ def test_image_actually_visible_not_just_embedded(minimal_book_fixture, monkeypa
 
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
-def test_called_from_different_cwd_with_source_dir(minimal_book_fixture, tmp_path, monkeypatch):
+def test_called_from_different_cwd_with_source_dir(
+    minimal_book_fixture, tmp_path, monkeypatch
+):
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
@@ -171,10 +173,12 @@ def test_pandoc_resource_path_is_absolute(minimal_book_fixture, monkeypatch):
     def fake_run(cmd, **kwargs):
         if cmd and cmd[0] == "pandoc":
             captured["argv"] = list(cmd)
+
         # Return a sentinel "successful" pandoc call.
         class _CP:
             stdout = ""
             stderr = ""
+
         return _CP()
 
     monkeypatch.setattr(book_mod.subprocess, "run", fake_run)
@@ -188,9 +192,9 @@ def test_pandoc_resource_path_is_absolute(minimal_book_fixture, monkeypatch):
     value = rp.split("=", 1)[1]
     first = value.split(os.pathsep)[0]
     assert os.path.isabs(first), f"--resource-path must be absolute, got: {first}"
-    assert Path(first) == (minimal_book_fixture / "assets").resolve(), (
-        f"--resource-path[0] should be source_dir/assets; got {first}"
-    )
+    assert (
+        Path(first) == (minimal_book_fixture / "assets").resolve()
+    ), f"--resource-path[0] should be source_dir/assets; got {first}"
     assert "./assets" not in argv, "Found legacy relative './assets' in argv"
 
 
@@ -259,7 +263,9 @@ def test_strict_images_true_raises_on_missing(broken_image_fixture, monkeypatch)
 
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
-def test_strict_images_false_completes_with_warning(broken_image_fixture, monkeypatch, capsys):
+def test_strict_images_false_completes_with_warning(
+    broken_image_fixture, monkeypatch, capsys
+):
     monkeypatch.chdir(broken_image_fixture.parent)
     pdf = _build_pdf(broken_image_fixture, strict_images=False)
     assert pdf.exists()
@@ -289,7 +295,9 @@ def test_mixed_images_strict_lists_only_missing(mixed_image_fixture, monkeypatch
 
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
-def test_mixed_images_lenient_embeds_valid_skips_missing(mixed_image_fixture, monkeypatch, capsys):
+def test_mixed_images_lenient_embeds_valid_skips_missing(
+    mixed_image_fixture, monkeypatch, capsys
+):
     monkeypatch.chdir(mixed_image_fixture.parent)
     pdf = _build_pdf(mixed_image_fixture, strict_images=False)
     assert_pdf_has_images(pdf, 1)
@@ -361,9 +369,9 @@ def test_pandoc_stderr_surfaced_on_failure(minimal_book_fixture, monkeypatch):
             output_file="book",
         )
     msg = str(excinfo.value).lower()
-    assert "yaml" in msg or "metadata" in msg or "parse" in msg, (
-        f"Pandoc stderr should be in the message; got: {excinfo.value}"
-    )
+    assert (
+        "yaml" in msg or "metadata" in msg or "parse" in msg
+    ), f"Pandoc stderr should be in the message; got: {excinfo.value}"
 
 
 @pytest.mark.requires_pandoc
@@ -396,9 +404,11 @@ def test_pdf_engine_failure_produces_clear_error(minimal_book_fixture, monkeypat
                 output="",
                 stderr="! LaTeX Error: File `nonexistent.sty' not found.\n",
             )
+
         class _CP:
             stdout = ""
             stderr = ""
+
         return _CP()
 
     monkeypatch.setattr(book_mod.subprocess, "run", fake_run)
@@ -439,7 +449,9 @@ def test_output_path_respected(minimal_book_fixture, tmp_path, monkeypatch):
 
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
-def test_output_directory_created_if_missing(minimal_book_fixture, tmp_path, monkeypatch):
+def test_output_directory_created_if_missing(
+    minimal_book_fixture, tmp_path, monkeypatch
+):
     out = tmp_path / "deep" / "nest" / "book.pdf"
     monkeypatch.chdir(tmp_path)
     run_export(
@@ -462,8 +474,7 @@ def test_no_temp_files_left_behind(minimal_book_fixture, tmp_path, monkeypatch):
     debris_exts = {".aux", ".toc", ".out", ".lof", ".lot"}
     leftover = [
         p
-        for p in list(minimal_book_fixture.rglob("*"))
-        + list(tmp_path.glob("*"))
+        for p in list(minimal_book_fixture.rglob("*")) + list(tmp_path.glob("*"))
         if p.is_file() and p.suffix.lower() in debris_exts
     ]
     assert not leftover, f"LaTeX/Pandoc debris left behind: {leftover}"
@@ -471,7 +482,9 @@ def test_no_temp_files_left_behind(minimal_book_fixture, tmp_path, monkeypatch):
 
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
-def test_failed_build_does_not_leave_partial_pdf(broken_image_fixture, tmp_path, monkeypatch):
+def test_failed_build_does_not_leave_partial_pdf(
+    broken_image_fixture, tmp_path, monkeypatch
+):
     out = tmp_path / "out" / "book.pdf"
     monkeypatch.chdir(tmp_path)
     with pytest.raises(ManuscriptaError):

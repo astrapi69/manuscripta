@@ -344,9 +344,7 @@ class TestReplaceReferenceMutationPins:
         ``return m.group(1)``; group(1) is the alt named group, not
         the full match).
         """
-        out, count = _replace_reference(
-            "![MyAlt][missing]", refs={}, figure_class=None
-        )
+        out, count = _replace_reference("![MyAlt][missing]", refs={}, figure_class=None)
         assert count == 0
         assert out == "![MyAlt][missing]"
 
@@ -359,9 +357,7 @@ class TestReplaceReferenceMutationPins:
         alt, and the alt must be real, not None.
         """
         refs = {"pic": {"src": "img/x.png", "title": None}}
-        out, count = _replace_reference(
-            "![MyAlt][pic]", refs, figure_class=None
-        )
+        out, count = _replace_reference("![MyAlt][pic]", refs, figure_class=None)
         assert count == 1
         assert "MyAlt" in out
         # Caption tag must not render literal "None"
@@ -468,7 +464,7 @@ class TestConvertFilePipelineMutationPins:
         ``_replace_reference(chunk, refs, None)``).
         """
         md = tmp_path / "a.md"
-        write(md, "![Alt][pic]\n\n[pic]: img/x.png \"T\"\n")
+        write(md, '![Alt][pic]\n\n[pic]: img/x.png "T"\n')
         convert_markdown_file(md, figure_class="my-fig")
         out = read(md)
         assert 'class="my-fig"' in out

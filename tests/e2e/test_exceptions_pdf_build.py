@@ -22,7 +22,9 @@ from manuscripta import (
 from manuscripta.export.book import run_export
 
 
-def _scaffold(root: Path, *, include: tuple[str, ...] = ("manuscript", "config", "assets")) -> Path:
+def _scaffold(
+    root: Path, *, include: tuple[str, ...] = ("manuscript", "config", "assets")
+) -> Path:
     if "manuscript" in include:
         (root / "manuscript" / "chapters").mkdir(parents=True)
     if "config" in include:

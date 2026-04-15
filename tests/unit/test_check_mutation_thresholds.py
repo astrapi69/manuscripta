@@ -31,12 +31,15 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "check_mutation_thresholds.py"
 # would also work, but the script is not under mutation — skipping the
 # regression test from mutmut's runs costs nothing (the regression
 # coverage is in normal `pytest -m unit`).
-pytestmark = [pytest.mark.unit, pytest.mark.skipif(
-    not SCRIPT_PATH.exists(),
-    reason="scripts/check_mutation_thresholds.py not present in this tree "
-           "(typical for mutmut-mirrored mutants/ runs); regression coverage "
-           "lives in non-mutmut pytest -m unit invocations.",
-)]
+pytestmark = [
+    pytest.mark.unit,
+    pytest.mark.skipif(
+        not SCRIPT_PATH.exists(),
+        reason="scripts/check_mutation_thresholds.py not present in this tree "
+        "(typical for mutmut-mirrored mutants/ runs); regression coverage "
+        "lives in non-mutmut pytest -m unit invocations.",
+    ),
+]
 
 
 def _load_module():
@@ -118,9 +121,7 @@ class TestComputeModuleScore:
         assert result["denom"] == 3
         assert result["score"] == pytest.approx(100.0)
 
-    def test_orphan_equivalent_warns_does_not_double_subtract(
-        self, script_module
-    ):
+    def test_orphan_equivalent_warns_does_not_double_subtract(self, script_module):
         """Symmetric case: a YAML annotation for a mutant that no longer
         appears in mutmut output (typical after a source change removes
         the mutant). The orphan must not be counted into either

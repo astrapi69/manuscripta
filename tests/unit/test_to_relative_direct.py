@@ -42,7 +42,9 @@ def test_is_absolute_path_false_for_empty():
     assert mod._is_absolute_path("") is False
 
 
-@pytest.mark.parametrize("target", ["", "#anchor", "http://e.com", "mailto:a@b", "data:abc"])
+@pytest.mark.parametrize(
+    "target", ["", "#anchor", "http://e.com", "mailto:a@b", "data:abc"]
+)
 def test_is_url_or_anchor_detects_scheme_and_anchor(target):
     assert mod._is_url_or_anchor(target) is True
 

@@ -729,7 +729,9 @@ def compile_book(
     print(f"✅ Successfully generated: {pandoc_output}")
 
 
-def normalize_toc_if_needed(toc_path: Path, extension: str | None = None, cwd: str | None = None):
+def normalize_toc_if_needed(
+    toc_path: Path, extension: str | None = None, cwd: str | None = None
+):
     """
     Normalize TOC links (only for web/ebook ToC 'toc.md').
 

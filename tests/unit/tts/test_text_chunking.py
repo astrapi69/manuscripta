@@ -105,9 +105,7 @@ class TestSplitTextIntoChunksMutationPins:
 
         Kills mutant 21 (reset ``''`` → ``'XXXX'``).
         """
-        result = split_text_into_chunks(
-            "aa\n\nccc ddd. eee fff.", max_chars=10
-        )
+        result = split_text_into_chunks("aa\n\nccc ddd. eee fff.", max_chars=10)
         assert "XXXX" not in result
         for chunk in result:
             assert "XXXX" not in chunk
@@ -128,9 +126,7 @@ class TestSplitTextIntoChunksMutationPins:
 
         Kills mutant 31 (regex → ``r'XX(?<=[.!?])\\s+XX'``).
         """
-        result = split_text_into_chunks(
-            "xxx\n\na. b. c. d.", max_chars=5
-        )
+        result = split_text_into_chunks("xxx\n\na. b. c. d.", max_chars=5)
         assert "a. b." in result
 
     def test_inner_candidate_boundary_inclusive(self):
@@ -139,9 +135,7 @@ class TestSplitTextIntoChunksMutationPins:
 
         Kills mutant 34 (inner-loop ``<=`` → ``<``).
         """
-        result = split_text_into_chunks(
-            "xx\n\naa. b", max_chars=5
-        )
+        result = split_text_into_chunks("xx\n\naa. b", max_chars=5)
         assert "aa. b" in result
 
     def test_hard_split_preserves_first_character(self):

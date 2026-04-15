@@ -38,9 +38,7 @@ class ManuscriptaLayoutError(ManuscriptaError):
         if reason == "nonexistent":
             msg = f"manuscripta: source_dir {self.source_dir!s} does not exist"
         elif reason == "not_a_directory":
-            msg = (
-                f"manuscripta: source_dir {self.source_dir!s} is not a directory"
-            )
+            msg = f"manuscripta: source_dir {self.source_dir!s} is not a directory"
         else:
             msg = (
                 f"manuscripta: source_dir {self.source_dir!s} is missing "
@@ -61,7 +59,9 @@ class ManuscriptaPandocError(ManuscriptaError):
         cmd:        The argv that was executed.
     """
 
-    def __init__(self, returncode: int, stderr: str, cmd: list[str] | tuple[str, ...]) -> None:
+    def __init__(
+        self, returncode: int, stderr: str, cmd: list[str] | tuple[str, ...]
+    ) -> None:
         self.returncode = returncode
         self.stderr = stderr or ""
         self.cmd = list(cmd)

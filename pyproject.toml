@@ -174,7 +174,7 @@ hypothesis = "^6.138.13"
 types-pyyaml = "^6.0.12.20250915"
 types-toml = "^0.10.8.20240310"
 ruff = "^0.14.0"
-black = "^25.9.0"
+black = "==25.12.0"  # exact pin per TESTING.md §14.9 (formatter determinism)
 codespell = "^2.4.1"
 pre-commit = "^4.3.0"
 types-requests = "^2.32.4.20250913"
@@ -323,6 +323,15 @@ allow_redefinition = true
 module = "tests.*"
 disallow_untyped_defs = false
 check_untyped_defs = false
+
+[tool.black]
+# Explicit replaces reliance on black's defaults so the same input always
+# produces the same output regardless of the invoking interpreter version
+# or any shift in black's own default-detection behaviour. See
+# TESTING.md §14.9 for the version-pinning discipline; bumping black
+# requires the procedure documented there.
+line-length = 88
+target-version = ["py312"]
 
 [tool.ruff]
 fix = true

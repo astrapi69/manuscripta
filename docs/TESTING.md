@@ -1537,3 +1537,65 @@ preprocessing, syntax-protection passes), so the pattern has
 plausible recurrence — meeting the same elevation bar as §14.8.4
 (co-located instances + plausible recurrence + a sharp boundary
 that distinguishes B from A).
+
+### 14.9 Tool version pinning discipline
+
+Some tools used by the project produce output whose stability is
+itself the contract — a formatter that reformats differently on
+different minor versions, a mutation engine whose trampoline shape
+is a load-bearing assumption of standing equivalence policies (see
+§14.8.3 "Version-pin dependency"), a linter whose rule set defines
+the project's lint surface. For this class of tool, the dependency
+pin is **exact** (`==X.Y.Z`), not caret (`^X.Y`) or tilde (`~X.Y`).
+A loose pin defeats the determinism the tool exists to provide and
+allows silent drift in a surface the project explicitly chose to
+freeze.
+
+Tools currently subject to this discipline:
+
+| Tool | Pin location | Reason |
+|---|---|---|
+| `mutmut` | `[tool.poetry.group.mutation.dependencies]` | §14.8.3 trampoline-equivalent annotations are statements about mutmut 3.x's wrapper-generation internals; a minor-version bump may change wrapper shape and silently invalidate every §14.8.3 citation. |
+| `black` | `[tool.poetry.group.dev.dependencies]` | Black is a deterministic formatter; reproducible output is its entire value proposition. A caret pin lets minor-version normalization tweaks slip in between commits and produce reformat churn that has no diagnostic value. |
+
+Other tools (`ruff`, `pytest`, `mypy`, etc.) currently use caret pins
+because their output is either advisory (lint warnings can be
+addressed when noticed) or compatible-on-bump (test-runner behaviour
+is stable across minors). Promote a tool to exact-pin discipline
+when its bump produces work the project would not have chosen
+spontaneously.
+
+**Bump procedure** (applies to any exact-pinned tool):
+
+1. Update the pin in `pyproject.toml` to the new exact version on a
+   dedicated branch.
+2. Run the tool's read-only mode against the codebase
+   (`black --check src/ tests/`, `mutmut run --dry`, etc.) and
+   observe the diff/output.
+3. If the diff is non-empty, the bump is non-trivial. Land the bump
+   in two commits: (a) `chore(deps): pin <tool> to <version>` —
+   config-only, expected to fail the relevant `make` target; (b)
+   `chore(<tool>): apply <tool> after pin bump to <version>` — the
+   mechanical reformat / re-annotation that makes the gate pass
+   again. This separation keeps the version bump and the resulting
+   churn independently reviewable.
+4. If the diff is empty, the bump is a no-op. Land in a single
+   commit, `chore(deps): pin <tool> to <version> (no diff)`.
+5. Update any TESTING.md / ADR text that names a specific tool
+   version (e.g. §14.8.3's "mutmut 3.x" caveat); if the bump
+   crosses a version boundary the doc text relied on, the
+   re-validation work belongs in the same PR as the bump.
+6. Verify all four test layers green, plus `make ci` end-to-end.
+
+This procedure mirrors how the v0.8.0 release-prep cycle handled
+its own black bump exposure: the diagnostic-and-apply rhythm
+(diagnostic-first, then mechanical apply) is the model.
+
+**What this discipline is not.** Exact pins are not a statement
+that the pinned version is the best version, only that it is the
+version the project's current artefacts (code, tests, audits)
+were validated against. A tool stuck on an exact pin for years is
+a smell — it suggests the bump procedure is too painful to invoke
+or that no maintainer is reviewing the upstream tool's release
+notes. Aim to bump exact-pinned tools at least once per release
+cycle so the procedure stays oiled.
