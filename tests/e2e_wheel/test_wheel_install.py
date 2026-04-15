@@ -16,7 +16,6 @@ never touched.
 from __future__ import annotations
 
 import shutil
-import shlex
 import subprocess
 import zipfile
 from pathlib import Path
@@ -49,7 +48,7 @@ def _copy_fixture(tmp_path: Path) -> Path:
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
 def test_wheel_install_produces_pdf_with_embedded_image(
-    tmp_path, wheel_venv: WheelVenv
+    tmp_path, wheel_venv: WheelVenv  # noqa: F811 — pytest fixture injection by parameter name
 ):
     if shutil.which("pdfimages") is None:
         pytest.skip("pdfimages binary not on PATH")
@@ -102,7 +101,7 @@ def test_wheel_install_produces_pdf_with_embedded_image(
 # =========================================================================
 
 
-def test_wheel_package_data_audit(built_wheel: Path):
+def test_wheel_package_data_audit(built_wheel: Path):  # noqa: F811 — pytest fixture injection by parameter name
     """Every .py under src/manuscripta/ (except test-only files) must
     also appear in the wheel. Catches ``[tool.poetry.packages]`` /
     ``include`` mis-configuration that would hide modules from
@@ -147,7 +146,7 @@ def test_wheel_package_data_audit(built_wheel: Path):
 # =========================================================================
 
 
-def test_wheel_cli_entry_point_smoke(wheel_venv: WheelVenv):
+def test_wheel_cli_entry_point_smoke(wheel_venv: WheelVenv):  # noqa: F811 — pytest fixture injection by parameter name
     """The ``manuscripta-export`` console script installed by the wheel
     must at least respond to ``--help`` with a zero exit code. This is
     intentionally minimal — full CLI feature coverage belongs in unit
