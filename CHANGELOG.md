@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-04-16
+
+### Changed
+- **pillow** `^11.2.1` -> `^12.0` (unblocks Bibliogon downstream constraint)
+- **pandas** `^2.3.2` -> `^3.0`
+- **tenacity** `^8.2.3` -> `^9.0`
+- **pytest** `^8.2` -> `^9.0`
+- **pytest-cov** `^4.1.0` -> `^7.0`
+- **ruff** `^0.14.0` -> `^0.15`
+
+### Not upgraded (documented skips)
+- **black** stays at `==25.12.0` — exact pin per TESTING.md §14.9 (formatter
+  determinism). Bumping requires the procedure documented there.
+
 ## [0.8.1] - 2026-04-16
 
 ### Added
