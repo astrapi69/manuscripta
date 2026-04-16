@@ -5,7 +5,7 @@ SHELL := /bin/bash
 # Setup
 # ---------------------------------------------------------------------------
 
-.PHONY: lock-install install install-dev update hooks
+.PHONY: lock-install install install-dev update update-deps hooks
 
 lock-install: ## Lock and install project dependencies
 	poetry lock
@@ -19,6 +19,11 @@ install-dev: ## Install with dev dependencies
 
 update: ## Update dependencies
 	poetry update
+
+update-deps: ## Update dependencies, verify build, and run tests
+	poetry update
+	poetry build
+	poetry run pytest -q --maxfail=1 --disable-warnings --no-cov
 
 hooks: ## Install pre-commit hooks
 	poetry run pre-commit install

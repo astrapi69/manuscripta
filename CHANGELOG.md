@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-04-16
+
+### Added
+- `update-deps` Makefile target: runs `poetry update`, builds the project, and
+  executes the test suite in one step to verify dependency upgrades.
+
+### Changed
+- Updated direct dependencies:
+  - `edge-tts` 7.2.7 → 7.2.8
+  - `hypothesis` 6.151.9 → 6.152.1
+  - `mypy` 1.19.1 → 1.20.1
+  - `pymupdf` 1.27.2 → 1.27.2.2
+  - `requests` 2.32.5 → 2.33.1
+  - `types-pyyaml` 6.0.12.20250915 → 6.0.12.20260408
+  - `types-requests` 2.32.4.20260107 → 2.33.0.20260408
+  - `types-toml` 0.10.8.20240310 → 0.10.8.20260408
+- Updated transitive dependencies:
+  aiohttp 3.13.3 → 3.13.5, attrs 25.4.0 → 26.1.0,
+  charset-normalizer 3.4.6 → 3.4.7, filelock 3.25.2 → 3.28.0,
+  librt 0.8.1 → 0.9.0, lxml 6.0.2 → 6.0.4, numpy 2.4.3 → 2.4.4,
+  packaging 26.0 → 26.1, platformdirs 4.9.4 → 4.9.6,
+  pygments 2.19.2 → 2.20.0, python-discovery 1.1.3 → 1.2.2,
+  tzdata 2025.3 → 2026.1, virtualenv 21.2.0 → 21.2.4.
+
 ## [0.7.0] - 2026-04-10
 
 ### Breaking Changes

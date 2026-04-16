@@ -1,6 +1,6 @@
 [project]
 name = "manuscripta"
-version = "0.8.0"
+version = "0.8.1"
 description = "Book production pipeline for authors and self-publishers. Multi-format export (PDF, EPUB, DOCX, HTML, Markdown), audiobook generation, translation, and manuscript tooling."
 readme = "README.md"
 license = "MIT"
