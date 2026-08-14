@@ -53,6 +53,7 @@ Exit codes:
 
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
@@ -70,11 +71,16 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 MUTANTS_DIR = REPO_ROOT / "mutants"
 EQUIVALENT_FILE = REPO_ROOT / ".mutmut" / "equivalent.yaml"
 
-# Mutmut emits one of: survived | timeout | killed | no_tests | skipped | segfault.
-# `mutmut results` (no flags) prints survived + timeout + suspicious — i.e. the
-# ones that DIDN'T die. Anything not in the results output but present in the
-# mutated source is killed.
 NON_DEAD_STATUSES = {"survived", "timeout", "suspicious"}
+STALE_STATUSES = {
+    "not_checked",
+    "unstarted",
+    "unrun",
+    "no_tests",
+    "skipped",
+    "queued",
+    "untested",
+}
 
 MUTANT_DEF_RE = re.compile(
     # Class methods are indented (`    def xǁClassǁmethod__mutmut_N(...)`),
@@ -135,17 +141,17 @@ def count_total_mutants() -> dict[str, int]:
 
 
 def collect_results() -> tuple[
-    dict[str, dict[str, set[str]]], list[str]
+    dict[str, dict[str, set[str]]], list[str], dict[str, dict[str, set[str]]]
 ]:
-    """Run ``mutmut results`` and group non-dead mutant **names** per file
-    and status.
+    """Run ``mutmut results`` and group mutant **names** per file and status.
 
-    Returns (per_file_names, raw_lines) where per_file_names maps
-    ``src/manuscripta/foo.py -> {"survived": {"…__mutmut_3", …}, "timeout":
-    {"…__mutmut_7"}}``. Names (not just counts) are required so the caller
-    can compute the overlap with ``.mutmut/equivalent.yaml`` and route
-    annotated equivalents out of the ``survived`` bucket — see the module
-    docstring's "score formula" block.
+    Returns (per_file_names, raw_lines, per_file_all_statuses) where
+    per_file_names maps ``src/manuscripta/foo.py -> {"survived": {"…__mutmut_3",
+    …}, "timeout": {"…__mutmut_7"}}``. Names (not just counts) are required so
+    the caller can compute the overlap with ``.mutmut/equivalent.yaml`` and
+    route annotated equivalents out of the ``survived`` bucket — see the module
+    docstring's "score formula" block. ``per_file_all_statuses`` retains every
+    status encountered so callers can detect stale/untested mutation state.
     """
     try:
         proc = subprocess.run(
@@ -164,19 +170,23 @@ def collect_results() -> tuple[
     per_file: dict[str, dict[str, set[str]]] = defaultdict(
         lambda: defaultdict(set)
     )
+    per_file_all: dict[str, dict[str, set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
     for line in raw:
         m = MUTANT_NAME_PATTERN.match(line)
         if not m:
             continue
         name = m.group("name")
-        status = m.group("status")
-        if status not in NON_DEAD_STATUSES:
-            continue
+        status = m.group("status").lower()
         file_path = mutant_name_to_file(name)
         if file_path is None:
             continue
+        per_file_all[file_path][status].add(name)
+        if status not in NON_DEAD_STATUSES:
+            continue
         per_file[file_path][status].add(name)
-    return per_file, raw
+    return per_file, raw, per_file_all
 
 
 def compute_module_score(
@@ -265,12 +275,54 @@ def load_equivalents() -> dict[str, set[str]]:
     return equivalents
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Enforce per-module mutation-score thresholds",
+    )
+    parser.add_argument(
+        "--allow-stale-state",
+        action="store_true",
+        help=(
+            "Allow >50% not_checked/untested mutation state and continue "
+            "(prints warning, exits 0). Without this flag, the script fails "
+            "fast when the mutmut state appears stale or incomplete."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     default_threshold, per_file_thresholds = load_thresholds()
     in_scope = in_scope_files()
     totals = count_total_mutants()
-    non_dead, _raw = collect_results()
+    non_dead, _raw, all_statuses = collect_results()
     equivalents = load_equivalents()
+
+    stale_paths: list[tuple[str, int, int]] = []
+    for path in in_scope:
+        total = totals.get(path, 0)
+        if total <= 0:
+            continue
+        statuses = all_statuses.get(path, {})
+        stale_count = sum(len(statuses.get(s, set())) for s in STALE_STATUSES)
+        if stale_count == 0:
+            continue
+        ratio = stale_count / total
+        if ratio > 0.5:
+            stale_paths.append((path, stale_count, total))
+
+    if stale_paths:
+        print("⚠  Mutation state appears stale or incomplete (>50% not_checked/untested):")
+        for path, stale_count, total in stale_paths:
+            pct = round(100.0 * stale_count / total, 1)
+            print(f"  {path}: not_checked={stale_count}/{total} ({pct}%)")
+        print()
+        if args.allow_stale_state:
+            print("Proceeding due to --allow-stale-state (stale-state guard warning only).\n")
+        else:
+            print("Failing fast — rerun mutmut with a complete state or use --allow-stale-state to override.")
+            return 2
 
     print("# Mutation threshold check")
     print()
