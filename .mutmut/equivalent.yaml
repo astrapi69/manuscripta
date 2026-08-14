@@ -419,4 +419,37 @@ src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x_process_md_
 src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x__is_absolute_path__mutmut_1
 src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x__is_absolute_path__mutmut_3
 src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x__is_absolute_path__mutmut_4
+# ---------------------------------------------------------------------------
+# src/manuscripta/markdown/normalize_toc.py — 14 equivalents across 2 paths
+#   §14.8.1 (help/description wording): 12 mutants — main 3, 4, 5, 16, 17,
+#                                       18, 35, 36, 37, 48, 49, 50
+#   ad-hoc (codec-alias)              : 2 mutants — main 59, 76
+# Triage: Phase 4b Pass 2 Commit 12 (see the Commit 12 message and
+# tests/unit/test_normalize_toc_mutation_pins.py for the A-side: help
+# PRESENCE, defaults, and choices validation are parser behaviour and
+# are killed there; only WORDING is annotated here).
+# ---------------------------------------------------------------------------
 
+# --- §14.8.1 — CLI help-text wording is incidental ---
+# main mutants 3/4/5: parser description XX-wrap / lower / upper.
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_3
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_4
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_5
+# main mutants 16/17/18: --toc help wording XX-wrap / lower / upper.
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_16
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_17
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_18
+# main mutants 35/36/37: --mode help wording XX-wrap / lower / upper.
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_35
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_36
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_37
+# main mutants 48/49/50: --ext help wording XX-wrap / lower / upper.
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_48
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_49
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_50
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# main mutant 59: read_text(encoding="utf-8") -> "UTF-8"
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_59
+# main mutant 76: write_text(..., encoding="utf-8") -> "UTF-8"
+src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_76
