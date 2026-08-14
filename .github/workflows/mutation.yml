@@ -163,6 +163,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Dedup: one standing issue tracks the regression until it is
+          # closed. Without this guard the schedule opens a new issue
+          # every night for the same unresolved threshold gap.
+          existing="$(gh issue list --state open --label mutation \
+                        --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "Open mutation issue #$existing already tracks this; skipping."
+            exit 0
+          fi
           today="$(date -u +%Y-%m-%d)"
           gh issue create \
             --title "mutation: per-module threshold regression $today" \
