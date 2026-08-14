@@ -33,6 +33,13 @@ filenames = st.builds(
 )
 
 
+# Explicit headroom above the unit-layer default timeout (tests/unit/
+# conftest.py): 100 hypothesis examples under mutmut's coverage
+# instrumentation flirt with a 10 s ceiling, and a spurious timeout
+# failure "kills" mutants that are annotated equivalents — making the
+# nightly score flap. 60 s keeps the hang-detection property without
+# the flakiness.
+@pytest.mark.timeout(60)
 @given(labels, filenames)
 @settings(
     deadline=None,

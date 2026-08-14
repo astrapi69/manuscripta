@@ -367,3 +367,56 @@ src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__convert_im
 #  current code converts the image to its containing directory. Spec gap;
 #  see the triage map's "Specification gap" section. It remains a counted
 #  survivor by design.)
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/paths/to_relative.py — 10 equivalents across 3 paths
+#   §14.8.1 (print-None/wording): 5 mutants — process_md_file 17;
+#                                 main 13, 14, 15, 16
+#   ad-hoc (codec-alias)        : 2 mutants — process_md_file 4, 16
+#   ad-hoc (posix-coincidence)  : 3 mutants — _is_absolute_path 1, 3, 4
+# Triage: Phase 4b Pass 2 Commit 11 (see the Commit 11 message and
+# tests/unit/test_to_relative_mutation_pins.py for the A-side).
+# ---------------------------------------------------------------------------
+
+# --- §14.8.1 — diagnostic print content is not a contract ---
+# process_md_file mutant 17: print(f"🔁 Converted to relative: {md_file}")
+#   -> print(None). Per-file status line; return value unchanged.
+src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x_process_md_file__mutmut_17
+# main mutants 13-16: the "🔄 All Markdown files reverted to relative
+# paths." status line (print(None) / XX-wrap / lower / upper). This exact
+# print is §14.8.1's named example of a covered status-line ("Status-line
+# print strings in `if __name__ == "__main__":` / main() blocks").
+src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x_main__mutmut_13
+src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x_main__mutmut_14
+src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x_main__mutmut_15
+src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x_main__mutmut_16
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# Same reasoning as the convert.py / to_absolute.py codec-alias clusters.
+#
+# process_md_file mutant 4: read_text(encoding="utf-8") -> "UTF-8"
+src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x_process_md_file__mutmut_4
+# process_md_file mutant 16: write_text(..., encoding="utf-8") -> "UTF-8"
+src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x_process_md_file__mutmut_16
+
+# --- Ad-hoc cluster: POSIX coincidence — is_absolute() ⟺ startswith("/") ---
+# Reasoning (shared for mutants 1, 3, 4): on POSIX, PurePosixPath.
+# is_absolute() is definitionally "the path starts with '/'", so the two
+# operands of `Path(p).is_absolute() or p.startswith("/")` coincide on
+# every input the test platform can produce; the startswith clause is
+# defensive redundancy for Windows-style inputs on Windows hosts, which
+# this project's CI (ubuntu-only, per .github/workflows/) never runs.
+#   mutant 1 (`or` -> `and`): differs only when exactly one operand is
+#     true — impossible on POSIX.
+#   mutant 3 (`startswith(None)` -> TypeError): reached only when
+#     is_absolute() is False; the TypeError is swallowed by the
+#     function's `except Exception: return False`, which equals the
+#     original's False (startswith("/") is False whenever is_absolute()
+#     is False on POSIX).
+#   mutant 4 (`startswith("XX/XX")`, never true): same reachability
+#     argument as mutant 3.
+# If the project ever gains Windows CI, all three re-triage to A.
+src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x__is_absolute_path__mutmut_1
+src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x__is_absolute_path__mutmut_3
+src/manuscripta/paths/to_relative.py:manuscripta.paths.to_relative.x__is_absolute_path__mutmut_4
+
