@@ -1611,3 +1611,34 @@ a smell — it suggests the bump procedure is too painful to invoke
 or that no maintainer is reviewing the upstream tool's release
 notes. Aim to bump exact-pinned tools at least once per release
 cycle so the procedure stays oiled.
+
+### 14.10 Mutant-id stability under coverage-driven generation
+
+mutmut 3.x generates mutants only for source lines the test suite
+**covers**: the stats run records which tests reach which function,
+and unexercised branches produce no mutants. Two consequences,
+discovered during Pass 2 Commit 10 (the Commit 10 A-tests grew
+`to_absolute.py` line coverage and its mutant set with it,
+305 → 313, renumbering every id after each insertion point):
+
+1. **The mutant population is a function of the tests, not only of
+   the source.** A module's `total` can grow when tests improve —
+   the denominator moves. A score drop after adding tests does not
+   necessarily mean the tests weakened anything; check the total
+   first.
+2. **Mutant ids are not stable across coverage growth.** Ids in
+   `.mutmut/equivalent.yaml` reference a specific generated tree.
+   Any response commit that adds tests MUST therefore follow this
+   order: land the A-tests locally → delete `mutants/` → full
+   `mutmut run` (regenerates the tree exactly as CI will) → only
+   then write B-annotations against the fresh numbering. Annotating
+   against a pre-test tree produces silent mis-annotations: the id
+   routes a *different* mutation into the equivalent bucket, which
+   both hides a live survivor and un-counts a genuine equivalent.
+
+The orphan-annotation warning in `check_mutation_thresholds.py`
+catches only ids that vanished, not ids that silently moved onto a
+different mutation — the ordering rule above is the actual defence.
+Cross-reference: the coverage-driven behaviour is a property of the
+pinned mutmut version (§14.9); a mutmut bump that changes generation
+strategy re-triages every annotation per the §14.9 bump procedure.

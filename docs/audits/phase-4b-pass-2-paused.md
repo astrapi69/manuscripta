@@ -161,3 +161,23 @@ git log 439e0ae..1f123e0 --oneline
 
 The corresponding tagged range will be `v0.6.2..v0.8.0` once `v0.8.0`
 is cut as part of the release this pause document accompanies.
+
+---
+
+## COMPLETED — 2026-08-14
+
+Pass 2 resumed and finished. Deferred Commits 10–13 landed as:
+
+| # | Commit | Result |
+|---|---|---|
+| 10 | `20bd2b8` test(mutation): kill to_absolute A-survivors + annotate 23 B | 77.7 % → 99.7 % (1 C-survivor: empty `<>` target spec gap) |
+| 11 | `f1be4c4` test(mutation): kill to_relative A-survivors + annotate 10 B | 85.1 % → 100.0 % |
+| 12 | `c38419a` test(mutation): kill normalize_toc A-survivors + annotate 14 B | 64.2 % → 100.0 % |
+| 13 | (this commit) docs: completion report, TESTING.md §14.10, mutmut exact pin | — |
+
+Triage-map reconstruction (the pre-pause map was never committed):
+[phase-4b-commit-10-triage-map.md](phase-4b-commit-10-triage-map.md),
+approved before implementation per
+[phase-4b-commit-10-blocked.md](phase-4b-commit-10-blocked.md).
+
+Completion report: [phase-4b-pass-2-complete.md](phase-4b-pass-2-complete.md).

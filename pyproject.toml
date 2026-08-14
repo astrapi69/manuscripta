@@ -191,7 +191,10 @@ pytest-timeout = "^2.3"
 optional = true
 
 [tool.poetry.group.mutation.dependencies]
-mutmut = "^3.5"
+# Exact pin per TESTING.md §14.9: §14.8.3 trampoline equivalences and
+# §14.10 id-stability both depend on this version's generation
+# internals. Bump via the §14.9 procedure only.
+mutmut = "==3.5.0"
 
 # --- Mutation testing -------------------------------------------------------
 # Policy and rationale: docs/decisions/0002-mutation-testing.md
