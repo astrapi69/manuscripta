@@ -14,6 +14,7 @@ Adapter classes
 - :class:`GoogleCloudTTSAdapter` -- Google Cloud TTS (paid, online).
 - :class:`GoogleTranslateTTSAdapter` -- gTTS / Google Translate (free, online, deprecated).
 - :class:`Pyttsx3Adapter` -- pyttsx3 system voices (free, offline).
+- :class:`VoiceStudioAdapter` -- VoiceStudio app, cloned/designed voices (free, local).
 """
 
 from .base import QuotaInfo, TTSAdapter, VoiceInfo
@@ -63,12 +64,18 @@ def _lazy_pyttsx3():
     return Pyttsx3Adapter
 
 
+def _lazy_voicestudio():
+    from .voicestudio_adapter import VoiceStudioAdapter
+
+    return VoiceStudioAdapter
+
+
 def create_adapter(engine_name: str, **kwargs) -> TTSAdapter:
     """Factory function to create a TTS adapter by name.
 
     :param engine_name: One of ``"edge-tts"``, ``"edge"``, ``"elevenlabs"``,
         ``"google-cloud-tts"``, ``"google-translate"``, ``"gtts"``,
-        ``"pyttsx3"``.
+        ``"pyttsx3"``, ``"voicestudio"``.
     :param kwargs: Passed through to the adapter constructor.
     :raises ValueError: If *engine_name* is not recognised.
     """
@@ -80,6 +87,7 @@ def create_adapter(engine_name: str, **kwargs) -> TTSAdapter:
         "google-translate": _lazy_google_translate(),
         "gtts": _lazy_google_translate(),
         "pyttsx3": _lazy_pyttsx3(),
+        "voicestudio": _lazy_voicestudio(),
     }
 
     if engine_name not in adapters:

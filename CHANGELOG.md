@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **VoiceStudio TTS engine** (`voicestudio`): audiobooks with cloned or designed voices from the
+  locally running VoiceStudio app via its OpenAI-compatible API. Voice profile by id or name,
+  `VOICESTUDIO_URL` / `VOICESTUDIO_API_KEY` overrides, short chunks for stable long-form narration,
+  retries on server errors, clear error when the app is not running. No new dependency.
+
 ## [0.9.0] - 2026-04-16
 
 ### Changed

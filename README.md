@@ -172,6 +172,19 @@ non-destructive draft builds.
 |-------------------------|------------------------|
 | `manuscripta-audiobook` | Generate MP3 audiobook |
 
+Engines (`--engine` or `engine:` in `config/voice-settings.yaml`): `edge` (default, online),
+`google`, `pyttsx3` (offline), `elevenlabs` (needs `ELEVENLABS_API_KEY`) and `voicestudio`.
+
+`voicestudio` narrates with a voice profile from the local [VoiceStudio](https://voicestudio.sh) app
+(cloned from a short sample or designed). The app must be running; its API listens on
+`http://localhost:3900` (override with `VOICESTUDIO_URL`). `voice` takes the profile id or name:
+
+```yaml
+engine: voicestudio
+voice: Asterios   # VoiceStudio profile name or id
+language: de
+```
+
 ### Translation
 
 | Command                | Description                   |
