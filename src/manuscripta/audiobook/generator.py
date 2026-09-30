@@ -17,6 +17,7 @@ Supported TTS engines:
 - google     -> gTTS (online)
 - pyttsx3    -> offline/local TTS
 - elevenlabs -> ElevenLabs API (requires ELEVENLABS_API_KEY)
+- voicestudio -> VoiceStudio app, local cloned/designed voices (app must be running)
 """
 
 import os
@@ -339,6 +340,8 @@ def get_tts_adapter(engine: str, lang: str, voice: str | None, rate: int) -> TTS
     - google     -> gTTS (requires internet)
     - pyttsx3    -> offline/local
     - elevenlabs -> ElevenLabs API (needs ELEVENLABS_API_KEY in environment)
+    - voicestudio -> local VoiceStudio app (voice = profile id or name,
+      VOICESTUDIO_URL overrides http://localhost:3900)
     """
     if engine == "edge":
         from manuscripta.audiobook.tts.edge_tts_adapter import EdgeTTSAdapter
@@ -359,6 +362,10 @@ def get_tts_adapter(engine: str, lang: str, voice: str | None, rate: int) -> TTS
 
         api_key = os.getenv("ELEVENLABS_API_KEY")
         return ElevenLabsAdapter(api_key=api_key or "", voice=voice or "", lang=lang)
+    elif engine == "voicestudio":
+        from manuscripta.audiobook.tts.voicestudio_adapter import VoiceStudioAdapter
+
+        return VoiceStudioAdapter(voice=voice or "", lang=lang)
     else:
         raise ValueError(f"Unsupported engine: {engine}")
 
@@ -726,7 +733,7 @@ def main():
     parser.add_argument(
         "--engine",
         type=str,
-        choices=["edge", "google", "pyttsx3", "elevenlabs"],
+        choices=["edge", "google", "pyttsx3", "elevenlabs", "voicestudio"],
         default=None,
         help="TTS engine to use (default: edge, or from voice-settings.yaml)",
     )
