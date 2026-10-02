@@ -26,6 +26,12 @@ All notable changes to this project will be documented in this file.
   and no longer logs "Error normalizing TOC" (#5).
 - **`replace-emojis` maps 🌐 to ◯** (U+25EF, the same KDP-safe circle as 🌍) instead of the
   diameter sign ⌀ (#7).
+- **`fix-german-quotes` pairs quotes per paragraph, not per line.** A quotation that a hard
+  line wrap split across two lines used to produce two "Asymmetric straight quotation mark"
+  warnings and stayed unconverted; it is now opened on the first line and closed on the second.
+  Headings, list items and table rows are paired on their own, a blank line ends a paragraph,
+  and frontmatter and fenced code blocks are still left untouched. A warning for a multi-line
+  block names the line range (`Lines 7-8`) and shows the whole block as context (#8).
 
 ## [0.9.0] - 2026-04-16
 

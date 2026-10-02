@@ -2,11 +2,12 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
-#!/usr/bin/env python3
-"""Unit tests for fix_german_quotes.py - German typographic quote conversion."""
+"""Unit tests for fix-german-quotes - German typographic quote conversion."""
 
+import sys
 
 from manuscripta.markdown.german_quotes import (
+    CONTEXT_LINE_SEPARATOR,
     DE_CLOSE_DOUBLE,
     DE_CLOSE_SINGLE,
     DE_OPEN_DOUBLE,
@@ -18,16 +19,24 @@ from manuscripta.markdown.german_quotes import (
     STRAIGHT_DOUBLE,
     collect_files,
     find_quote_positions,
+    format_context,
+    format_line_range,
     is_in_frontmatter,
     is_protected,
+    is_single_line_block,
+    main,
     make_stats,
     mask_protected_regions,
+    print_diff,
+    print_stats,
+    process_block,
     process_file,
     process_line,
     process_single_file,
     replace_english_double_quotes,
     replace_english_single_quotes,
     replace_straight_double_quotes,
+    starts_own_block,
 )
 
 
@@ -542,3 +551,345 @@ class TestEdgeCases:
         stats = make_stats()
         process_file('"Line one"\n"Line two"\n"Line three"', stats, [])
         assert stats["straight_double"] >= 3
+
+
+# ---------------------------------------------------------------------------
+# Protected regions never span a line break (blocks are multi-line)
+# ---------------------------------------------------------------------------
+class TestMaskProtectedRegionsAcrossLines:
+    def test_inline_code_does_not_span_lines(self):
+        assert mask_protected_regions("`a\nb`") == []
+
+    def test_html_attributes_do_not_span_lines(self):
+        assert mask_protected_regions('href="a\nb"') == []
+        assert mask_protected_regions("href='a\nb'") == []
+
+    def test_inline_code_inside_a_block_is_still_protected(self):
+        text = 'x `"c"` y\n"z"'
+        spans = mask_protected_regions(text)
+        assert len(spans) == 1
+        assert text[spans[0][0] : spans[0][1]] == '`"c"`'
+
+
+# ---------------------------------------------------------------------------
+# Block detection and warning helpers
+# ---------------------------------------------------------------------------
+class TestBlockDetection:
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "# Heading",
+            "## Sub heading",
+            "- item",
+            "* item",
+            "+ item",
+            "1. first",
+            "2) second",
+            "| a | b |",
+            "  - nested item",
+        ],
+    )
+    def test_starts_own_block(self, line):
+        assert starts_own_block(line) is True
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Plain text",
+            "> quoted",
+            "-dash without space",
+            "1.5 percent",
+            "*emphasis* text",
+            "",
+        ],
+    )
+    def test_does_not_start_own_block(self, line):
+        assert starts_own_block(line) is False
+
+    def test_headings_and_table_rows_are_single_line_blocks(self):
+        assert is_single_line_block("# Heading") is True
+        assert is_single_line_block("| a | b |") is True
+
+    def test_list_items_and_text_may_continue(self):
+        assert is_single_line_block("- item") is False
+        assert is_single_line_block("Plain text") is False
+
+
+class TestWarningFormatHelpers:
+    def test_single_line_label(self):
+        assert format_line_range(7) == "Line 7"
+        assert format_line_range(7, 7) == "Line 7"
+
+    def test_line_range_label(self):
+        assert format_line_range(7, 8) == "Lines 7-8"
+
+    def test_context_single_line_strips_trailing_whitespace(self):
+        assert format_context('"Only one  ') == '"Only one'
+
+    def test_context_joins_lines_with_separator(self):
+        expected = f'first "a{CONTEXT_LINE_SEPARATOR}second'
+        assert format_context('first "a \nsecond  \n') == expected
+
+
+# ---------------------------------------------------------------------------
+# process_block / process_line
+# ---------------------------------------------------------------------------
+class TestProcessBlock:
+    def test_process_line_is_a_single_line_block(self):
+        stats = make_stats()
+        assert (
+            process_line('"a"', 3, stats, []) == f"{DE_OPEN_DOUBLE}a{DE_CLOSE_DOUBLE}"
+        )
+
+    def test_pairs_across_lines(self):
+        stats = make_stats()
+        warnings = []
+        result = process_block('"a\nb"', 1, stats, warnings)
+        assert result == f"{DE_OPEN_DOUBLE}a\nb{DE_CLOSE_DOUBLE}"
+        assert warnings == []
+
+    def test_warning_names_line_range_and_joined_context(self):
+        stats = make_stats()
+        warnings = []
+        result = process_block('"a\nb', 7, stats, warnings)
+        assert result == '"a\nb'
+        assert len(warnings) == 1
+        assert warnings[0].startswith("Lines 7-8: Asymmetric straight quotation mark")
+        assert f'Context: "a{CONTEXT_LINE_SEPARATOR}b' in warnings[0]
+
+    def test_single_line_block_warning_keeps_line_label(self):
+        stats = make_stats()
+        warnings = []
+        process_block('"a', 5, stats, warnings)
+        assert warnings[0].startswith("Line 5: ")
+
+
+# ---------------------------------------------------------------------------
+# process_file: paragraph-level pairing
+# ---------------------------------------------------------------------------
+class TestProcessFileBlocks:
+    def test_quote_split_over_two_wrapped_lines_is_paired(self):
+        stats = make_stats()
+        warnings = []
+        content = 'Er sagte: "Das war\nein Test." Und ging.'
+        result = process_file(content, stats, warnings)
+        lines = result.split("\n")
+        assert lines[0] == f"Er sagte: {DE_OPEN_DOUBLE}Das war"
+        assert lines[1] == f"ein Test.{DE_CLOSE_DOUBLE} Und ging."
+        assert warnings == []
+        assert stats["warnings"] == 0
+        assert stats["straight_double"] == 1
+        assert stats["lines_changed"] == 2
+
+    def test_odd_paragraphs_warn_separately_with_file_line_numbers(self):
+        stats = make_stats()
+        warnings = []
+        content = '"Erster Absatz\nohne Schluss.\n\nZweiter "Absatz\n\n"Dritter" Absatz'
+        result = process_file(content, stats, warnings)
+        assert len(warnings) == 2
+        assert warnings[0].startswith("Lines 1-2: ")
+        assert (
+            f'Context: "Erster Absatz{CONTEXT_LINE_SEPARATOR}ohne Schluss.'
+            in warnings[0]
+        )
+        assert warnings[1].startswith("Line 4: ")
+        assert stats["warnings"] == 2
+        lines = result.split("\n")
+        assert lines[0] == '"Erster Absatz'
+        assert lines[3] == 'Zweiter "Absatz'
+        assert lines[5] == f"{DE_OPEN_DOUBLE}Dritter{DE_CLOSE_DOUBLE} Absatz"
+
+    def test_list_items_are_paired_per_item(self):
+        stats = make_stats()
+        warnings = []
+        content = '- "Nur eine\n- "Paar" hier\n- "Noch ein Paar"'
+        result = process_file(content, stats, warnings)
+        lines = result.split("\n")
+        assert lines[0] == '- "Nur eine'
+        assert lines[1] == f"- {DE_OPEN_DOUBLE}Paar{DE_CLOSE_DOUBLE} hier"
+        assert lines[2] == f"- {DE_OPEN_DOUBLE}Noch ein Paar{DE_CLOSE_DOUBLE}"
+        assert len(warnings) == 1
+        assert warnings[0].startswith("Line 1: ")
+
+    def test_list_item_continuation_line_belongs_to_the_item(self):
+        stats = make_stats()
+        warnings = []
+        content = '- "Ein Zitat\n  über zwei Zeilen" fertig\n- Zweiter Punkt'
+        result = process_file(content, stats, warnings)
+        lines = result.split("\n")
+        assert lines[0] == f"- {DE_OPEN_DOUBLE}Ein Zitat"
+        assert lines[1] == f"  über zwei Zeilen{DE_CLOSE_DOUBLE} fertig"
+        assert lines[2] == "- Zweiter Punkt"
+        assert warnings == []
+
+    def test_numbered_list_items_are_separate_blocks(self):
+        stats = make_stats()
+        warnings = []
+        result = process_file('1. "a\n2. "b"', stats, warnings)
+        lines = result.split("\n")
+        assert lines[0] == '1. "a'
+        assert lines[1] == f"2. {DE_OPEN_DOUBLE}b{DE_CLOSE_DOUBLE}"
+        assert len(warnings) == 1
+        assert warnings[0].startswith("Line 1: ")
+
+    def test_heading_is_not_paired_with_the_paragraph_below(self):
+        stats = make_stats()
+        warnings = []
+        content = '# Kapitel "auf\nText "zu'
+        result = process_file(content, stats, warnings)
+        assert result == content
+        assert [w.split(":")[0] for w in warnings] == ["Line 1", "Line 2"]
+
+    def test_table_rows_are_paired_per_row(self):
+        stats = make_stats()
+        warnings = []
+        content = '| "a" | "b |\n| "c" | d |'
+        result = process_file(content, stats, warnings)
+        lines = result.split("\n")
+        assert lines[0] == '| "a" | "b |'
+        assert lines[1] == f"| {DE_OPEN_DOUBLE}c{DE_CLOSE_DOUBLE} | d |"
+        assert len(warnings) == 1
+        assert warnings[0].startswith("Line 1: ")
+
+    def test_blockquote_lines_join_the_running_block(self):
+        stats = make_stats()
+        warnings = []
+        result = process_file('> "Zitat über\n> zwei Zeilen"', stats, warnings)
+        lines = result.split("\n")
+        assert lines[0] == f"> {DE_OPEN_DOUBLE}Zitat über"
+        assert lines[1] == f"> zwei Zeilen{DE_CLOSE_DOUBLE}"
+        assert warnings == []
+
+    def test_paragraph_directly_before_a_fence_is_converted(self):
+        stats = make_stats()
+        content = 'Text "a\nb"\n```\n"code"\n```\n"c\nd"'
+        result = process_file(content, stats, [])
+        lines = result.split("\n")
+        assert lines[0] == f"Text {DE_OPEN_DOUBLE}a"
+        assert lines[1] == f"b{DE_CLOSE_DOUBLE}"
+        assert lines[2] == "```"
+        assert lines[3] == '"code"'
+        assert lines[4] == "```"
+        assert lines[5] == f"{DE_OPEN_DOUBLE}c"
+        assert lines[6] == f"d{DE_CLOSE_DOUBLE}"
+
+    def test_frontmatter_then_wrapped_paragraph(self):
+        stats = make_stats()
+        content = '---\ntitle: "x"\n---\n"Eins\nzwei"'
+        result = process_file(content, stats, [])
+        lines = result.split("\n")
+        assert lines[1] == 'title: "x"'
+        assert lines[3] == f"{DE_OPEN_DOUBLE}Eins"
+        assert lines[4] == f"zwei{DE_CLOSE_DOUBLE}"
+
+    def test_lines_changed_counts_each_changed_line_once(self):
+        stats = make_stats()
+        process_file('"Eins\nzwei"\nunverändert\n"drei"', stats, [])
+        assert stats["lines_changed"] == 3
+
+    def test_english_double_quotes_pair_across_lines(self):
+        stats = make_stats()
+        result = process_file(f"{EN_OPEN_DOUBLE}Eins\nzwei{EN_CLOSE_DOUBLE}", stats, [])
+        lines = result.split("\n")
+        assert lines[0] == f"{DE_OPEN_DOUBLE}Eins"
+        assert lines[1] == f"zwei{DE_CLOSE_DOUBLE}"
+        assert EN_CLOSE_DOUBLE not in result
+
+    def test_english_single_quotes_pair_across_lines(self):
+        stats = make_stats()
+        result = process_file(f"{EN_OPEN_SINGLE}Eins\nzwei{EN_CLOSE_SINGLE}", stats, [])
+        lines = result.split("\n")
+        assert lines[0] == f"{DE_OPEN_SINGLE}Eins"
+        assert lines[1] == f"zwei{DE_CLOSE_SINGLE}"
+
+
+# ---------------------------------------------------------------------------
+# Reporting helpers
+# ---------------------------------------------------------------------------
+class TestPrintHelpers:
+    def test_print_diff_shows_only_changed_lines(self, capsys):
+        print_diff('"a"\nsame', f"{DE_OPEN_DOUBLE}a{DE_CLOSE_DOUBLE}\nsame")
+        out = capsys.readouterr().out
+        assert "Line 1:" in out
+        assert '- "a"' in out
+        assert f"+ {DE_OPEN_DOUBLE}a{DE_CLOSE_DOUBLE}" in out
+        assert "Line 2" not in out
+
+    def test_print_diff_without_changes(self, capsys):
+        print_diff("x", "x")
+        assert "No changes." in capsys.readouterr().out
+
+    def test_print_diff_with_different_line_counts(self, capsys):
+        print_diff("a", "a\nb")
+        out = capsys.readouterr().out
+        assert "Line 2:" in out
+        assert "+ b" in out
+
+    def test_print_stats_totals(self, capsys):
+        stats = make_stats()
+        stats["straight_double"] = 2
+        stats["english_double"] = 1
+        stats["lines_changed"] = 3
+        print_stats(stats)
+        out = capsys.readouterr().out
+        assert "2 pair(s)" in out
+        assert "Lines changed:              3" in out
+        assert "Total replacements:         3" in out
+
+
+# ---------------------------------------------------------------------------
+# main (CLI)
+# ---------------------------------------------------------------------------
+class TestMain:
+    def test_file_mode_writes_file_and_prints_summary(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        f = tmp_path / "a.md"
+        f.write_text('"Hallo"', encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", str(f)])
+        main()
+        assert (
+            f.read_text(encoding="utf-8") == f"{DE_OPEN_DOUBLE}Hallo{DE_CLOSE_DOUBLE}"
+        )
+        captured = capsys.readouterr()
+        assert "--- Summary ---" in captured.out
+        assert "Files processed" not in captured.out
+        assert captured.err == ""
+
+    def test_directory_dry_run_reports_warnings_and_writes_nothing(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        (tmp_path / "a.md").write_text('"Nur eine', encoding="utf-8")
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "sub" / "b.md").write_text('"Paar"', encoding="utf-8")
+        monkeypatch.setattr(
+            sys, "argv", ["fix-german-quotes", str(tmp_path), "--dry-run"]
+        )
+        main()
+        captured = capsys.readouterr()
+        assert "Processing 2 file(s)" in captured.out
+        assert "Files processed:            2" in captured.out
+        assert "No files written (--dry-run)." in captured.out
+        assert "--- WARNINGS ---" in captured.err
+        assert "a.md] Line 1: Asymmetric" in captured.err
+        assert "--- 1 warning(s) ---" in captured.err
+        assert (tmp_path / "a.md").read_text(encoding="utf-8") == '"Nur eine'
+        assert (tmp_path / "sub" / "b.md").read_text(encoding="utf-8") == '"Paar"'
+
+    def test_missing_path_exits_with_error(self, tmp_path, monkeypatch, capsys):
+        missing = tmp_path / "nope.md"
+        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", str(missing)])
+        with pytest.raises(SystemExit) as exc:
+            main()
+        assert exc.value.code == 1
+        assert "Path not found" in capsys.readouterr().err
+
+    def test_no_matching_files_exits_with_error(self, tmp_path, monkeypatch, capsys):
+        (tmp_path / "notes.txt").write_text("x", encoding="utf-8")
+        monkeypatch.setattr(
+            sys, "argv", ["fix-german-quotes", str(tmp_path), "--pattern", "*.markdown"]
+        )
+        with pytest.raises(SystemExit) as exc:
+            main()
+        assert exc.value.code == 1
+        assert "No files matching '*.markdown'" in capsys.readouterr().err
