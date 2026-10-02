@@ -80,6 +80,7 @@ _BUILTIN_DEFAULT_SECTION_ORDER = [
     "back-matter/appendix.md",
     "back-matter/acknowledgments.md",
     "back-matter/about-the-author.md",
+    "back-matter/other-publications.md",
     "back-matter/bibliography.md",
     "back-matter/imprint.md",
 ]
@@ -94,6 +95,7 @@ _BUILTIN_PAPERBACK_SECTION_ORDER = [
     "back-matter/appendix.md",
     "back-matter/acknowledgments.md",
     "back-matter/about-the-author.md",
+    "back-matter/other-publications-print.md",
     "back-matter/bibliography.md",
     "back-matter/imprint.md",
 ]
@@ -525,6 +527,38 @@ def filter_section_order_for_epub(section_order: list[str]) -> list[str]:
     return filtered
 
 
+def report_unlisted_markdown(
+    book_dir: str, md_files: list[str], skip_files: list[str] | None = None
+) -> list[str]:
+    """Warn about Markdown files under ``book_dir`` that this build does not use.
+
+    A section order only names the files it includes, so a file that the
+    author added without extending the order (``back-matter/next-in-series.md``,
+    a draft in a subfolder) would silently vanish from the book. Every
+    ``*.md`` below ``book_dir`` that is neither in ``md_files`` nor in
+    ``skip_files`` is reported in one line. ``skip_files`` defaults to
+    ``EPUB_SKIP_TOC_FILES``: the manual TOC files are dropped on purpose
+    for some builds and must not trigger the warning.
+
+    Returns the reported files relative to ``book_dir`` (POSIX style, sorted).
+    """
+    root = Path(book_dir)
+    if not root.is_dir():
+        return []
+    if skip_files is None:
+        skip_files = EPUB_SKIP_TOC_FILES
+    used = {Path(p).resolve() for p in md_files}
+    skipped = {(root / s).resolve() for s in skip_files}
+    unlisted = sorted(
+        p.relative_to(root).as_posix()
+        for p in root.rglob("*.md")
+        if p.is_file() and p.resolve() not in used and p.resolve() not in skipped
+    )
+    if unlisted:
+        print(f"⚠️  Not in section order, skipped: {', '.join(unlisted)}")
+    return unlisted
+
+
 def compile_book(
     format,
     section_order,
@@ -597,6 +631,9 @@ def compile_book(
     if not md_files:
         print(f"❌ No Markdown files found for format {format}. Skipping.")
         return
+
+    # Tell the author about manuscript files this build leaves out
+    report_unlisted_markdown(BOOK_DIR, md_files)
 
     # --resource-path: caller-supplied wins; otherwise fall back to legacy
     # "./assets" (resolved against run_cwd if provided, else current cwd).

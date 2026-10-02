@@ -9,6 +9,14 @@ All notable changes to this project will be documented in this file.
   locally running VoiceStudio app via its OpenAI-compatible API. Voice profile by id or name,
   `VOICESTUDIO_URL` / `VOICESTUDIO_API_KEY` overrides, short chunks for stable long-form narration,
   retries on server errors, clear error when the app is not running. No new dependency.
+- **Section order slot for `other-publications.md`**: the built-in ebook order includes
+  `back-matter/other-publications.md` and the built-in paperback/hardcover order
+  `back-matter/other-publications-print.md`, both between `about-the-author.md` and
+  `bibliography.md`. A missing file is skipped as before. Every build now prints
+  `⚠️  Not in section order, skipped: ...` for Markdown files under `manuscript/` that the
+  resolved order does not include (the manual TOC files excepted), so an extra section no
+  longer vanishes silently. Projects with their own sections set the order in
+  `config/export-settings.yaml` (#10).
 
 ### Changed
 - **EPUB export uses `--split-level=1`** instead of the deprecated `--epub-chapter-level=1`
