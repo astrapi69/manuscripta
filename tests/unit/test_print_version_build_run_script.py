@@ -3,6 +3,8 @@ import pytest
 pytestmark = pytest.mark.unit
 
 # tests/test_print_version_build_run_script.py
+import sys
+
 import manuscripta.export.print_version as bp
 
 
@@ -13,7 +15,7 @@ class DummyProc:
 
 def test_run_script_success(monkeypatch):
     def fake_run(cmd, check=True):
-        assert "python3" in cmd[0]
+        assert cmd[0] == sys.executable
         assert "-m" in cmd
         assert "manuscripta.export.book" in cmd
         return DummyProc(0)

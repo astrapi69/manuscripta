@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import argparse
 import yaml
 import toml
@@ -428,12 +429,13 @@ def run_script(module_path, arg=None, cwd=None):
     """Run a manuscripta module with optional arguments and log output.
 
     Parameters:
-        module_path: Dotted Python module to run via ``python3 -m``.
+        module_path: Dotted Python module to run with the current interpreter
+            (``sys.executable -m``), so it sees the same installed packages.
         arg: Optional single positional argument.
         cwd: Optional working directory to launch the subprocess in.
     """
     try:
-        cmd = ["python3", "-m", module_path]
+        cmd = [sys.executable, "-m", module_path]
         if arg:
             cmd.append(arg)
         subprocess.run(
@@ -744,7 +746,7 @@ def normalize_toc_if_needed(
             toc_ext = extension if extension else "md"
             subprocess.run(
                 [
-                    "python3",
+                    sys.executable,
                     "-m",
                     _MOD_NORMALIZE_TOC,
                     "--toc",
@@ -957,7 +959,7 @@ def _run_pipeline(
             toc_ext = extension if extension else "md"
             subprocess.run(
                 [
-                    "python3",
+                    sys.executable,
                     "-m",
                     _MOD_NORMALIZE_TOC,
                     "--toc",
@@ -1163,8 +1165,6 @@ def main(argv: list[str] | None = None) -> None:
     directory is used as the source_dir. **Only the CLI layer is allowed to
     fall back to cwd — the library API (:func:`run_export`) never does.**
     """
-    import sys
-
     argv_in = list(sys.argv[1:]) if argv is None else list(argv)
 
     # Peel off --source-dir and strict-images toggles before delegating to the

@@ -10,6 +10,13 @@ All notable changes to this project will be documented in this file.
   `VOICESTUDIO_URL` / `VOICESTUDIO_API_KEY` overrides, short chunks for stable long-form narration,
   retries on server errors, clear error when the app is not running. No new dependency.
 
+### Fixed
+- **Export helper modules run with the current interpreter**: `run_script`, the TOC
+  normalization step and `print-version-build` launch the `manuscripta.*` helper modules with
+  `sys.executable` instead of a bare `python3`. An export started from a Poetry or virtualenv
+  interpreter no longer falls back to the system Python (where manuscripta is not installed)
+  and no longer logs "Error normalizing TOC" (#5).
+
 ## [0.9.0] - 2026-04-16
 
 ### Changed

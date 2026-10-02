@@ -59,11 +59,12 @@ def run_script(module_path: str, *script_args: str, dry_run: bool = False) -> bo
         True on success (returncode 0), False otherwise.
 
     Notes:
-      - Uses `python3 -m <module> <args...>` to run installed modules.
+      - Runs `<interpreter> -m <module> <args...>` with `sys.executable`, so the
+        module is found in the same environment as this process.
       - Never raises on failure; caller handles control flow (tests expect boolean).
       - `dry_run=True` prints the command and returns True without executing.
     """
-    cmd: List[str] = ["python3", "-m", module_path] + list(script_args)
+    cmd: List[str] = [sys.executable, "-m", module_path] + list(script_args)
 
     if dry_run:
         print("[dry-run] Would run: " + " ".join(cmd))

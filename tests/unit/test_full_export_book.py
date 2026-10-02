@@ -4,6 +4,7 @@ import pytest
 pytestmark = pytest.mark.unit
 import os
 import shutil
+import sys
 from pathlib import Path
 import subprocess
 from unittest.mock import patch, ANY
@@ -44,7 +45,7 @@ def test_run_script_success(mock_run):
     mock_run.return_value.returncode = 0
     run_script("manuscripta.paths.to_absolute")
     mock_run.assert_called_with(
-        ["python3", "-m", "manuscripta.paths.to_absolute"],
+        [sys.executable, "-m", "manuscripta.paths.to_absolute"],
         check=True,
         cwd=None,
         stdout=ANY,

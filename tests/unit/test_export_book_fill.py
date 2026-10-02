@@ -13,6 +13,7 @@ value, raised exception) — not just "the function was called".
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -590,7 +591,7 @@ def test_normalize_toc_if_needed_runs_subprocess_for_toc_md(tmp_path, monkeypatc
 
     monkeypatch.setattr(bm.subprocess, "run", fake_run)
     bm.normalize_toc_if_needed(p)
-    assert seen["cmd"][0] == "python3"
+    assert seen["cmd"][0] == sys.executable
     assert "--toc" in seen["cmd"]
 
 
