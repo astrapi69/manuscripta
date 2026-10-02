@@ -21,6 +21,8 @@ All notable changes to this project will be documented in this file.
   `sys.executable` instead of a bare `python3`. An export started from a Poetry or virtualenv
   interpreter no longer falls back to the system Python (where manuscripta is not installed)
   and no longer logs "Error normalizing TOC" (#5).
+- **`replace-emojis` maps 🌐 to ◯** (U+25EF, the same KDP-safe circle as 🌍) instead of the
+  diameter sign ⌀ (#7).
 
 ## [0.9.0] - 2026-04-16
 
