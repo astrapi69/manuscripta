@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file.
 - **EPUB export uses `--split-level=1`** instead of the deprecated `--epub-chapter-level=1`
   (same behaviour: every H1 starts a new XHTML file). Pandoc 3.0 or newer is now the documented
   minimum (#6).
+- **`fix-german-quotes` documentation** (module docstring and README) states which quotes the
+  tool converts and that straight single quotes `'` are left alone on purpose, because they
+  cannot be told apart from apostrophes (#9).
 
 ### Fixed
 - **Export helper modules run with the current interpreter**: `run_script`, the TOC

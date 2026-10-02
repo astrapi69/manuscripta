@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 # scripts/fix_german_quotes.py
 """
-fix_german_quotes.py - Converts quotation marks in Markdown files
+fix-german-quotes - Converts quotation marks in Markdown files
 to German typographic style.
 
 Target format:
   Double: „ " (U+201E / U+201C)
   Single: ‚ ' (U+201A / U+2018)
 
+Converted: straight double quotes (") and English typographic quotes
+(U+201C/U+201D and U+2018/U+2019). Straight single quotes (') are left
+alone on purpose: in running text they cannot be told apart from
+apostrophes ("geht's" versus 'Zitat'), so converting them would break
+more than it fixes.
+
 Usage:
-  python fix_german_quotes.py input.md
-  python fix_german_quotes.py input.md --dry-run
-  python fix_german_quotes.py ./my_book/           (recursive, *.md)
-  python fix_german_quotes.py ./docs/ --pattern "*.markdown"
+  fix-german-quotes input.md
+  fix-german-quotes input.md --dry-run
+  fix-german-quotes ./my_book/           (recursive, *.md)
+  fix-german-quotes ./docs/ --pattern "*.markdown"
 """
 
 import argparse

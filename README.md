@@ -209,6 +209,10 @@ language: de
 | `strip-links`              | Strip links from markdown      |
 | `normalize-toc`            | Normalize TOC links            |
 
+`fix-german-quotes` converts straight double quotes `"..."` and English typographic quotes
+(`“...”`, `‘...’`) to German `„...“` and `‚...‘`. Straight single quotes `'` are left alone on
+purpose: they are indistinguishable from apostrophes (`geht's`), so the tool never touches them.
+
 ### Path Tools
 
 | Command                     | Description                        |
