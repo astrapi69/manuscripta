@@ -20,7 +20,7 @@ poetry add manuscripta
 ## Requirements
 
 - Python 3.11+
-- [Pandoc](https://pandoc.org/installing.html) installed and available on PATH
+- [Pandoc](https://pandoc.org/installing.html) 3.0 or newer installed and available on PATH
 - For audiobook generation: internet connection (Edge TTS) or local TTS engine
 
 ## Quick Start

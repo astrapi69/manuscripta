@@ -326,7 +326,7 @@ def test_compile_book_html_includes_standalone_and_css(monkeypatch, tmp_path):
     assert any("lang=fr" in a for a in argv)
 
 
-def test_compile_book_epub_ebook_includes_toc_and_chapter_level(monkeypatch, tmp_path):
+def test_compile_book_epub_ebook_includes_toc_and_split_level(monkeypatch, tmp_path):
     chapters = tmp_path / "chapters"
     chapters.mkdir()
     (chapters / "ch1.md").write_text("# x", encoding="utf-8")
@@ -335,7 +335,8 @@ def test_compile_book_epub_ebook_includes_toc_and_chapter_level(monkeypatch, tmp
     argv = _compile_and_capture(monkeypatch, format="epub")
     assert "--toc" in argv
     assert any("--toc-depth=" in a for a in argv)
-    assert "--epub-chapter-level=1" in argv
+    assert "--split-level=1" in argv
+    assert not any(a.startswith("--epub-chapter-level") for a in argv)
 
 
 def test_compile_book_epub2_sets_metadata(monkeypatch, tmp_path):

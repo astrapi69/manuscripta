@@ -639,7 +639,7 @@ def compile_book(
                 [
                     "--toc",  # Generate table of contents
                     f"--toc-depth={toc_depth}",  # TOC depth (default: 2)
-                    "--epub-chapter-level=1",  # Each H1 becomes a new XHTML file
+                    "--split-level=1",  # Each H1 becomes a new XHTML file (pandoc >= 3.0)
                 ]
             )
         if force_epub2:
