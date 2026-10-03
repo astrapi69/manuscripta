@@ -13,6 +13,7 @@ value, raised exception) — not just "the function was called".
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -325,7 +326,7 @@ def test_compile_book_html_includes_standalone_and_css(monkeypatch, tmp_path):
     assert any("lang=fr" in a for a in argv)
 
 
-def test_compile_book_epub_ebook_includes_toc_and_chapter_level(monkeypatch, tmp_path):
+def test_compile_book_epub_ebook_includes_toc_and_split_level(monkeypatch, tmp_path):
     chapters = tmp_path / "chapters"
     chapters.mkdir()
     (chapters / "ch1.md").write_text("# x", encoding="utf-8")
@@ -334,7 +335,8 @@ def test_compile_book_epub_ebook_includes_toc_and_chapter_level(monkeypatch, tmp
     argv = _compile_and_capture(monkeypatch, format="epub")
     assert "--toc" in argv
     assert any("--toc-depth=" in a for a in argv)
-    assert "--epub-chapter-level=1" in argv
+    assert "--split-level=1" in argv
+    assert not any(a.startswith("--epub-chapter-level") for a in argv)
 
 
 def test_compile_book_epub2_sets_metadata(monkeypatch, tmp_path):
@@ -590,7 +592,7 @@ def test_normalize_toc_if_needed_runs_subprocess_for_toc_md(tmp_path, monkeypatc
 
     monkeypatch.setattr(bm.subprocess, "run", fake_run)
     bm.normalize_toc_if_needed(p)
-    assert seen["cmd"][0] == "python3"
+    assert seen["cmd"][0] == sys.executable
     assert "--toc" in seen["cmd"]
 
 
@@ -760,3 +762,132 @@ def test_configure_paths_deduplicates_resource_paths(tmp_path, monkeypatch):
 
     parts = rp.split(_os.pathsep)
     assert parts.count(str((tmp_path / "assets").resolve())) == 1
+
+
+# --------------------------------------------------------------------------
+# Built-in section orders and the "not in section order" warning
+# --------------------------------------------------------------------------
+
+
+def _slot_between(order: list[str], entry: str, before: str, after: str) -> None:
+    assert order.index(before) < order.index(entry) < order.index(after)
+
+
+def test_builtin_default_order_has_other_publications_slot():
+    _slot_between(
+        bm._BUILTIN_DEFAULT_SECTION_ORDER,
+        "back-matter/other-publications.md",
+        "back-matter/about-the-author.md",
+        "back-matter/imprint.md",
+    )
+
+
+def test_builtin_paperback_order_has_other_publications_print_slot():
+    _slot_between(
+        bm._BUILTIN_PAPERBACK_SECTION_ORDER,
+        "back-matter/other-publications-print.md",
+        "back-matter/about-the-author.md",
+        "back-matter/imprint.md",
+    )
+
+
+def test_compile_book_skips_missing_other_publications_file(monkeypatch, tmp_path):
+    (tmp_path / "chapters").mkdir()
+    (tmp_path / "chapters" / "ch1.md").write_text("# x", encoding="utf-8")
+    (tmp_path / "back-matter").mkdir()
+    (tmp_path / "back-matter" / "imprint.md").write_text("# i", encoding="utf-8")
+    monkeypatch.setattr(bm, "BOOK_DIR", str(tmp_path))
+    monkeypatch.setattr(bm, "OUTPUT_DIR", str(tmp_path / "output"))
+    monkeypatch.setattr(bm, "OUTPUT_FILE", "book")
+
+    captured = {}
+
+    def fake_run(cmd, **kw):
+        captured["argv"] = list(cmd)
+        return _CP()
+
+    monkeypatch.setattr(bm.subprocess, "run", fake_run)
+    bm.compile_book(
+        "pdf",
+        [
+            "chapters",
+            "back-matter/other-publications.md",
+            "back-matter/imprint.md",
+        ],
+        BookType.EBOOK,
+    )
+    argv = captured["argv"]
+    md_args = [a for a in argv if a.endswith(".md")]
+    assert [Path(a).name for a in md_args] == ["ch1.md", "imprint.md"]
+
+
+def test_compile_book_warns_about_markdown_not_in_section_order(
+    monkeypatch, tmp_path, capsys
+):
+    (tmp_path / "chapters").mkdir()
+    (tmp_path / "chapters" / "ch1.md").write_text("# x", encoding="utf-8")
+    (tmp_path / "chapters" / "drafts").mkdir()
+    (tmp_path / "chapters" / "drafts" / "idea.md").write_text("# d", encoding="utf-8")
+    (tmp_path / "back-matter").mkdir()
+    (tmp_path / "back-matter" / "next-in-series.md").write_text("# n", encoding="utf-8")
+    (tmp_path / "back-matter" / "notes.md.bak").write_text("# b", encoding="utf-8")
+    (tmp_path / "front-matter").mkdir()
+    (tmp_path / "front-matter" / "toc.md").write_text("# t", encoding="utf-8")
+    (tmp_path / "front-matter" / "toc-print.md").write_text("# t", encoding="utf-8")
+    monkeypatch.setattr(bm, "BOOK_DIR", str(tmp_path))
+    monkeypatch.setattr(bm, "OUTPUT_DIR", str(tmp_path / "output"))
+    monkeypatch.setattr(bm.subprocess, "run", lambda cmd, **kw: _CP())
+    monkeypatch.setattr(bm, "OUTPUT_FILE", "book")
+
+    bm.compile_book("pdf", ["chapters"], BookType.EBOOK)
+
+    out = capsys.readouterr().out
+    assert (
+        "⚠️  Not in section order, skipped: "
+        "back-matter/next-in-series.md, chapters/drafts/idea.md" in out
+    )
+    # The manual TOC files are dropped on purpose and never reported.
+    assert "toc.md" not in out
+    assert "toc-print.md" not in out
+    assert "notes.md.bak" not in out
+
+
+def test_compile_book_no_warning_when_every_markdown_file_is_used(
+    monkeypatch, tmp_path, capsys
+):
+    (tmp_path / "chapters").mkdir()
+    (tmp_path / "chapters" / "ch1.md").write_text("# x", encoding="utf-8")
+    monkeypatch.setattr(bm, "BOOK_DIR", str(tmp_path))
+    monkeypatch.setattr(bm, "OUTPUT_DIR", str(tmp_path / "output"))
+    _compile_and_capture(monkeypatch, format="pdf")
+    assert "Not in section order" not in capsys.readouterr().out
+
+
+def test_report_unlisted_markdown_returns_relative_sorted_paths(tmp_path, capsys):
+    (tmp_path / "b").mkdir()
+    (tmp_path / "b" / "z.md").write_text("", encoding="utf-8")
+    (tmp_path / "a.md").write_text("", encoding="utf-8")
+    (tmp_path / "used.md").write_text("", encoding="utf-8")
+    (tmp_path / "skip.md").write_text("", encoding="utf-8")
+
+    result = bm.report_unlisted_markdown(
+        str(tmp_path), [str(tmp_path / "used.md")], skip_files=["skip.md"]
+    )
+
+    assert result == ["a.md", "b/z.md"]
+    assert "Not in section order, skipped: a.md, b/z.md" in capsys.readouterr().out
+
+
+def test_report_unlisted_markdown_uses_epub_skip_list_by_default(
+    monkeypatch, tmp_path, capsys
+):
+    (tmp_path / "front-matter").mkdir()
+    (tmp_path / "front-matter" / "custom-toc.md").write_text("", encoding="utf-8")
+    monkeypatch.setattr(bm, "EPUB_SKIP_TOC_FILES", ["front-matter/custom-toc.md"])
+    assert bm.report_unlisted_markdown(str(tmp_path), []) == []
+    assert capsys.readouterr().out == ""
+
+
+def test_report_unlisted_markdown_nonexistent_dir_is_silent(tmp_path, capsys):
+    assert bm.report_unlisted_markdown(str(tmp_path / "missing"), []) == []
+    assert capsys.readouterr().out == ""

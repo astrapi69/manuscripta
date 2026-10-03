@@ -20,7 +20,7 @@ poetry add manuscripta
 ## Requirements
 
 - Python 3.11+
-- [Pandoc](https://pandoc.org/installing.html) installed and available on PATH
+- [Pandoc](https://pandoc.org/installing.html) 3.0 or newer installed and available on PATH
 - For audiobook generation: internet connection (Edge TTS) or local TTS engine
 
 ## Quick Start
@@ -208,6 +208,10 @@ language: de
 | `replace-emojis`           | Replace emojis in markdown     |
 | `strip-links`              | Strip links from markdown      |
 | `normalize-toc`            | Normalize TOC links            |
+
+`fix-german-quotes` converts straight double quotes `"..."` and English typographic quotes
+(`“...”`, `‘...’`) to German `„...“` and `‚...‘`. Straight single quotes `'` are left alone on
+purpose: they are indistinguishable from apostrophes (`geht's`), so the tool never touches them.
 
 ### Path Tools
 

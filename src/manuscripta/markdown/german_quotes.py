@@ -1,18 +1,30 @@
 #!/usr/bin/env python3
 # scripts/fix_german_quotes.py
 """
-fix_german_quotes.py - Converts quotation marks in Markdown files
+fix-german-quotes - Converts quotation marks in Markdown files
 to German typographic style.
 
 Target format:
   Double: „ " (U+201E / U+201C)
   Single: ‚ ' (U+201A / U+2018)
 
+Converted: straight double quotes (") and English typographic quotes
+(U+201C/U+201D and U+2018/U+2019). Straight single quotes (') are left
+alone on purpose: in running text they cannot be told apart from
+apostrophes ("geht's" versus 'Zitat'), so converting them would break
+more than it fixes.
+
+Quotes are paired per block, not per line: a paragraph, a list item, a
+heading or a table row is converted as a whole, so a quotation that a
+hard line wrap split across two lines is still closed correctly. Blank
+lines end a paragraph; YAML frontmatter and fenced code blocks are never
+touched.
+
 Usage:
-  python fix_german_quotes.py input.md
-  python fix_german_quotes.py input.md --dry-run
-  python fix_german_quotes.py ./my_book/           (recursive, *.md)
-  python fix_german_quotes.py ./docs/ --pattern "*.markdown"
+  fix-german-quotes input.md
+  fix-german-quotes input.md --dry-run
+  fix-german-quotes ./my_book/           (recursive, *.md)
+  fix-german-quotes ./docs/ --pattern "*.markdown"
 """
 
 import argparse
@@ -42,6 +54,16 @@ STRAIGHT_SINGLE = "'"
 
 # Default glob pattern for directory mode
 DEFAULT_PATTERN = "*.md"
+
+# Lines that open a block of their own (after stripping leading whitespace):
+# headings, list items (bullet or numbered) and table rows. Quotes are
+# paired inside one block and never across a block boundary.
+_HEADING_RE = re.compile(r"^#")
+_LIST_ITEM_RE = re.compile(r"^(?:[-*+]|\d+[.)])\s")
+_TABLE_ROW_RE = re.compile(r"^\|")
+
+# Shown between the lines of a multi-line block in a warning's context excerpt
+CONTEXT_LINE_SEPARATOR = " \u23ce "  # " ⏎ "
 
 
 def parse_args():
@@ -87,17 +109,20 @@ def mask_protected_regions(line: str) -> list[tuple[int, int]]:
     """
     Return a list of (start, end) ranges that must not be modified:
     inline code spans and HTML attribute values.
+
+    ``line`` may be a whole block with embedded line breaks; a protected
+    region never spans a line break.
     """
     protected = []
 
     # Inline code: `...`
-    for m in re.finditer(r"`[^`]+`", line):
+    for m in re.finditer(r"`[^`\n]+`", line):
         protected.append((m.start(), m.end()))
 
     # HTML attributes: key="..." or key='...'
-    for m in re.finditer(r'(?:[\w-]+)\s*=\s*"[^"]*"', line):
+    for m in re.finditer(r'(?:[\w-]+)[ \t]*=[ \t]*"[^"\n]*"', line):
         protected.append((m.start(), m.end()))
-    for m in re.finditer(r"(?:[\w-]+)\s*=\s*'[^']*'", line):
+    for m in re.finditer(r"(?:[\w-]+)[ \t]*=[ \t]*'[^'\n]*'", line):
         protected.append((m.start(), m.end()))
 
     return protected
@@ -119,15 +144,39 @@ def find_quote_positions(
     return positions
 
 
+def format_line_range(first: int, last: int | None = None) -> str:
+    """Return "Line 7" for a single line and "Lines 7-8" for a line range."""
+    if last is None or last == first:
+        return f"Line {first}"
+    return f"Lines {first}-{last}"
+
+
+def format_context(text: str) -> str:
+    """Return a one-line excerpt of a block for a warning message.
+
+    Trailing whitespace is dropped and the line breaks of a multi-line
+    block are shown as ``CONTEXT_LINE_SEPARATOR``.
+    """
+    return CONTEXT_LINE_SEPARATOR.join(
+        part.rstrip() for part in text.rstrip().split("\n")
+    )
+
+
 def replace_straight_double_quotes(
     line: str,
     protected: list[tuple[int, int]],
     stats: dict,
     warnings: list,
     line_num: int,
+    line_end: int | None = None,
 ) -> str:
     """
     Replace straight double quotation marks pairwise with German „ ".
+
+    ``line`` is one block of text and may contain line breaks; ``line_num``
+    is the 1-based file line number of its first line and ``line_end``
+    that of its last line (``None`` for a single line). Both only appear
+    in the warning for an odd number of quotation marks.
 
     Also handles mixed cases: if a German opening „ (U+201E) is already
     present and a straight " follows as closing quote, only the closing
@@ -160,11 +209,11 @@ def replace_straight_double_quotes(
     remaining = [p for p in straight_positions if p not in consumed_straight]
 
     if len(remaining) % 2 != 0:
-        context = line.rstrip()
         warnings.append(
-            f'Line {line_num}: Asymmetric straight quotation mark (") '
+            f"{format_line_range(line_num, line_end)}: "
+            f'Asymmetric straight quotation mark (") '
             f"- {len(remaining)} unpaired occurrence(s)\n"
-            f"  Context: {context}"
+            f"  Context: {format_context(line)}"
         )
         stats["warnings"] += 1
         # Keep already converted characters
@@ -284,56 +333,114 @@ def replace_english_single_quotes(
     return "".join(chars)
 
 
-def process_line(line: str, line_num: int, stats: dict, warnings: list) -> str:
-    """Process a single line through all quote replacement stages."""
-    protected = mask_protected_regions(line)
+def process_block(text: str, first_line_num: int, stats: dict, warnings: list) -> str:
+    """Run one block of text through all quote replacement stages.
+
+    ``text`` is a paragraph, list item, heading or table row and may span
+    several lines joined with "\\n"; quotes are paired across those lines.
+    ``first_line_num`` is the 1-based file line number of the first line
+    and is used, together with the computed last line, in warnings.
+    """
+    last_line_num = first_line_num + text.count("\n")
+    protected = mask_protected_regions(text)
 
     # 1. Straight double quotation marks
-    line = replace_straight_double_quotes(line, protected, stats, warnings, line_num)
+    text = replace_straight_double_quotes(
+        text, protected, stats, warnings, first_line_num, last_line_num
+    )
 
     # Recompute protected regions after modification
-    protected = mask_protected_regions(line)
+    protected = mask_protected_regions(text)
 
     # 2. English typographic double quotation marks
-    line = replace_english_double_quotes(line, protected, stats)
+    text = replace_english_double_quotes(text, protected, stats)
 
-    protected = mask_protected_regions(line)
+    protected = mask_protected_regions(text)
 
     # 3. English typographic single quotation marks
-    line = replace_english_single_quotes(line, protected, stats)
+    text = replace_english_single_quotes(text, protected, stats)
 
-    return line
+    return text
+
+
+def process_line(line: str, line_num: int, stats: dict, warnings: list) -> str:
+    """Process a single line as a block of its own (see ``process_block``)."""
+    return process_block(line, line_num, stats, warnings)
+
+
+def starts_own_block(line: str) -> bool:
+    """Return True for a heading, a list item or a table row.
+
+    Such a line ends the running block and opens a new one, so the quotes
+    of neighbouring list items or of a heading and the paragraph below it
+    are never paired with each other.
+    """
+    stripped = line.lstrip()
+    return bool(
+        _HEADING_RE.match(stripped)
+        or _LIST_ITEM_RE.match(stripped)
+        or _TABLE_ROW_RE.match(stripped)
+    )
+
+
+def is_single_line_block(line: str) -> bool:
+    """Return True for a heading or a table row, which never continue on the next line."""
+    stripped = line.lstrip()
+    return bool(_HEADING_RE.match(stripped) or _TABLE_ROW_RE.match(stripped))
 
 
 def process_file(content: str, stats: dict, warnings: list) -> str:
-    """Process the entire file content, respecting frontmatter and code blocks."""
+    """Process the entire file content.
+
+    YAML frontmatter and fenced code blocks pass through untouched.
+    Everything else is grouped into blocks: a block ends at a blank line,
+    at a code fence, before a line that starts its own block (heading,
+    list item, table row) and after a heading or table row. Each block is
+    converted as a whole, so a quotation that a hard line wrap split
+    across two lines is still paired correctly. Line numbers in warnings
+    are 1-based file line numbers.
+    """
     lines = content.split("\n")
-    result_lines = []
+    result_lines: list[str] = []
 
     in_code_block = False
     in_frontmatter = False
+
+    block: list[str] = []
+    block_start = 1  # 1-based file line number of block[0]
+
+    def flush_block() -> None:
+        """Convert the running block and append its lines to the result."""
+        if not block:
+            return
+        converted = process_block("\n".join(block), block_start, stats, warnings)
+        new_lines = converted.split("\n")
+        stats["lines_changed"] += sum(
+            1 for old, new in zip(block, new_lines) if old != new
+        )
+        result_lines.extend(new_lines)
+        block.clear()
 
     for line_num_0, line in enumerate(lines):
         line_num = line_num_0 + 1
         stripped = line.rstrip()
 
-        # Frontmatter detection
+        # Frontmatter: only at the very top of the file, stays untouched
         if line_num_0 == 0 and stripped == "---":
             in_frontmatter = True
             result_lines.append(line)
             continue
 
-        if in_frontmatter and stripped == "---":
-            in_frontmatter = False
-            result_lines.append(line)
-            continue
-
         if in_frontmatter:
+            if stripped == "---":
+                in_frontmatter = False
             result_lines.append(line)
             continue
 
-        # Fenced code block detection (```)
+        # Fenced code blocks (```): the fence lines and everything inside
+        # stay untouched; a fence also ends the running block
         if stripped.startswith("```"):
+            flush_block()
             in_code_block = not in_code_block
             result_lines.append(line)
             continue
@@ -342,14 +449,21 @@ def process_file(content: str, stats: dict, warnings: list) -> str:
             result_lines.append(line)
             continue
 
-        # Process normal line
-        new_line = process_line(line, line_num, stats, warnings)
+        # A blank line ends the running block
+        if stripped == "":
+            flush_block()
+            result_lines.append(line)
+            continue
 
-        if new_line != line:
-            stats["lines_changed"] += 1
+        if starts_own_block(line):
+            flush_block()
+        if not block:
+            block_start = line_num
+        block.append(line)
+        if is_single_line_block(line):
+            flush_block()
 
-        result_lines.append(new_line)
-
+    flush_block()
     return "\n".join(result_lines)
 
 

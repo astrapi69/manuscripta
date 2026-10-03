@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import argparse
 import yaml
 import toml
@@ -79,6 +80,7 @@ _BUILTIN_DEFAULT_SECTION_ORDER = [
     "back-matter/appendix.md",
     "back-matter/acknowledgments.md",
     "back-matter/about-the-author.md",
+    "back-matter/other-publications.md",
     "back-matter/bibliography.md",
     "back-matter/imprint.md",
 ]
@@ -93,6 +95,7 @@ _BUILTIN_PAPERBACK_SECTION_ORDER = [
     "back-matter/appendix.md",
     "back-matter/acknowledgments.md",
     "back-matter/about-the-author.md",
+    "back-matter/other-publications-print.md",
     "back-matter/bibliography.md",
     "back-matter/imprint.md",
 ]
@@ -428,12 +431,13 @@ def run_script(module_path, arg=None, cwd=None):
     """Run a manuscripta module with optional arguments and log output.
 
     Parameters:
-        module_path: Dotted Python module to run via ``python3 -m``.
+        module_path: Dotted Python module to run with the current interpreter
+            (``sys.executable -m``), so it sees the same installed packages.
         arg: Optional single positional argument.
         cwd: Optional working directory to launch the subprocess in.
     """
     try:
-        cmd = ["python3", "-m", module_path]
+        cmd = [sys.executable, "-m", module_path]
         if arg:
             cmd.append(arg)
         subprocess.run(
@@ -523,6 +527,38 @@ def filter_section_order_for_epub(section_order: list[str]) -> list[str]:
     return filtered
 
 
+def report_unlisted_markdown(
+    book_dir: str, md_files: list[str], skip_files: list[str] | None = None
+) -> list[str]:
+    """Warn about Markdown files under ``book_dir`` that this build does not use.
+
+    A section order only names the files it includes, so a file that the
+    author added without extending the order (``back-matter/next-in-series.md``,
+    a draft in a subfolder) would silently vanish from the book. Every
+    ``*.md`` below ``book_dir`` that is neither in ``md_files`` nor in
+    ``skip_files`` is reported in one line. ``skip_files`` defaults to
+    ``EPUB_SKIP_TOC_FILES``: the manual TOC files are dropped on purpose
+    for some builds and must not trigger the warning.
+
+    Returns the reported files relative to ``book_dir`` (POSIX style, sorted).
+    """
+    root = Path(book_dir)
+    if not root.is_dir():
+        return []
+    if skip_files is None:
+        skip_files = EPUB_SKIP_TOC_FILES
+    used = {Path(p).resolve() for p in md_files}
+    skipped = {(root / s).resolve() for s in skip_files}
+    unlisted = sorted(
+        p.relative_to(root).as_posix()
+        for p in root.rglob("*.md")
+        if p.is_file() and p.resolve() not in used and p.resolve() not in skipped
+    )
+    if unlisted:
+        print(f"⚠️  Not in section order, skipped: {', '.join(unlisted)}")
+    return unlisted
+
+
 def compile_book(
     format,
     section_order,
@@ -596,6 +632,9 @@ def compile_book(
         print(f"❌ No Markdown files found for format {format}. Skipping.")
         return
 
+    # Tell the author about manuscript files this build leaves out
+    report_unlisted_markdown(BOOK_DIR, md_files)
+
     # --resource-path: caller-supplied wins; otherwise fall back to legacy
     # "./assets" (resolved against run_cwd if provided, else current cwd).
     if resource_path is None:
@@ -637,7 +676,7 @@ def compile_book(
                 [
                     "--toc",  # Generate table of contents
                     f"--toc-depth={toc_depth}",  # TOC depth (default: 2)
-                    "--epub-chapter-level=1",  # Each H1 becomes a new XHTML file
+                    "--split-level=1",  # Each H1 becomes a new XHTML file (pandoc >= 3.0)
                 ]
             )
         if force_epub2:
@@ -744,7 +783,7 @@ def normalize_toc_if_needed(
             toc_ext = extension if extension else "md"
             subprocess.run(
                 [
-                    "python3",
+                    sys.executable,
                     "-m",
                     _MOD_NORMALIZE_TOC,
                     "--toc",
@@ -957,7 +996,7 @@ def _run_pipeline(
             toc_ext = extension if extension else "md"
             subprocess.run(
                 [
-                    "python3",
+                    sys.executable,
                     "-m",
                     _MOD_NORMALIZE_TOC,
                     "--toc",
@@ -1163,8 +1202,6 @@ def main(argv: list[str] | None = None) -> None:
     directory is used as the source_dir. **Only the CLI layer is allowed to
     fall back to cwd — the library API (:func:`run_export`) never does.**
     """
-    import sys
-
     argv_in = list(sys.argv[1:]) if argv is None else list(argv)
 
     # Peel off --source-dir and strict-images toggles before delegating to the

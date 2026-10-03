@@ -9,6 +9,37 @@ All notable changes to this project will be documented in this file.
   locally running VoiceStudio app via its OpenAI-compatible API. Voice profile by id or name,
   `VOICESTUDIO_URL` / `VOICESTUDIO_API_KEY` overrides, short chunks for stable long-form narration,
   retries on server errors, clear error when the app is not running. No new dependency.
+- **Section order slot for `other-publications.md`**: the built-in ebook order includes
+  `back-matter/other-publications.md` and the built-in paperback/hardcover order
+  `back-matter/other-publications-print.md`, both between `about-the-author.md` and
+  `bibliography.md`. A missing file is skipped as before. Every build now prints
+  `⚠️  Not in section order, skipped: ...` for Markdown files under `manuscript/` that the
+  resolved order does not include (the manual TOC files excepted), so an extra section no
+  longer vanishes silently. Projects with their own sections set the order in
+  `config/export-settings.yaml` (#10).
+
+### Changed
+- **EPUB export uses `--split-level=1`** instead of the deprecated `--epub-chapter-level=1`
+  (same behaviour: every H1 starts a new XHTML file). Pandoc 3.0 or newer is now the documented
+  minimum (#6).
+- **`fix-german-quotes` documentation** (module docstring and README) states which quotes the
+  tool converts and that straight single quotes `'` are left alone on purpose, because they
+  cannot be told apart from apostrophes (#9).
+
+### Fixed
+- **Export helper modules run with the current interpreter**: `run_script`, the TOC
+  normalization step and `print-version-build` launch the `manuscripta.*` helper modules with
+  `sys.executable` instead of a bare `python3`. An export started from a Poetry or virtualenv
+  interpreter no longer falls back to the system Python (where manuscripta is not installed)
+  and no longer logs "Error normalizing TOC" (#5).
+- **`replace-emojis` maps 🌐 to ◯** (U+25EF, the same KDP-safe circle as 🌍) instead of the
+  diameter sign ⌀ (#7).
+- **`fix-german-quotes` pairs quotes per paragraph, not per line.** A quotation that a hard
+  line wrap split across two lines used to produce two "Asymmetric straight quotation mark"
+  warnings and stayed unconverted; it is now opened on the first line and closed on the second.
+  Headings, list items and table rows are paired on their own, a blank line ends a paragraph,
+  and frontmatter and fenced code blocks are still left untouched. A warning for a multi-line
+  block names the line range (`Lines 7-8`) and shows the whole block as context (#8).
 
 ## [0.9.0] - 2026-04-16
 
