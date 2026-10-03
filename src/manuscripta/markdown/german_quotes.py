@@ -188,22 +188,24 @@ def replace_straight_double_quotes(
     if not straight_positions:
         return line
 
-    # Phase 1: Find existing German opening „ (U+201E) that expect
-    # a straight " as their closing counterpart.
-    orphan_openers = []
-    for i, ch in enumerate(chars):
-        if ch == DE_OPEN_DOUBLE and not is_protected(i, protected):
-            orphan_openers.append(i)
-
-    # Match each „ with the next following straight "
+    # Phase 1: An existing German opening „ (U+201E) that is still open,
+    # i.e. not yet closed by “ (U+201C), takes the next straight " as its
+    # closing counterpart. An opener that is already closed takes none, so
+    # in „Hallo“ und "Welt" the two straight quotes pair with each other.
     consumed_straight = set()
-    for opener_pos in orphan_openers:
-        for sp in straight_positions:
-            if sp > opener_pos and sp not in consumed_straight:
-                chars[sp] = DE_CLOSE_DOUBLE
-                consumed_straight.add(sp)
-                stats["straight_double"] += 1
-                break
+    open_count = 0
+    for i, ch in enumerate(chars):
+        if is_protected(i, protected):
+            continue
+        if ch == DE_OPEN_DOUBLE:
+            open_count += 1
+        elif ch == DE_CLOSE_DOUBLE:
+            open_count = max(open_count - 1, 0)
+        elif ch == STRAIGHT_DOUBLE and open_count:
+            chars[i] = DE_CLOSE_DOUBLE
+            consumed_straight.add(i)
+            stats["straight_double"] += 1
+            open_count -= 1
 
     # Phase 2: Convert remaining straight " pairwise
     remaining = [p for p in straight_positions if p not in consumed_straight]

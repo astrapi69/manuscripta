@@ -40,6 +40,11 @@ All notable changes to this project will be documented in this file.
   Headings, list items and table rows are paired on their own, a blank line ends a paragraph,
   and frontmatter and fenced code blocks are still left untouched. A warning for a multi-line
   block names the line range (`Lines 7-8`) and shows the whole block as context (#8).
+- **`fix-german-quotes` no longer gives a closed `„…“` the next straight quote.** In a paragraph
+  such as `„Hallo“, sagte er, "und tschüss."` the opening straight quote was taken as a second
+  closing quote of `„Hallo“`, which produced `“und tschüss."` and an "Asymmetric straight
+  quotation mark" warning. Only an opening quote that is still open takes a straight closing
+  quote now.
 
 ## [0.9.0] - 2026-04-16
 
