@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # scripts/fix_german_quotes.py
 """
-fix-german-quotes, fix-english-quotes - Convert quotation marks in
-Markdown files to German or English typographic style.
+fix-german-quotes, fix-english-quotes, fix-french-quotes,
+fix-spanish-quotes - Convert quotation marks in Markdown files to German,
+English, French or Spanish typographic style.
 
 fix-german-quotes:
   Double: „ “ (U+201E / U+201C)
@@ -23,6 +24,16 @@ fix-english-quotes:
   only an opening ' needs its context (see replace_straight_single_quotes).
   German typographic quotes („ ‚) are left alone.
 
+fix-french-quotes, fix-spanish-quotes:
+  Double: « » (U+00AB / U+00BB), French with a no-break space inside
+          (« texte »), Spanish without («texto»)
+  Single: ‘ ’ and apostrophe ’, as in English
+
+  Converted: straight double quotes, straight single quotes (as in
+  English, so l'homme becomes l’homme) and the space inside every
+  guillemet, existing ones included. English and German typographic
+  quotes are left alone: “ ” is the second level in both languages.
+
 Quotes are paired per block, not per line: a paragraph, a list item, a
 heading or a table row is converted as a whole, so a quotation that a
 hard line wrap split across two lines is still closed correctly. Blank
@@ -35,6 +46,8 @@ Usage:
   fix-german-quotes ./my_book/           (recursive, *.md)
   fix-german-quotes ./docs/ --pattern "*.markdown"
   fix-english-quotes ./my_book/          (same options)
+  fix-french-quotes ./my_book/           (same options)
+  fix-spanish-quotes ./my_book/          (same options)
 """
 
 import argparse
@@ -64,6 +77,15 @@ EN_CLOSE_SINGLE = "\u2019"  # '
 STRAIGHT_DOUBLE = '"'
 STRAIGHT_SINGLE = "'"
 
+# French and Spanish double quotes (guillemets)
+GUILLEMET_OPEN = "\u00ab"  # «
+GUILLEMET_CLOSE = "\u00bb"  # »
+
+# Space inside French guillemets: the no-break space U+00A0, which every
+# e-reader font has. The narrow no-break space U+202F is the finer choice
+# where the target fonts are known to carry it.
+FR_GUILLEMET_SPACE = "\u00a0"
+
 # Default glob pattern for directory mode
 DEFAULT_PATTERN = "*.md"
 
@@ -83,6 +105,9 @@ class QuoteStyle:
     # Convert straight single quotes and apostrophes. Off for German, where
     # a straight ' cannot be told apart from an apostrophe.
     convert_straight_single: bool
+    # The space inside guillemets: « x » in French, none in Spanish. None
+    # for a style without guillemets, whose spacing is then left alone.
+    guillemet_space: str | None = None
 
 
 GERMAN = QuoteStyle(
@@ -105,13 +130,41 @@ ENGLISH = QuoteStyle(
     convert_straight_single=True,
 )
 
+FRENCH = QuoteStyle(
+    name="French",
+    open_double=GUILLEMET_OPEN,
+    close_double=GUILLEMET_CLOSE,
+    open_single=EN_OPEN_SINGLE,
+    close_single=EN_CLOSE_SINGLE,
+    convert_english_typographic=False,
+    convert_straight_single=True,
+    guillemet_space=FR_GUILLEMET_SPACE,
+)
+
+SPANISH = QuoteStyle(
+    name="Spanish",
+    open_double=GUILLEMET_OPEN,
+    close_double=GUILLEMET_CLOSE,
+    open_single=EN_OPEN_SINGLE,
+    close_single=EN_CLOSE_SINGLE,
+    convert_english_typographic=False,
+    convert_straight_single=True,
+    guillemet_space="",
+)
+
 # Besides whitespace and the start of a block, the characters after which
 # a straight ' opens a quotation: opening brackets, opening double quotes,
 # Markdown emphasis markers and dashes.
-_SINGLE_OPENING_CONTEXT = '([{“„"*_—–'
+_SINGLE_OPENING_CONTEXT = '([{“„«"*_—–'
 
 # A leading apostrophe before a decade ('90s) is not an opening quote
 _DECADE_RE = re.compile(r"\d\ds\b")
+
+# A guillemet with the horizontal whitespace inside it
+_INNER_SPACE = "[ \\t\u00a0\u202f]*"
+_GUILLEMET_SPACING_RE = re.compile(
+    f"{GUILLEMET_OPEN}{_INNER_SPACE}|{_INNER_SPACE}{GUILLEMET_CLOSE}"
+)
 
 # Lines that open a block of their own (after stripping leading whitespace):
 # headings, list items (bullet or numbered) and table rows. Quotes are
@@ -483,6 +536,66 @@ def replace_straight_single_quotes(
     return "".join(chars)
 
 
+def find_paired_guillemets(line: str, protected: list[tuple[int, int]]) -> set[int]:
+    """Return the positions of the unprotected guillemets that pair up.
+
+    Each » closes the nearest open « before it, so nested quotations pair
+    as well. A « that is never closed in the block and a » without an open
+    « are not in the result.
+    """
+    paired: set[int] = set()
+    open_positions: list[int] = []
+    for i, ch in enumerate(line):
+        if is_protected(i, protected):
+            continue
+        if ch == GUILLEMET_OPEN:
+            open_positions.append(i)
+        elif ch == GUILLEMET_CLOSE and open_positions:
+            paired.add(open_positions.pop())
+            paired.add(i)
+    return paired
+
+
+def space_guillemets(
+    line: str, protected: list[tuple[int, int]], stats: dict, style: QuoteStyle
+) -> str:
+    """
+    Set the space inside every paired guillemet to ``style.guillemet_space``.
+
+    The horizontal whitespace after « and before », whether an ordinary
+    space, a no-break space or none, becomes exactly that space: U+00A0 in
+    French (« texte »), nothing in Spanish («texto»). Only guillemets
+    that pair up in the block are touched; a lone one, such as the marker
+    in a heading "### » Title", an arrow, or a quotation that runs on into
+    the next paragraph, keeps its spacing. A guillemet at a line break is
+    left alone too, so a line never starts or ends with an inserted space.
+    ``stats["guillemet_space"]`` counts the guillemets whose spacing changed.
+
+    Runs last because it can change the length of the block.
+    """
+    space = style.guillemet_space
+    if space is None:
+        return line
+
+    paired = find_paired_guillemets(line, protected)
+
+    def respace(m: re.Match) -> str:
+        found = m.group(0)
+        if found.startswith(GUILLEMET_OPEN):
+            if m.start() not in paired or line[m.end()] == "\n":
+                return found
+            wanted = GUILLEMET_OPEN + space
+        else:
+            if m.end() - 1 not in paired or line[m.start() - 1] == "\n":
+                return found
+            wanted = space + GUILLEMET_CLOSE
+        if wanted != found:
+            stats["guillemet_space"] += 1
+        return wanted
+
+    return _GUILLEMET_SPACING_RE.sub(respace, line)
+
+
 def process_block(
     text: str,
     first_line_num: int,
@@ -524,6 +637,12 @@ def process_block(
         text = replace_straight_single_quotes(
             text, protected, stats, warnings, first_line_num, last_line_num, style
         )
+
+    if style.guillemet_space is not None:
+        protected = mask_protected_regions(text)
+
+        # 5. Space inside guillemets (last: it can change the length)
+        text = space_guillemets(text, protected, stats, style)
 
     return text
 
@@ -664,6 +783,7 @@ def make_stats() -> dict:
         "english_double": 0,
         "english_single": 0,
         "straight_single": 0,
+        "guillemet_space": 0,
         "lines_changed": 0,
         "warnings": 0,
     }
@@ -698,6 +818,7 @@ def count_replacements(stats: dict) -> int:
         + stats["english_double"]
         + stats["english_single"]
         + stats["straight_single"]
+        + stats["guillemet_space"]
     )
 
 
@@ -720,6 +841,8 @@ def print_stats(stats: dict, style: QuoteStyle = GERMAN):
         rows.append(
             (f"Straight ' -> {style.name}:", f"{stats['straight_single']} mark(s)")
         )
+    if style.guillemet_space is not None:
+        rows.append(("Guillemet spacing:", f"{stats['guillemet_space']} correction(s)"))
     rows.append(("Lines changed:", stats["lines_changed"]))
     rows.append(("Warnings (asymmetric):", stats["warnings"]))
     rows.append(("Total replacements:", count_replacements(stats)))
@@ -820,6 +943,16 @@ def main(style: QuoteStyle = GERMAN):
 def main_english():
     """Command line entry point of fix-english-quotes."""
     main(ENGLISH)
+
+
+def main_french():
+    """Command line entry point of fix-french-quotes."""
+    main(FRENCH)
+
+
+def main_spanish():
+    """Command line entry point of fix-spanish-quotes."""
+    main(SPANISH)
 
 
 if __name__ == "__main__":

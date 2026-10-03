@@ -204,6 +204,8 @@ language: de
 |----------------------------|--------------------------------|
 | `fix-german-quotes`        | Fix German quotation marks     |
 | `fix-english-quotes`       | Fix English quotation marks    |
+| `fix-french-quotes`        | Fix French quotation marks     |
+| `fix-spanish-quotes`       | Fix Spanish quotation marks    |
 | `replace-md-bullet-points` | Replace markdown bullet points |
 | `unbold-md-headers`        | Remove bold from headers       |
 | `replace-emojis`           | Replace emojis in markdown     |
@@ -220,8 +222,16 @@ closing single quote and the apostrophe are the same character, so only an openi
 its context: it opens a quotation at the start of a paragraph or after a space, bracket, opening
 double quote, emphasis marker or dash. A paragraph whose opening quote is never closed, for
 example the elision in `'tis`, keeps its straight opening quotes and gets a warning. Typographic
-English quotes are already the target; German `„...“` are left alone. Both commands take the
-same arguments (`--dry-run`, `--pattern`, a file or a directory).
+English quotes are already the target; German `„...“` are left alone.
+
+`fix-french-quotes` and `fix-spanish-quotes` convert straight double quotes to guillemets,
+French `« ... »` with a no-break space (U+00A0) inside, Spanish `«...»` without, and set that
+spacing for the guillemets already in the text. Straight single quotes and apostrophes are
+converted as in English (`l’homme`, `‘significado’`). English `“...”` stay as they are, since
+both languages use them as the second level. Only guillemets that pair up in a paragraph are
+respaced: a lone one, such as the marker in `### » Title`, and one next to a hard line break keep
+their spacing. All four commands take the same arguments (`--dry-run`, `--pattern`, a file or
+a directory).
 
 ### Path Tools
 

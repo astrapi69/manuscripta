@@ -24,6 +24,12 @@ All notable changes to this project will be documented in this file.
   quote in the same paragraph, otherwise (`'tis`) the paragraph keeps its straight opening quotes
   and gets a warning. `process_file` and the stage functions take a `QuoteStyle` (`GERMAN`, the
   default, or `ENGLISH`) (#12).
+- **`fix-french-quotes` and `fix-spanish-quotes`**: straight double quotes become guillemets,
+  French `« … »` with a no-break space (U+00A0) inside, Spanish `«…»` without; the guillemets
+  already in the text get the same spacing when they pair up in the paragraph (a lone `»` used as
+  a heading marker keeps its space). Straight single quotes and apostrophes are converted
+  as in `fix-english-quotes`. English `“…”` are left alone as the second level. New styles
+  `FRENCH` and `SPANISH`.
 
 ### Changed
 - **EPUB export uses `--split-level=1`** instead of the deprecated `--epub-chapter-level=1`
