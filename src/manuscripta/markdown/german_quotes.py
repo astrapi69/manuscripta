@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
 # scripts/fix_german_quotes.py
 """
-fix-german-quotes - Converts quotation marks in Markdown files
-to German typographic style.
+fix-german-quotes, fix-english-quotes - Convert quotation marks in
+Markdown files to German or English typographic style.
 
-Target format:
-  Double: „ " (U+201E / U+201C)
-  Single: ‚ ' (U+201A / U+2018)
+fix-german-quotes:
+  Double: „ “ (U+201E / U+201C)
+  Single: ‚ ‘ (U+201A / U+2018)
 
-Converted: straight double quotes (") and English typographic quotes
-(U+201C/U+201D and U+2018/U+2019). Straight single quotes (') are left
-alone on purpose: in running text they cannot be told apart from
-apostrophes ("geht's" versus 'Zitat'), so converting them would break
-more than it fixes.
+  Converted: straight double quotes (") and English typographic quotes
+  (U+201C/U+201D and U+2018/U+2019). Straight single quotes (') are left
+  alone on purpose: in running text they cannot be told apart from
+  apostrophes ("geht's" versus 'Zitat'), so converting them would break
+  more than it fixes.
+
+fix-english-quotes:
+  Double: “ ” (U+201C / U+201D)
+  Single: ‘ ’ (U+2018 / U+2019), apostrophe ’ (U+2019)
+
+  Converted: straight double quotes (") and straight single quotes (').
+  English writes the closing single quote and the apostrophe alike, so
+  only an opening ' needs its context (see replace_straight_single_quotes).
+  German typographic quotes („ ‚) are left alone.
 
 Quotes are paired per block, not per line: a paragraph, a list item, a
 heading or a table row is converted as a whole, so a quotation that a
@@ -25,12 +34,14 @@ Usage:
   fix-german-quotes input.md --dry-run
   fix-german-quotes ./my_book/           (recursive, *.md)
   fix-german-quotes ./docs/ --pattern "*.markdown"
+  fix-english-quotes ./my_book/          (same options)
 """
 
 import argparse
 import re
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -42,7 +53,8 @@ DE_CLOSE_DOUBLE = "\u201c"  # "
 DE_OPEN_SINGLE = "\u201a"  # ‚
 DE_CLOSE_SINGLE = "\u2018"  # '
 
-# English typographic characters (to be replaced)
+# English typographic characters (replaced by fix-german-quotes, the
+# target of fix-english-quotes)
 EN_OPEN_DOUBLE = "\u201c"  # " (identical to DE_CLOSE_DOUBLE)
 EN_CLOSE_DOUBLE = "\u201d"  # "
 EN_OPEN_SINGLE = "\u2018"  # ' (identical to DE_CLOSE_SINGLE)
@@ -55,6 +67,52 @@ STRAIGHT_SINGLE = "'"
 # Default glob pattern for directory mode
 DEFAULT_PATTERN = "*.md"
 
+
+@dataclass(frozen=True)
+class QuoteStyle:
+    """The target quotation marks of one language and the stages it runs."""
+
+    name: str
+    open_double: str
+    close_double: str
+    open_single: str
+    close_single: str
+    # Convert English typographic quotes (U+201C/U+201D, U+2018/U+2019).
+    # Off for English, where they already are the target.
+    convert_english_typographic: bool
+    # Convert straight single quotes and apostrophes. Off for German, where
+    # a straight ' cannot be told apart from an apostrophe.
+    convert_straight_single: bool
+
+
+GERMAN = QuoteStyle(
+    name="German",
+    open_double=DE_OPEN_DOUBLE,
+    close_double=DE_CLOSE_DOUBLE,
+    open_single=DE_OPEN_SINGLE,
+    close_single=DE_CLOSE_SINGLE,
+    convert_english_typographic=True,
+    convert_straight_single=False,
+)
+
+ENGLISH = QuoteStyle(
+    name="English",
+    open_double=EN_OPEN_DOUBLE,
+    close_double=EN_CLOSE_DOUBLE,
+    open_single=EN_OPEN_SINGLE,
+    close_single=EN_CLOSE_SINGLE,
+    convert_english_typographic=False,
+    convert_straight_single=True,
+)
+
+# Besides whitespace and the start of a block, the characters after which
+# a straight ' opens a quotation: opening brackets, opening double quotes,
+# Markdown emphasis markers and dashes.
+_SINGLE_OPENING_CONTEXT = '([{“„"*_—–'
+
+# A leading apostrophe before a decade ('90s) is not an opening quote
+_DECADE_RE = re.compile(r"\d\ds\b")
+
 # Lines that open a block of their own (after stripping leading whitespace):
 # headings, list items (bullet or numbered) and table rows. Quotes are
 # paired inside one block and never across a block boundary.
@@ -66,11 +124,11 @@ _TABLE_ROW_RE = re.compile(r"^\|")
 CONTEXT_LINE_SEPARATOR = " \u23ce "  # " ⏎ "
 
 
-def parse_args():
+def parse_args(style: QuoteStyle = GERMAN):
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Converts quotation marks in Markdown files "
-        "to German typographic style."
+        f"to {style.name} typographic style."
     )
     parser.add_argument(
         "input",
@@ -169,18 +227,20 @@ def replace_straight_double_quotes(
     warnings: list,
     line_num: int,
     line_end: int | None = None,
+    style: QuoteStyle = GERMAN,
 ) -> str:
     """
-    Replace straight double quotation marks pairwise with German „ ".
+    Replace straight double quotation marks pairwise with the double
+    quotes of ``style`` (German „ “ by default).
 
     ``line`` is one block of text and may contain line breaks; ``line_num``
     is the 1-based file line number of its first line and ``line_end``
     that of its last line (``None`` for a single line). Both only appear
     in the warning for an odd number of quotation marks.
 
-    Also handles mixed cases: if a German opening „ (U+201E) is already
-    present and a straight " follows as closing quote, only the closing
-    character is converted.
+    Also handles mixed cases: if a typographic opening quote of ``style``
+    („ in German, “ in English) is already present and a straight "
+    follows as closing quote, only the closing character is converted.
     """
     chars = list(line)
     straight_positions = find_quote_positions(line, STRAIGHT_DOUBLE, protected)
@@ -188,22 +248,25 @@ def replace_straight_double_quotes(
     if not straight_positions:
         return line
 
-    # Phase 1: Find existing German opening „ (U+201E) that expect
-    # a straight " as their closing counterpart.
-    orphan_openers = []
-    for i, ch in enumerate(chars):
-        if ch == DE_OPEN_DOUBLE and not is_protected(i, protected):
-            orphan_openers.append(i)
-
-    # Match each „ with the next following straight "
+    # Phase 1: An existing typographic opening quote (German „ U+201E)
+    # that is still open, i.e. not yet closed by its closing quote (German
+    # “ U+201C), takes the next straight " as its closing counterpart. An
+    # opener that is already closed takes none, so in „Hallo“ und "Welt"
+    # the two straight quotes pair with each other.
     consumed_straight = set()
-    for opener_pos in orphan_openers:
-        for sp in straight_positions:
-            if sp > opener_pos and sp not in consumed_straight:
-                chars[sp] = DE_CLOSE_DOUBLE
-                consumed_straight.add(sp)
-                stats["straight_double"] += 1
-                break
+    open_count = 0
+    for i, ch in enumerate(chars):
+        if is_protected(i, protected):
+            continue
+        if ch == style.open_double:
+            open_count += 1
+        elif ch == style.close_double:
+            open_count = max(open_count - 1, 0)
+        elif ch == STRAIGHT_DOUBLE and open_count:
+            chars[i] = style.close_double
+            consumed_straight.add(i)
+            stats["straight_double"] += 1
+            open_count -= 1
 
     # Phase 2: Convert remaining straight " pairwise
     remaining = [p for p in straight_positions if p not in consumed_straight]
@@ -222,8 +285,8 @@ def replace_straight_double_quotes(
     for i in range(0, len(remaining), 2):
         open_pos = remaining[i]
         close_pos = remaining[i + 1]
-        chars[close_pos] = DE_CLOSE_DOUBLE
-        chars[open_pos] = DE_OPEN_DOUBLE
+        chars[close_pos] = style.close_double
+        chars[open_pos] = style.open_double
         stats["straight_double"] += 1
 
     return "".join(chars)
@@ -333,8 +396,101 @@ def replace_english_single_quotes(
     return "".join(chars)
 
 
-def process_block(text: str, first_line_num: int, stats: dict, warnings: list) -> str:
-    """Run one block of text through all quote replacement stages.
+def replace_straight_single_quotes(
+    line: str,
+    protected: list[tuple[int, int]],
+    stats: dict,
+    warnings: list,
+    line_num: int,
+    line_end: int | None = None,
+    style: QuoteStyle = ENGLISH,
+) -> str:
+    """
+    Replace straight single quotation marks and apostrophes.
+
+    Only for a style that writes the closing single quote and the
+    apostrophe alike (English ’ U+2019), so only an opening ' needs its
+    context. A straight ' becomes:
+
+    - an apostrophe between two letters or digits (don't, O'Brien)
+    - an opening quote at the start of the block or after whitespace, an
+      opening bracket, an opening double quote, an emphasis marker or a
+      dash, when a non-space character follows; before a decade ('90s)
+      it is an apostrophe instead
+    - a closing quote or apostrophe after a non-space character when no
+      letter or digit follows ('word', the students' books)
+
+    A lone ' between spaces stays as it is. An opening quote needs a
+    closing one (straight or typographic) later in the same block. If one
+    stays open, for example the elision in 'tis or 'em, the block's
+    opening quotes stay straight and a warning names the block; its
+    apostrophes and closing quotes are still converted. ``line_num`` and
+    ``line_end`` only appear in that warning (see
+    ``replace_straight_double_quotes``). ``stats["straight_single"]``
+    counts the converted characters.
+    """
+    chars = list(line)
+    openers: list[int] = []
+    open_count = 0
+
+    for i, ch in enumerate(chars):
+        if is_protected(i, protected):
+            continue
+        prev = line[i - 1] if i > 0 else ""
+        nxt = line[i + 1] if i + 1 < len(line) else ""
+        if ch == style.open_single:
+            open_count += 1
+        elif ch not in (STRAIGHT_SINGLE, style.close_single):
+            continue
+        elif prev.isalnum() and nxt.isalnum():
+            # Apostrophe inside a word
+            if ch == STRAIGHT_SINGLE:
+                chars[i] = style.close_single
+                stats["straight_single"] += 1
+        elif (
+            ch == STRAIGHT_SINGLE
+            and (not prev or prev.isspace() or prev in _SINGLE_OPENING_CONTEXT)
+            and nxt
+            and not nxt.isspace()
+        ):
+            if _DECADE_RE.match(line, i + 1):
+                chars[i] = style.close_single
+                stats["straight_single"] += 1
+            else:
+                openers.append(i)
+                open_count += 1
+        elif prev and not prev.isspace() and not nxt.isalnum():
+            # Closing quote, or an apostrophe at the end of a word
+            if ch == STRAIGHT_SINGLE:
+                chars[i] = style.close_single
+                stats["straight_single"] += 1
+            open_count = max(open_count - 1, 0)
+
+    if open_count and openers:
+        warnings.append(
+            f"{format_line_range(line_num, line_end)}: "
+            f"Asymmetric straight quotation mark (') "
+            f"- {open_count} opening quote(s) without a closing one\n"
+            f"  Context: {format_context(line)}"
+        )
+        stats["warnings"] += 1
+        return "".join(chars)
+
+    for i in openers:
+        chars[i] = style.open_single
+        stats["straight_single"] += 1
+
+    return "".join(chars)
+
+
+def process_block(
+    text: str,
+    first_line_num: int,
+    stats: dict,
+    warnings: list,
+    style: QuoteStyle = GERMAN,
+) -> str:
+    """Run one block of text through the quote replacement stages of ``style``.
 
     ``text`` is a paragraph, list item, heading or table row and may span
     several lines joined with "\\n"; quotes are paired across those lines.
@@ -346,26 +502,41 @@ def process_block(text: str, first_line_num: int, stats: dict, warnings: list) -
 
     # 1. Straight double quotation marks
     text = replace_straight_double_quotes(
-        text, protected, stats, warnings, first_line_num, last_line_num
+        text, protected, stats, warnings, first_line_num, last_line_num, style
     )
 
-    # Recompute protected regions after modification
-    protected = mask_protected_regions(text)
+    if style.convert_english_typographic:
+        # Recompute protected regions after modification
+        protected = mask_protected_regions(text)
 
-    # 2. English typographic double quotation marks
-    text = replace_english_double_quotes(text, protected, stats)
+        # 2. English typographic double quotation marks
+        text = replace_english_double_quotes(text, protected, stats)
 
-    protected = mask_protected_regions(text)
+        protected = mask_protected_regions(text)
 
-    # 3. English typographic single quotation marks
-    text = replace_english_single_quotes(text, protected, stats)
+        # 3. English typographic single quotation marks
+        text = replace_english_single_quotes(text, protected, stats)
+
+    if style.convert_straight_single:
+        protected = mask_protected_regions(text)
+
+        # 4. Straight single quotation marks and apostrophes
+        text = replace_straight_single_quotes(
+            text, protected, stats, warnings, first_line_num, last_line_num, style
+        )
 
     return text
 
 
-def process_line(line: str, line_num: int, stats: dict, warnings: list) -> str:
+def process_line(
+    line: str,
+    line_num: int,
+    stats: dict,
+    warnings: list,
+    style: QuoteStyle = GERMAN,
+) -> str:
     """Process a single line as a block of its own (see ``process_block``)."""
-    return process_block(line, line_num, stats, warnings)
+    return process_block(line, line_num, stats, warnings, style)
 
 
 def starts_own_block(line: str) -> bool:
@@ -389,8 +560,10 @@ def is_single_line_block(line: str) -> bool:
     return bool(_HEADING_RE.match(stripped) or _TABLE_ROW_RE.match(stripped))
 
 
-def process_file(content: str, stats: dict, warnings: list) -> str:
-    """Process the entire file content.
+def process_file(
+    content: str, stats: dict, warnings: list, style: QuoteStyle = GERMAN
+) -> str:
+    """Process the entire file content with the quotes of ``style``.
 
     YAML frontmatter and fenced code blocks pass through untouched.
     Everything else is grouped into blocks: a block ends at a blank line,
@@ -413,7 +586,7 @@ def process_file(content: str, stats: dict, warnings: list) -> str:
         """Convert the running block and append its lines to the result."""
         if not block:
             return
-        converted = process_block("\n".join(block), block_start, stats, warnings)
+        converted = process_block("\n".join(block), block_start, stats, warnings, style)
         new_lines = converted.split("\n")
         stats["lines_changed"] += sum(
             1 for old, new in zip(block, new_lines) if old != new
@@ -490,6 +663,7 @@ def make_stats() -> dict:
         "straight_double": 0,
         "english_double": 0,
         "english_single": 0,
+        "straight_single": 0,
         "lines_changed": 0,
         "warnings": 0,
     }
@@ -517,22 +691,45 @@ def print_diff(original: str, modified: str):
         print("  No changes.")
 
 
-def print_stats(stats: dict):
-    """Print the summary statistics for a single file or aggregated run."""
-    total_replacements = (
-        stats["straight_double"] + stats["english_double"] + stats["english_single"]
+def count_replacements(stats: dict) -> int:
+    """Return the number of replacements recorded in ``stats``."""
+    return (
+        stats["straight_double"]
+        + stats["english_double"]
+        + stats["english_single"]
+        + stats["straight_single"]
     )
 
-    print(f"  Straight \" -> German:       {stats['straight_double']} pair(s)")
-    print(f"  English typographic double: {stats['english_double']} correction(s)")
-    print(f"  English typographic single: {stats['english_single']} correction(s)")
-    print(f"  Lines changed:              {stats['lines_changed']}")
-    print(f"  Warnings (asymmetric):      {stats['warnings']}")
-    print(f"  Total replacements:         {total_replacements}")
+
+def print_stats(stats: dict, style: QuoteStyle = GERMAN):
+    """Print the summary statistics for a single file or aggregated run.
+
+    Only the stages that ``style`` runs get a line of their own.
+    """
+    rows: list[tuple[str, object]] = [
+        (f'Straight " -> {style.name}:', f"{stats['straight_double']} pair(s)")
+    ]
+    if style.convert_english_typographic:
+        rows.append(
+            ("English typographic double:", f"{stats['english_double']} correction(s)")
+        )
+        rows.append(
+            ("English typographic single:", f"{stats['english_single']} correction(s)")
+        )
+    if style.convert_straight_single:
+        rows.append(
+            (f"Straight ' -> {style.name}:", f"{stats['straight_single']} mark(s)")
+        )
+    rows.append(("Lines changed:", stats["lines_changed"]))
+    rows.append(("Warnings (asymmetric):", stats["warnings"]))
+    rows.append(("Total replacements:", count_replacements(stats)))
+
+    for label, value in rows:
+        print(f"  {label:<28}{value}")
 
 
 def process_single_file(
-    file_path: Path, dry_run: bool, global_stats: dict
+    file_path: Path, dry_run: bool, global_stats: dict, style: QuoteStyle = GERMAN
 ) -> list[str]:
     """
     Process a single file: read, convert, optionally write.
@@ -544,15 +741,13 @@ def process_single_file(
     stats = make_stats()
     warnings: list[str] = []
 
-    result = process_file(content, stats, warnings)
+    result = process_file(content, stats, warnings, style)
 
     # Accumulate into global stats
     for key in global_stats:
         global_stats[key] += stats[key]
 
-    total = stats["straight_double"] + stats["english_double"] + stats["english_single"]
-
-    if total == 0 and not warnings:
+    if count_replacements(stats) == 0 and not warnings:
         return warnings
 
     if dry_run:
@@ -570,8 +765,9 @@ def process_single_file(
     return warnings
 
 
-def main():
-    args = parse_args()
+def main(style: QuoteStyle = GERMAN):
+    """Command line entry point of fix-german-quotes."""
+    args = parse_args(style)
     input_path: Path = args.input
 
     if not input_path.exists():
@@ -597,7 +793,9 @@ def main():
     all_warnings: list[str] = []
 
     for file_path in files:
-        file_warnings = process_single_file(file_path, args.dry_run, global_stats)
+        file_warnings = process_single_file(
+            file_path, args.dry_run, global_stats, style
+        )
         # Prefix warnings with file path for directory mode
         for w in file_warnings:
             all_warnings.append(f"[{file_path}] {w}")
@@ -613,10 +811,15 @@ def main():
     print("\n--- Summary ---")
     if input_path.is_dir():
         print(f"  Files processed:            {len(files)}")
-    print_stats(global_stats)
+    print_stats(global_stats, style)
 
     if args.dry_run:
         print("\nNo files written (--dry-run).")
+
+
+def main_english():
+    """Command line entry point of fix-english-quotes."""
+    main(ENGLISH)
 
 
 if __name__ == "__main__":

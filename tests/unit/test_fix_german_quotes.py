@@ -192,6 +192,29 @@ class TestReplaceStraightDoubleQuotes:
         replace_straight_double_quotes('"a" b "', [], stats, warnings, 1)
         assert stats["warnings"] >= 1
 
+    def test_closed_german_pair_does_not_take_the_next_straight_quote(self):
+        """An already closed „…“ leaves the following straight pair intact."""
+        stats = make_stats()
+        warnings = []
+        line = f'{DE_OPEN_DOUBLE}Hallo{DE_CLOSE_DOUBLE}, sagte er, "und tschüss."'
+        result = replace_straight_double_quotes(line, [], stats, warnings, 1)
+        assert result == (
+            f"{DE_OPEN_DOUBLE}Hallo{DE_CLOSE_DOUBLE}, sagte er, "
+            f"{DE_OPEN_DOUBLE}und tschüss.{DE_CLOSE_DOUBLE}"
+        )
+        assert warnings == []
+        assert stats["straight_double"] == 1
+
+    def test_two_open_german_quotes_each_take_a_straight_close(self):
+        stats = make_stats()
+        line = f'{DE_OPEN_DOUBLE}a" und {DE_OPEN_DOUBLE}b"'
+        result = replace_straight_double_quotes(line, [], stats, [], 1)
+        assert result == (
+            f"{DE_OPEN_DOUBLE}a{DE_CLOSE_DOUBLE} und "
+            f"{DE_OPEN_DOUBLE}b{DE_CLOSE_DOUBLE}"
+        )
+        assert stats["straight_double"] == 2
+
 
 # ---------------------------------------------------------------------------
 # replace_english_double_quotes

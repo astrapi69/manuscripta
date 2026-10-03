@@ -17,6 +17,13 @@ All notable changes to this project will be documented in this file.
   resolved order does not include (the manual TOC files excepted), so an extra section no
   longer vanishes silently. Projects with their own sections set the order in
   `config/export-settings.yaml` (#10).
+- **`fix-english-quotes`**: converts straight double and single quotes in Markdown files to
+  English `“…”`, `‘…’` and the apostrophe `’`, with the per-paragraph pairing, protected regions
+  (frontmatter, code, HTML attributes) and options of `fix-german-quotes`. An apostrophe inside
+  or at the end of a word and before a decade (`'90s`) becomes `’`; an opening `'` needs a closing
+  quote in the same paragraph, otherwise (`'tis`) the paragraph keeps its straight opening quotes
+  and gets a warning. `process_file` and the stage functions take a `QuoteStyle` (`GERMAN`, the
+  default, or `ENGLISH`) (#12).
 
 ### Changed
 - **EPUB export uses `--split-level=1`** instead of the deprecated `--epub-chapter-level=1`
@@ -40,6 +47,11 @@ All notable changes to this project will be documented in this file.
   Headings, list items and table rows are paired on their own, a blank line ends a paragraph,
   and frontmatter and fenced code blocks are still left untouched. A warning for a multi-line
   block names the line range (`Lines 7-8`) and shows the whole block as context (#8).
+- **`fix-german-quotes` no longer gives a closed `„…“` the next straight quote.** In a paragraph
+  such as `„Hallo“, sagte er, "und tschüss."` the opening straight quote was taken as a second
+  closing quote of `„Hallo“`, which produced `“und tschüss."` and an "Asymmetric straight
+  quotation mark" warning. Only an opening quote that is still open takes a straight closing
+  quote now.
 
 ## [0.9.0] - 2026-04-16
 

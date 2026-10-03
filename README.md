@@ -203,6 +203,7 @@ language: de
 | Command                    | Description                    |
 |----------------------------|--------------------------------|
 | `fix-german-quotes`        | Fix German quotation marks     |
+| `fix-english-quotes`       | Fix English quotation marks    |
 | `replace-md-bullet-points` | Replace markdown bullet points |
 | `unbold-md-headers`        | Remove bold from headers       |
 | `replace-emojis`           | Replace emojis in markdown     |
@@ -212,6 +213,15 @@ language: de
 `fix-german-quotes` converts straight double quotes `"..."` and English typographic quotes
 (`“...”`, `‘...’`) to German `„...“` and `‚...‘`. Straight single quotes `'` are left alone on
 purpose: they are indistinguishable from apostrophes (`geht's`), so the tool never touches them.
+
+`fix-english-quotes` converts straight double quotes to `“...”` and straight single quotes to
+`‘...’` and the apostrophe `’` (`don’t`, `the students’ books`, `the ’90s`). In English the
+closing single quote and the apostrophe are the same character, so only an opening `'` needs
+its context: it opens a quotation at the start of a paragraph or after a space, bracket, opening
+double quote, emphasis marker or dash. A paragraph whose opening quote is never closed, for
+example the elision in `'tis`, keeps its straight opening quotes and gets a warning. Typographic
+English quotes are already the target; German `„...“` are left alone. Both commands take the
+same arguments (`--dry-run`, `--pattern`, a file or a directory).
 
 ### Path Tools
 
