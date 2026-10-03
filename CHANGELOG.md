@@ -17,6 +17,13 @@ All notable changes to this project will be documented in this file.
   resolved order does not include (the manual TOC files excepted), so an extra section no
   longer vanishes silently. Projects with their own sections set the order in
   `config/export-settings.yaml` (#10).
+- **`fix-english-quotes`**: converts straight double and single quotes in Markdown files to
+  English `“…”`, `‘…’` and the apostrophe `’`, with the per-paragraph pairing, protected regions
+  (frontmatter, code, HTML attributes) and options of `fix-german-quotes`. An apostrophe inside
+  or at the end of a word and before a decade (`'90s`) becomes `’`; an opening `'` needs a closing
+  quote in the same paragraph, otherwise (`'tis`) the paragraph keeps its straight opening quotes
+  and gets a warning. `process_file` and the stage functions take a `QuoteStyle` (`GERMAN`, the
+  default, or `ENGLISH`) (#12).
 
 ### Changed
 - **EPUB export uses `--split-level=1`** instead of the deprecated `--epub-chapter-level=1`
