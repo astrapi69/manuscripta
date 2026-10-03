@@ -86,6 +86,8 @@ init-bp = "manuscripta.project.shortcuts_init:run_init_book_project"
 # --- Markdown tools ---
 fix-german-quotes = "manuscripta.markdown.german_quotes:main"
 fix-english-quotes = "manuscripta.markdown.german_quotes:main_english"
+fix-french-quotes = "manuscripta.markdown.german_quotes:main_french"
+fix-spanish-quotes = "manuscripta.markdown.german_quotes:main_spanish"
 replace-md-bullet-points = "manuscripta.markdown.bullet_points:main"
 unbold-md-headers = "manuscripta.markdown.unbold_headers:main"
 replace-emojis = "manuscripta.markdown.emojis:main"
