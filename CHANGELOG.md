@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.10.0] - 2026-10-06
 
 ### Added
 - **VoiceStudio TTS engine** (`voicestudio`): audiobooks with cloned or designed voices from the
