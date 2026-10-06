@@ -30,6 +30,13 @@ All notable changes to this project will be documented in this file.
   a heading marker keeps its space). Straight single quotes and apostrophes are converted
   as in `fix-english-quotes`. English `“…”` are left alone as the second level. New styles
   `FRENCH` and `SPANISH`.
+- **`fix-french-quotes` sets the space before `; : ! ?`**: an ordinary space, a narrow no-break
+  space or none before these marks becomes a no-break space (U+00A0, constant
+  `FR_PUNCTUATION_SPACE`), so `Quoi ?` cannot break before the question mark. Marks that are
+  markup or no punctuation keep their spacing: URLs, times, `:)`, footnote definitions and link
+  references (`[^1]:`, `[id]:`), table alignment colons, HTML entities, `![image]`, `<!--` and a
+  mark at the start of a line or after an opening bracket or quote. Checked on ai-for-everyone
+  (French): 868 corrections, heading ids and link targets unchanged in pandoc.
 
 ### Changed
 - **EPUB export uses `--split-level=1`** instead of the deprecated `--epub-chapter-level=1`

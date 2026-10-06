@@ -33,6 +33,8 @@ fix-french-quotes, fix-spanish-quotes:
   English, so l'homme becomes l’homme) and the space inside every
   guillemet, existing ones included. English and German typographic
   quotes are left alone: “ ” is the second level in both languages.
+  fix-french-quotes also sets a no-break space before ; : ! ? (see
+  space_punctuation), so it covers French spacing as a whole.
 
 Quotes are paired per block, not per line: a paragraph, a list item, a
 heading or a table row is converted as a whole, so a quotation that a
@@ -86,6 +88,10 @@ GUILLEMET_CLOSE = "\u00bb"  # »
 # where the target fonts are known to carry it.
 FR_GUILLEMET_SPACE = "\u00a0"
 
+# Space before ; : ! ? in French: the same no-break space. The Imprimerie
+# nationale sets the narrow U+202F before ; ! ? and U+00A0 before :.
+FR_PUNCTUATION_SPACE = "\u00a0"
+
 # Default glob pattern for directory mode
 DEFAULT_PATTERN = "*.md"
 
@@ -108,6 +114,8 @@ class QuoteStyle:
     # The space inside guillemets: « x » in French, none in Spanish. None
     # for a style without guillemets, whose spacing is then left alone.
     guillemet_space: str | None = None
+    # The space before ; : ! ? in French. None leaves that spacing alone.
+    punctuation_space: str | None = None
 
 
 GERMAN = QuoteStyle(
@@ -139,6 +147,7 @@ FRENCH = QuoteStyle(
     convert_english_typographic=False,
     convert_straight_single=True,
     guillemet_space=FR_GUILLEMET_SPACE,
+    punctuation_space=FR_PUNCTUATION_SPACE,
 )
 
 SPANISH = QuoteStyle(
@@ -165,6 +174,21 @@ _INNER_SPACE = "[ \\t\u00a0\u202f]*"
 _GUILLEMET_SPACING_RE = re.compile(
     f"{GUILLEMET_OPEN}{_INNER_SPACE}|{_INNER_SPACE}{GUILLEMET_CLOSE}"
 )
+
+# A run of ; : ! ? with the horizontal whitespace before it
+_PUNCTUATION_SPACING_RE = re.compile(f"({_INNER_SPACE})([;:!?]+)")
+# Characters after which ; : ! ? never take a space (start of a group)
+_NO_SPACE_AFTER = "([{\u00ab\u201c\u2018<"
+# Characters that may follow ; ! ? when they get a space: closing quotes
+# and brackets, Markdown emphasis markers; : only before emphasis markers
+# and the ] that ends a link text ([Vous y trouverez :](#...))
+_FOLLOWS_PUNCTUATION = '\u00bb\u201d\u2019")]}*_'
+_FOLLOWS_COLON = "*_]"
+# A : after these is markup: the footnote definition [^1]: and the link
+# reference [id]: url, the alignment colon of a table delimiter row ---:
+_NO_SPACE_BEFORE_COLON = "]-"
+# HTML entities such as &nbsp; end in a ; that is no punctuation
+_HTML_ENTITY_RE = re.compile(r"&#?[0-9A-Za-z]+;")
 
 # Lines that open a block of their own (after stripping leading whitespace):
 # headings, list items (bullet or numbered) and table rows. Quotes are
@@ -596,6 +620,61 @@ def space_guillemets(
     return _GUILLEMET_SPACING_RE.sub(respace, line)
 
 
+def space_punctuation(
+    line: str, protected: list[tuple[int, int]], stats: dict, style: QuoteStyle
+) -> str:
+    """
+    Set the space before ; : ! ? to ``style.punctuation_space`` (French).
+
+    The horizontal whitespace before a run of these marks (Quoi ?!), an
+    ordinary space, a no-break space or none, becomes exactly that space.
+    A run is left alone where it is no French punctuation:
+
+    - at the start of a line or after an opening bracket or quote: (?)
+    - a ; that ends an HTML entity: &nbsp;
+    - a : that is not followed by whitespace, the end of the block, an
+      emphasis marker or ] (https://, 10:30, :) and a : after ] or - (the
+      footnote definition [^1]:, the link reference [id]: url, the table
+      delimiter row | ---: |)
+    - ; ! ? followed by anything but whitespace, the end of the block, a
+      closing quote or bracket or an emphasis marker (![image], ?id=1)
+
+    ``stats["punctuation_space"]`` counts the runs whose spacing changed.
+    Runs after the other stages because it can change the length.
+    """
+    space = style.punctuation_space
+    if space is None:
+        return line
+
+    protected = protected + [
+        (m.start(), m.end()) for m in _HTML_ENTITY_RE.finditer(line)
+    ]
+
+    def respace(m: re.Match) -> str:
+        found = m.group(0)
+        marks = m.group(2)
+        if m.start() == 0 or is_protected(m.start(2), protected):
+            return found
+        before = line[m.start() - 1]
+        after = line[m.end()] if m.end() < len(line) else ""
+        if before == "\n" or before in _NO_SPACE_AFTER:
+            return found
+        if ":" in marks:
+            if before in _NO_SPACE_BEFORE_COLON:
+                return found
+            allowed = after == "" or after.isspace() or after in _FOLLOWS_COLON
+        else:
+            allowed = after == "" or after.isspace() or after in _FOLLOWS_PUNCTUATION
+        if not allowed:
+            return found
+        wanted = space + marks
+        if wanted != found:
+            stats["punctuation_space"] += 1
+        return wanted
+
+    return _PUNCTUATION_SPACING_RE.sub(respace, line)
+
+
 def process_block(
     text: str,
     first_line_num: int,
@@ -641,8 +720,14 @@ def process_block(
     if style.guillemet_space is not None:
         protected = mask_protected_regions(text)
 
-        # 5. Space inside guillemets (last: it can change the length)
+        # 5. Space inside guillemets (it can change the length)
         text = space_guillemets(text, protected, stats, style)
+
+    if style.punctuation_space is not None:
+        protected = mask_protected_regions(text)
+
+        # 6. Space before ; : ! ? (it can change the length)
+        text = space_punctuation(text, protected, stats, style)
 
     return text
 
@@ -784,6 +869,7 @@ def make_stats() -> dict:
         "english_single": 0,
         "straight_single": 0,
         "guillemet_space": 0,
+        "punctuation_space": 0,
         "lines_changed": 0,
         "warnings": 0,
     }
@@ -819,6 +905,7 @@ def count_replacements(stats: dict) -> int:
         + stats["english_single"]
         + stats["straight_single"]
         + stats["guillemet_space"]
+        + stats["punctuation_space"]
     )
 
 
@@ -843,6 +930,10 @@ def print_stats(stats: dict, style: QuoteStyle = GERMAN):
         )
     if style.guillemet_space is not None:
         rows.append(("Guillemet spacing:", f"{stats['guillemet_space']} correction(s)"))
+    if style.punctuation_space is not None:
+        rows.append(
+            ("Space before ; : ! ?:", f"{stats['punctuation_space']} correction(s)")
+        )
     rows.append(("Lines changed:", stats["lines_changed"]))
     rows.append(("Warnings (asymmetric):", stats["warnings"]))
     rows.append(("Total replacements:", count_replacements(stats)))
