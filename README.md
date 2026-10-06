@@ -204,7 +204,7 @@ language: de
 |----------------------------|--------------------------------|
 | `fix-german-quotes`        | Fix German quotation marks     |
 | `fix-english-quotes`       | Fix English quotation marks    |
-| `fix-french-quotes`        | Fix French quotation marks     |
+| `fix-french-quotes`        | Fix French quotes and spacing  |
 | `fix-spanish-quotes`       | Fix Spanish quotation marks    |
 | `replace-md-bullet-points` | Replace markdown bullet points |
 | `unbold-md-headers`        | Remove bold from headers       |
@@ -230,8 +230,10 @@ spacing for the guillemets already in the text. Straight single quotes and apost
 converted as in English (`l’homme`, `‘significado’`). English `“...”` stay as they are, since
 both languages use them as the second level. Only guillemets that pair up in a paragraph are
 respaced: a lone one, such as the marker in `### » Title`, and one next to a hard line break keep
-their spacing. All four commands take the same arguments (`--dry-run`, `--pattern`, a file or
-a directory).
+their spacing. `fix-french-quotes` also puts a no-break space before `; : ! ?` (`Quoi ?`),
+except where the mark is markup or no punctuation: URLs, times (`10:30`), footnote definitions
+(`[^1]:`), table alignment colons (`---:`), HTML entities (`&nbsp;`), `![image]` and `(?)`. All four
+commands take the same arguments (`--dry-run`, `--pattern`, a file or a directory).
 
 ### Path Tools
 
