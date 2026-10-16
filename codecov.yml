@@ -1,0 +1,23 @@
+# Codecov reporting for the tests workflow (.github/workflows/tests.yml).
+# The project status compares every commit with its base commit on main
+# and goes red when the total line coverage drops; the patch status only
+# informs. awesome-well-tested reads the project total from the API.
+coverage:
+  precision: 2
+  round: down
+  range: "70...95"
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0.25%
+        if_ci_failed: error
+    patch:
+      default:
+        target: 80%
+        informational: true
+
+comment:
+  layout: "condensed_header, diff, files"
+  behavior: default
+  require_changes: true
