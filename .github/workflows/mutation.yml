@@ -150,13 +150,16 @@ jobs:
         run: |
           score="$(python3 - <<'PY'
           import re
+          # A module row: path, the integer columns (killed first, equivalent
+          # and total last; the number of columns in between has changed
+          # before), the score with a % sign, the threshold, the verdict.
           killed = denom = 0
           for line in open("/tmp/mutation-threshold-report.txt", encoding="utf-8"):
-              m = re.match(r"src/\S+\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)", line)
+              m = re.match(r"src/\S+((?:\s+\d+)+)\s+[\d.]+%", line)
               if m:
-                  k, _surv, _tout, eq, total = map(int, m.groups())
-                  killed += k
-                  denom += total - eq
+                  nums = [int(n) for n in m.group(1).split()]
+                  killed += nums[0]
+                  denom += nums[-1] - nums[-2]
           print(f"{100.0 * killed / denom:.1f}" if denom else "")
           PY
           )"
