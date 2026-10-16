@@ -100,11 +100,10 @@ def main():
             base_prompt = item.get("prompt", "")
             character_key = item.get("character", None)
 
-            # Unterstützt Liste oder Einzelwert
+            # A list of names or a single name; unknown names are left out
             if isinstance(character_key, list):
-                character_desc = ", ".join(
-                    [character_profiles.get(name, "") for name in character_key]
-                )
+                parts = [character_profiles.get(name, "") for name in character_key]
+                character_desc = ", ".join(p for p in parts if p)
             else:
                 character_desc = character_profiles.get(character_key, "")
 

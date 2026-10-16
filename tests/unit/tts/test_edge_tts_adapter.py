@@ -5,7 +5,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -314,6 +314,34 @@ def test_run_async_inside_a_running_loop_falls_back_to_a_thread(monkeypatch):
         return EdgeTTSAdapter._run_async(payload())
 
     assert asyncio.run(outer()) == "done"
+
+
+def test_run_async_inside_a_running_loop_returns_the_result_via_nest_asyncio(
+    monkeypatch,
+):
+    """With nest_asyncio installed the coroutine runs on the running loop
+    itself and its result comes back. The module is a stand-in whose
+    apply() only records the call; the loop is a stand-in that reports
+    itself running and runs the coroutine on a fresh loop."""
+    applied = []
+    fake_nest_asyncio = ModuleType("nest_asyncio")
+    fake_nest_asyncio.apply = lambda: applied.append(True)
+    monkeypatch.setitem(sys.modules, "nest_asyncio", fake_nest_asyncio)
+
+    class RunningLoop:
+        def is_running(self):
+            return True
+
+        def run_until_complete(self, coro):
+            return asyncio.run(coro)
+
+    monkeypatch.setattr(mod.asyncio, "get_running_loop", lambda: RunningLoop())
+
+    async def payload():
+        return "done"
+
+    assert EdgeTTSAdapter._run_async(payload()) == "done"
+    assert applied == [True]
 
 
 def test_validate_reports_when_no_voices_come_back(adapter, monkeypatch):

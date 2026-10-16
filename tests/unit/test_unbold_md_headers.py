@@ -346,12 +346,14 @@ def snapshot(root: Path) -> dict[str, str]:
     }
 
 
-# Each row: the arguments after the program name (run inside the tree root),
-# the files changed (name -> text afterwards; the others keep their text), the
-# backups written (name -> text), the "[OK]" lines printed, the summary line,
-# the stderr
+# Each row: how the arguments reach main ("sys.argv": set as the process
+# arguments, "argv": passed to main directly), the arguments after the program
+# name (run inside the tree root), the files changed (name -> text afterwards;
+# the others keep their text), the backups written (name -> text), the "[OK]"
+# lines printed, the summary line, the stderr
 MAIN_RUNS = [
     pytest.param(
+        "sys.argv",
         [],
         {"intro.md": "# Intro\n", "notes.markdown": "## Notes\n"},
         {"intro.md.bak": "# **Intro**\n", "notes.markdown.bak": "## **Notes**\n"},
@@ -361,6 +363,7 @@ MAIN_RUNS = [
         id="defaults-top-level-with-backups",
     ),
     pytest.param(
+        "sys.argv",
         ["-r", "--no-backup", "."],
         {
             "intro.md": "# Intro\n",
@@ -378,6 +381,7 @@ MAIN_RUNS = [
         id="recursive-without-backups",
     ),
     pytest.param(
+        "sys.argv",
         ["--dry-run", "-r", "."],
         {},
         {},
@@ -391,6 +395,7 @@ MAIN_RUNS = [
         id="dry-run-counts-but-writes-nothing",
     ),
     pytest.param(
+        "sys.argv",
         ["-L", "1", "-r", "--no-backup", "."],
         {"intro.md": "# Intro\n"},
         {},
@@ -400,6 +405,7 @@ MAIN_RUNS = [
         id="levels-restrict-to-h1",
     ),
     pytest.param(
+        "sys.argv",
         ["-e", "txt, MD", "--no-backup", "."],
         {"intro.md": "# Intro\n", "readme.txt": "# Text\n"},
         {},
@@ -409,6 +415,7 @@ MAIN_RUNS = [
         id="extensions-normalized",
     ),
     pytest.param(
+        "sys.argv",
         ["--no-backup", "sub/deep.md"],
         {"sub/deep.md": "### Deep\n"},
         {},
@@ -418,6 +425,7 @@ MAIN_RUNS = [
         id="explicit-file",
     ),
     pytest.param(
+        "sys.argv",
         ["-e", ".rst", "."],
         {},
         {},
@@ -426,18 +434,64 @@ MAIN_RUNS = [
         "[INFO] No matching files found.\n",
         id="no-matching-files",
     ),
+    pytest.param(
+        "argv",
+        [],
+        {"intro.md": "# Intro\n", "notes.markdown": "## Notes\n"},
+        {"intro.md.bak": "# **Intro**\n", "notes.markdown.bak": "## **Notes**\n"},
+        {"[OK] intro.md: 1 change(s)", "[OK] notes.markdown: 1 change(s)"},
+        "Summary: scanned=2, changes=2, written=2",
+        "",
+        id="argv-empty-list-means-defaults",
+    ),
+    pytest.param(
+        "argv",
+        ["-r", "--no-backup", "."],
+        {
+            "intro.md": "# Intro\n",
+            "notes.markdown": "## Notes\n",
+            "sub/deep.md": "### Deep\n",
+        },
+        {},
+        {
+            "[OK] intro.md: 1 change(s)",
+            "[OK] notes.markdown: 1 change(s)",
+            "[OK] sub/deep.md: 1 change(s)",
+        },
+        "Summary: scanned=3, changes=3, written=3",
+        "",
+        id="argv-recursive-without-backups",
+    ),
+    pytest.param(
+        "argv",
+        ["--dry-run", "-L", "3", "sub/deep.md", "intro.md"],
+        {},
+        {},
+        {"[OK] sub/deep.md: 1 change(s) (dry-run)"},
+        "Summary: scanned=2, changes=1, written=0",
+        "",
+        id="argv-dry-run-levels-and-files",
+    ),
 ]
 
 
-@pytest.mark.parametrize("args, changed, backups, ok_lines, summary, err", MAIN_RUNS)
+@pytest.mark.parametrize(
+    "via, args, changed, backups, ok_lines, summary, err", MAIN_RUNS
+)
 def test_main(
-    args, changed, backups, ok_lines, summary, err, tmp_path, monkeypatch, capsys
+    via, args, changed, backups, ok_lines, summary, err, tmp_path, monkeypatch, capsys
 ):
     for name, text in BOOK.items():
         write(tmp_path / name, text)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys, "argv", ["unbold-md-headers", *args])
-    assert m.main() == 0
+    if via == "argv":
+        # the process arguments would scan nothing: a main() that ignores
+        # its argument and reads sys.argv instead fails the row
+        monkeypatch.setattr(sys, "argv", ["unbold-md-headers", "-e", ".rst", "."])
+        assert m.main(args) == 0
+    else:
+        monkeypatch.setattr(sys, "argv", ["unbold-md-headers", *args])
+        assert m.main() == 0
     out, stderr = capsys.readouterr()
     lines = out.splitlines()
     assert {line for line in lines if line.startswith("[OK]")} == ok_lines

@@ -152,16 +152,14 @@ class EdgeTTSAdapter(TTSAdapter):
         if loop and loop.is_running():
             try:
                 import nest_asyncio
-
-                nest_asyncio.apply()
-                loop.run_until_complete(coro)
             except ImportError:
                 import concurrent.futures
 
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     return pool.submit(asyncio.run, coro).result()
-        else:
-            return asyncio.run(coro)
+            nest_asyncio.apply()
+            return loop.run_until_complete(coro)
+        return asyncio.run(coro)
 
     @staticmethod
     async def _fetch_voices() -> list[dict]:

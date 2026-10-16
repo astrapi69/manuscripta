@@ -182,12 +182,12 @@ def update_header_and_anchor(
     file_path: Path, new_num: int, lang: Optional[str], dry_run: bool
 ) -> None:
     text = file_path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    if not lines:
+    if not text:
         return
 
-    first_line = lines[0]
-    rest_text = "\n".join(lines[1:]) if len(lines) > 1 else ""
+    # Only the H1 is rewritten; its line ending and everything after it,
+    # the trailing newline included, stay as they are.
+    first_line, eol, rest_text = text.partition("\n")
 
     lang_eff = lang or autodetect_lang_by_header(text) or "es"
     if lang_eff not in LANG_PATTERNS:
@@ -210,7 +210,7 @@ def update_header_and_anchor(
             lambda m: f"{m.group(1)}{new_num}{m.group(3)}", first_line, count=1
         )
 
-    new_text = new_first_line + ("\n" + rest_text if rest_text else "")
+    new_text = new_first_line + eol + rest_text
 
     if dry_run:
         if new_text != text:
@@ -243,6 +243,14 @@ def _resolve_mapping(
     return mapping
 
 
+_TMP_SUFFIX = ".tmpmove"
+
+
+def _source_of(tmp_path: Path) -> Path:
+    """The source path a two-phase temporary path was derived from."""
+    return tmp_path.with_name(tmp_path.name.removesuffix(_TMP_SUFFIX))
+
+
 def _two_phase_rename(
     base_dir: Path, mapping: Dict[str, str], dry_run: bool
 ) -> Dict[Path, Path]:
@@ -252,7 +260,7 @@ def _two_phase_rename(
         if not src_path.exists():
             print(f"[WARN] Source not found (skipping): {src_path}")
             continue
-        tmp_path = src_path.with_suffix(src_path.suffix + ".tmpmove")
+        tmp_path = src_path.with_suffix(src_path.suffix + _TMP_SUFFIX)
         if dry_run:
             print(f"[DRY] Would rename: {src_path.name} -> {tmp_path.name}")
         else:
@@ -313,7 +321,7 @@ def main() -> int:
 
     tmp_map = _two_phase_rename(base_dir, mapping, dry_run=dry_run)
 
-    for _tmp_path, final_path in tmp_map.items():
+    for tmp_path, final_path in tmp_map.items():
         try:
             new_num = int(final_path.name.split("-")[0])
         except Exception:
@@ -321,12 +329,12 @@ def main() -> int:
                 f"[WARN] Could not infer chapter number from filename: {final_path.name}"
             )
             continue
+        # In a dry run nothing was renamed: the chapter is still at its source
+        chapter = _source_of(tmp_path) if dry_run else final_path
         try:
-            update_header_and_anchor(
-                final_path, new_num, lang=args.lang, dry_run=dry_run
-            )
+            update_header_and_anchor(chapter, new_num, lang=args.lang, dry_run=dry_run)
         except Exception as e:
-            print(f"[WARN] Header/anchor update failed for {final_path.name}: {e}")
+            print(f"[WARN] Header/anchor update failed for {chapter.name}: {e}")
 
     print(
         "[DONE] Reorder/rename + header/anchor normalization complete."

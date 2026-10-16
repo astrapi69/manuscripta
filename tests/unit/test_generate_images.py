@@ -293,6 +293,43 @@ MAIN_PROMPT_CASES = [
         {
             "style": "noir",
             "chapters": [
+                {
+                    "prompts": [
+                        {
+                            "prompt": "walks",
+                            "character": ["Nobody", "Timmy", "Ghost"],
+                            "filename": "w.png",
+                        }
+                    ]
+                }
+            ],
+        },
+        {"Timmy": "Timmy brave"},
+        [("Timmy brave, walks, noir", "w.png")],
+        id="unknown-names-in-list-skipped",
+    ),
+    pytest.param(
+        {
+            "chapters": [
+                {
+                    "prompts": [
+                        {
+                            "prompt": "walks",
+                            "character": ["Nobody", "Ghost"],
+                            "filename": "w.png",
+                        }
+                    ]
+                }
+            ]
+        },
+        {"Timmy": "Timmy brave"},
+        [("walks", "w.png")],
+        id="list-of-unknown-names-leaves-bare-prompt",
+    ),
+    pytest.param(
+        {
+            "style": "noir",
+            "chapters": [
                 {"prompts": [{"prompt": "one", "filename": "1.png"}]},
                 {},
                 {"prompts": [{"prompt": "two", "filename": "2.png"}]},

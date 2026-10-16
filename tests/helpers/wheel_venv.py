@@ -13,6 +13,11 @@ Isolation contract (non-negotiable):
 3. Tear-down is automatic (``tmp_path`` is removed by pytest).
 4. Missing ``poetry`` or ``python -m venv`` → cleanly ``pytest.skip``
    with a named-binary reason.
+
+The venv is made with ``uv venv`` when ``uv`` is on PATH, else with the
+stdlib ``venv``. A venv made by ``uv`` ships no pip, so the wheel then
+goes in through ``uv pip install --python <venv python>``; the stdlib
+venv installs it with its own ``python -m pip``.
 """
 
 from __future__ import annotations
@@ -116,8 +121,10 @@ def wheel_venv(tmp_path: Path, built_wheel: Path) -> WheelVenv:
     happens automatically via ``tmp_path`` cleanup.
     """
     venv_dir = tmp_path / "venv"
+    python = venv_dir / "bin" / "python"
 
-    # Prefer `uv venv` if available (faster), else stdlib venv.
+    # Prefer `uv venv` if available (faster), else stdlib venv. A venv made
+    # by uv ships no pip, so the wheel is installed with uv as well.
     if shutil.which("uv"):
         subprocess.run(
             ["uv", "venv", str(venv_dir), "--python", sys.executable],
@@ -125,6 +132,7 @@ def wheel_venv(tmp_path: Path, built_wheel: Path) -> WheelVenv:
             capture_output=True,
             text=True,
         )
+        installer = ["uv", "pip", "install", "--quiet", "--python", str(python)]
     else:
         result = subprocess.run(
             [sys.executable, "-m", "venv", str(venv_dir)],
@@ -134,19 +142,19 @@ def wheel_venv(tmp_path: Path, built_wheel: Path) -> WheelVenv:
         )
         if result.returncode != 0:
             pytest.skip(f"python -m venv failed; see stderr:\n{result.stderr}")
+        installer = [str(python), "-m", "pip", "install", "--quiet"]
 
-    python = venv_dir / "bin" / "python"
     assert python.exists(), f"venv python not at {python}"
 
     # Install the wheel. --no-deps would miss runtime deps (yaml, toml,
     # pillow, etc.) — install those too.
     install = subprocess.run(
-        [str(python), "-m", "pip", "install", "--quiet", str(built_wheel)],
+        [*installer, str(built_wheel)],
         check=False,
         capture_output=True,
         text=True,
     )
     if install.returncode != 0:
-        pytest.skip(f"pip install of built wheel failed:\n{install.stderr}")
+        pytest.skip(f"{installer[0]} install of built wheel failed:\n{install.stderr}")
 
     return WheelVenv(venv_dir=venv_dir, python=python)

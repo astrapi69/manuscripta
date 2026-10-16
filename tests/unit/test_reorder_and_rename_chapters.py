@@ -409,15 +409,15 @@ UPDATE_HEADER_WRITES = [
         ES_H1,
         7,
         "es",
-        "# ✦ Capítulo 7: Creatividad – La moneda renovable {#-chapter-7}\n\nContenido…",
+        "# ✦ Capítulo 7: Creatividad – La moneda renovable {#-chapter-7}\n\nContenido…\n",
         "[OK] chapter.md: header/anchor -> chapter 7 (lang=es)\n",
-        id="es-renumbered-trailing-newline-dropped",
+        id="es-renumbered-trailing-newline-kept",
     ),
     pytest.param(
         "# ✦ Chapter 3: Rich Now\nBody\n",
         4,
         None,
-        "# ✦ Chapter 4: Rich Now {#-chapter-4}\nBody",
+        "# ✦ Chapter 4: Rich Now {#-chapter-4}\nBody\n",
         "[OK] chapter.md: header/anchor -> chapter 4 (lang=en)\n",
         id="en-autodetected-anchor-added",
     ),
@@ -425,9 +425,25 @@ UPDATE_HEADER_WRITES = [
         "# Title only\n\nBody\n",
         2,
         "de",
-        "# Title only\n\nBody",
+        "# Title only\n\nBody\n",
         "[OK] chapter.md: header/anchor -> chapter 2 (lang=de)\n",
         id="no-pattern-no-anchor-leaves-h1",
+    ),
+    pytest.param(
+        "# ✦ Kapitel 1: Klarheit",
+        2,
+        "de",
+        "# ✦ Kapitel 2: Klarheit {#-chapter-2}",
+        "[OK] chapter.md: header/anchor -> chapter 2 (lang=de)\n",
+        id="without-trailing-newline-none-added",
+    ),
+    pytest.param(
+        "# ✦ Kapitel 1: Leer {#-chapter-1}\n\n\n",
+        3,
+        "de",
+        "# ✦ Kapitel 3: Leer {#-chapter-3}\n\n\n",
+        "[OK] chapter.md: header/anchor -> chapter 3 (lang=de)\n",
+        id="trailing-blank-lines-kept",
     ),
 ]
 
@@ -461,11 +477,18 @@ UPDATE_HEADER_DRY_RUNS = [
         id="en-autodetected",
     ),
     pytest.param(
-        "# ✦ Kapitel 9: Klarheit {#-chapter-9}",
+        "# ✦ Kapitel 9: Klarheit {#-chapter-9}\n\nInhalt…\n",
         9,
         "de",
         "",
         id="already-normalized-prints-nothing",
+    ),
+    pytest.param(
+        "# ✦ Kapitel 9: Klarheit {#-chapter-9}",
+        9,
+        "de",
+        "",
+        id="already-normalized-without-trailing-newline-prints-nothing",
     ),
 ]
 
@@ -598,12 +621,11 @@ MAIN_RUNS = [
         [
             "[DRY] Would rename: 11-chapter.md -> 11-chapter.md.tmpmove",
             "[DRY] Would finalize: 11-chapter.md.tmpmove -> 07-chapter.md",
-            "[WARN] Header/anchor update failed for 07-chapter.md: "
-            "[Errno 2] No such file or directory: '{base}/07-chapter.md'",
+            "[DRY] Would update header/anchor -> chapter 7 in 11-chapter.md (lang=es)",
             DONE + " (dry-run)",
         ],
         "",
-        id="map-file-dry-run-moves-nothing",
+        id="map-file-dry-run-moves-nothing-and-previews-the-header",
     ),
     pytest.param(
         {"11-chapter.md": ES_H1},
