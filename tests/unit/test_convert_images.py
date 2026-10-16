@@ -5,7 +5,15 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
-from manuscripta.images.convert import convert_markdown_file, convert_markdown_dir
+from manuscripta.images.convert import (
+    _parse_ref_defs,
+    _replace_inline,
+    _replace_reference,
+    _split_outside_code,
+    _unangle,
+    convert_markdown_dir,
+    convert_markdown_file,
+)
 
 FIG_RE = re.compile(
     r'<figure(?:\s+class="[^"]+")?>\s*'
@@ -27,163 +35,149 @@ def write(path: Path, text: str) -> None:
 # ---------- single-file tests ----------
 
 
-def test_converts_simple_inline_image(tmp_path: Path):
+# Each row: the Markdown written to the file and the src, alt and caption of
+# the one figure it is converted into
+FIGURE_CASES = [
+    pytest.param(
+        "Hello ![Alt](img/cat.png) world.\n",
+        "img/cat.png",
+        "Alt",
+        "Alt",
+        id="converts-simple-inline-image",
+    ),
+    pytest.param(
+        '![Hund](pics/dog.jpg "Ein lieber Hund")\n',
+        "pics/dog.jpg",
+        "Hund",
+        "Ein lieber Hund",
+        id="uses-title-as-caption-when-present",
+    ),
+    pytest.param(
+        "![A](x.png 'SQ')\n", "x.png", "A", "SQ", id="uses-single-quoted-title"
+    ),
+    pytest.param(
+        "![A](x.png (Par))\n", "x.png", "A", "Par", id="uses-parenthesized-title"
+    ),
+    pytest.param(
+        '![X](<pics/file with spaces.png> "T")\n',
+        "pics/file with spaces.png",
+        "X",
+        "T",
+        id="angle-bracket-url-and-spaces-supported",
+    ),
+    pytest.param(
+        '![X](<../weird (1).png> "T")\n',
+        "../weird (1).png",
+        "X",
+        "T",
+        id="angle-bracket-url-with-parentheses-supported",
+    ),
+    pytest.param(
+        'Here: ![Logo][app]\n[app]: assets/logo.svg "Brand"\n',
+        "assets/logo.svg",
+        "Logo",
+        "Brand",
+        id="reference-style-images-are-resolved",
+    ),
+    pytest.param(
+        'An image: ![Foo][]\n[foo]: img/foo.png "Titel Foo"\n',
+        "img/foo.png",
+        "Foo",
+        "Titel Foo",
+        id="reference-empty-id-uses-alt-as-key",
+    ),
+    pytest.param(
+        '![Logo][APP]\n[app]: assets/logo.svg "Brand"\n',
+        "assets/logo.svg",
+        "Logo",
+        "Brand",
+        id="reference-id-is-case-insensitive",
+    ),
+    pytest.param(
+        '![L][app]\n[app]: <assets/my logo.svg> "Brand"\n',
+        "assets/my logo.svg",
+        "L",
+        "Brand",
+        id="reference-angle-bracket-url-supported",
+    ),
+]
+
+
+@pytest.mark.parametrize("text, src, alt, caption", FIGURE_CASES)
+def test_converts_to_figure(tmp_path: Path, text, src, alt, caption):
     md = tmp_path / "a.md"
-    write(md, "Hello ![Alt](img/cat.png) world.\n")
+    write(md, text)
 
     n = convert_markdown_file(md)
     assert n == 1
 
-    out = read(md)
-    m = FIG_RE.search(out)
-    assert m, f"Figure not found in:\n{out}"
-    src, alt, caption = m.groups()
-    assert src == "img/cat.png"
-    assert alt == "Alt"
-    assert caption == "Alt"
-
-
-def test_uses_title_as_caption_when_present(tmp_path: Path):
-    md = tmp_path / "t.md"
-    write(md, '![Hund](pics/dog.jpg "Ein lieber Hund")\n')
-
-    n = convert_markdown_file(md)
-    assert n == 1
     out = read(md)
     m = FIG_RE.search(out)
     assert m is not None, f"no match in output:\n{out}"
-    src, alt, caption = m.groups()
-    assert src == "pics/dog.jpg"
-    assert alt == "Hund"
-    assert caption == "Ein lieber Hund"
+    assert m.groups() == (src, alt, caption)
 
 
-@pytest.mark.parametrize(
-    "wrapper", ["<pics/file with spaces.png>", "<../weird (1).png>"]
-)
-def test_angle_bracket_url_and_spaces_supported(tmp_path: Path, wrapper):
-    md = tmp_path / "s.md"
-    write(md, f'![X]({wrapper} "T")\n')
-
-    n = convert_markdown_file(md)
-    assert n == 1
-    out = read(md)
-    m = FIG_RE.search(out)
-    assert m is not None, f"no match in output:\n{out}"
-    src, alt, caption = m.groups()
-    assert src == wrapper[1:-1]
-    assert alt == "X"
-    assert caption == "T"
+# Each row: Markdown that convert_markdown_file leaves untouched, returning 0
+UNCHANGED_CASES = [
+    pytest.param(
+        'Before\n```\n![ALT](img/in_code.png "T")\n```\nAfter\n',
+        id="skips-fenced-code-blocks",
+    ),
+    pytest.param(
+        'Before\n~~~\n![ALT](img/in_code.png "T")\n~~~\nAfter\n',
+        id="skips-tilde-fenced-code-blocks",
+    ),
+    pytest.param('Text `![ALT](path/x.png "T")` Text\n', id="skips-inline-code-spans"),
+    pytest.param("Oops: ![Bar][missing]\n", id="unknown-reference-is-left-untouched"),
+    pytest.param("No image here.\n", id="no-images-no-change"),
+]
 
 
-def test_skips_fenced_code_blocks(tmp_path: Path):
-    md = tmp_path / "code.md"
-    write(md, "Before\n" "```\n" '![ALT](img/in_code.png "T")\n' "```\n" "After\n")
-    n = convert_markdown_file(md)
-    assert n == 0
-    assert read(md).count("![ALT](") == 1
-
-
-def test_skips_inline_code_spans(tmp_path: Path):
-    md = tmp_path / "inline.md"
-    write(md, 'Text `![ALT](path/x.png "T")` Text\n')
+@pytest.mark.parametrize("text", UNCHANGED_CASES)
+def test_leaves_file_unchanged(tmp_path: Path, text):
+    md = tmp_path / "u.md"
+    write(md, text)
 
     n = convert_markdown_file(md)
     assert n == 0
-    assert read(md).count("![ALT](") == 1
+    assert read(md) == text
 
 
-def test_reference_style_images_are_resolved(tmp_path: Path):
-    md = tmp_path / "ref.md"
-    write(md, "Here: ![Logo][app]\n" '[app]: assets/logo.svg "Brand"\n')
-
-    n = convert_markdown_file(md)
-    assert n == 1
-    out = read(md)
-    m = FIG_RE.search(out)
-    assert m is not None, f"no match in output:\n{out}"
-    src, alt, caption = m.groups()
-    assert src == "assets/logo.svg"
-    assert alt == "Logo"
-    assert caption == "Brand"
+# Each row: the keyword arguments, whether a .bak sidecar exists afterwards,
+# whether the file itself is rewritten
+WRITE_CASES = [
+    pytest.param({}, False, True, id="default-is-no-backup"),
+    pytest.param({"backup": True}, True, True, id="backup-when-enabled"),
+    pytest.param({"dry_run": True}, False, False, id="dry-run-writes-nothing"),
+    # dry-run returns before the backup is taken
+    pytest.param(
+        {"backup": True, "dry_run": True}, False, False, id="dry-run-skips-backup"
+    ),
+]
 
 
-def test_reference_empty_id_uses_alt_as_key(tmp_path: Path):
-    md = tmp_path / "ref2.md"
-    write(md, "An image: ![Foo][]\n" '[foo]: img/foo.png "Titel Foo"\n')
-    n = convert_markdown_file(md)
-    assert n == 1
-    out = read(md)
-    m = FIG_RE.search(out)
-    assert m is not None, f"no match in output:\n{out}"
-    src, alt, caption = m.groups()
-    assert src == "img/foo.png"
-    assert alt == "Foo"
-    assert caption == "Titel Foo"
-
-
-def test_unknown_reference_is_left_untouched(tmp_path: Path):
-    md = tmp_path / "ref3.md"
-    write(md, "Oops: ![Bar][missing]\n")
-
-    n = convert_markdown_file(md)
-    assert n == 0
-    assert read(md) == "Oops: ![Bar][missing]\n"
-
-
-def test_default_is_no_backup(tmp_path: Path):
-    md = tmp_path / "nb.md"
-    write(md, "![A](x.png)\n")
-    n = convert_markdown_file(md)  # default: backup=False
-    assert n == 1
-    assert not md.with_suffix(".md.bak").exists()
-
-
-def test_backup_when_enabled(tmp_path: Path):
-    md = tmp_path / "b.md"
-    write(md, "![A](x.png)\n")
-    bak = md.with_suffix(".md.bak")
-    assert not bak.exists()
-
-    n = convert_markdown_file(md, backup=True)
-    assert n == 1
-    assert bak.exists()
-    assert read(bak) == "![A](x.png)\n"  # original preserved in backup
-
-
-def test_dry_run_writes_nothing(tmp_path: Path):
-    md = tmp_path / "dry.md"
+@pytest.mark.parametrize("kwargs, expect_bak, written", WRITE_CASES)
+def test_write_and_backup(tmp_path: Path, kwargs, expect_bak, written):
+    md = tmp_path / "w.md"
     before = "Start ![A](x.png) End\n"
     write(md, before)
+    bak = md.with_suffix(".md.bak")
 
-    n = convert_markdown_file(md, dry_run=True)
+    n = convert_markdown_file(md, **kwargs)
     assert n == 1
-    assert read(md) == before
-    assert not md.with_suffix(".md.bak").exists()
-
-
-def test_applies_figure_class_when_provided(tmp_path: Path):
-    md = tmp_path / "cls.md"
-    write(md, "![A](x.png)\n")
-
-    n = convert_markdown_file(md, figure_class="img-figure")
-    assert n == 1
-    out = read(md)
-    assert '<figure class="img-figure">' in out
+    assert bak.exists() is expect_bak
+    if expect_bak:
+        assert read(bak) == before  # original preserved in backup
+    if written:
+        assert FIG_RE.search(read(md))
+    else:
+        assert read(md) == before
 
 
 def test_file_not_found_returns_zero(tmp_path: Path):
     missing = tmp_path / "nope.md"
     n = convert_markdown_file(missing)
     assert n == 0
-
-
-def test_no_images_no_change(tmp_path: Path):
-    md = tmp_path / "plain.md"
-    write(md, "No image here.\n")
-    n = convert_markdown_file(md)
-    assert n == 0
-    assert read(md) == "No image here.\n"
 
 
 # ---------- directory (recursive) tests ----------
@@ -205,135 +199,185 @@ def test_directory_recursive_conversion(tmp_path: Path):
     assert FIG_RE.search(read(f2))
 
 
-def test_dry_run_directory(tmp_path: Path):
-    sub = tmp_path / "part"
-    sub.mkdir()
-    f = sub / "c.md"
-    write(f, "![Alt](c.png)")
-
-    total = convert_markdown_dir(tmp_path, dry_run=True)
-    assert total == 1
-    # original file unchanged
-    assert "![Alt](" in read(f)
-
-
 # ---------------------------------------------------------------------------
 # Phase 4b Pass 2 Commit 9 — mutation-survivor A-category kills.
 # Companion B-annotations live in .mutmut/equivalent.yaml under the
 # §14.8.1, §14.8.3, §14.8.4, and ad-hoc sections; this test block is the
-# A side of the triage. Each test asserts a specific observable contract;
-# the docstring names the mutant(s) it kills.
+# A side of the triage. Each row asserts a specific observable contract;
+# the comment above it names the mutant(s) it kills.
 # ---------------------------------------------------------------------------
 
 
-from manuscripta.images.convert import (
-    _parse_ref_defs,
-    _replace_inline,
-    _replace_reference,
-    _split_outside_code,
-    _unangle,
-)
+# Each row: the raw URL and what _unangle returns. The angle brackets are
+# stripped only when BOTH the leading ``<`` and the trailing ``>`` are
+# present; a URL with only one of them is returned unchanged.
+# Kills _unangle __mutmut_5 (``and`` → ``or`` on the bracket check).
+UNANGLE_CASES = [
+    pytest.param("<http://example.com>", "http://example.com", id="both-brackets"),
+    pytest.param("<broken", "<broken", id="leading-bracket-only"),
+    pytest.param("broken>", "broken>", id="trailing-bracket-only"),
+    pytest.param("plain.png", "plain.png", id="no-brackets"),
+    pytest.param(" <a.png> ", "a.png", id="surrounding-whitespace-stripped"),
+]
 
 
 class TestUnangleContract:
-    def test_unangle_requires_both_angle_brackets(self):
-        """Pins that _unangle strips angle brackets only when BOTH the
-        leading ``<`` and the trailing ``>`` are present. A URL with
-        only one of them is returned unchanged.
+    @pytest.mark.parametrize("url, expected", UNANGLE_CASES)
+    def test_unangle(self, url, expected):
+        assert _unangle(url) == expected
 
-        Kills _unangle __mutmut_5 (``and`` → ``or`` on the bracket
-        check).
-        """
-        assert _unangle("<http://example.com>") == "http://example.com"
-        assert _unangle("<broken") == "<broken"
-        assert _unangle("broken>") == "broken>"
+
+# Each row: a reference definition, its id, src and title as parsed. Titles
+# resolve through the ``title_dq``, ``title_sq`` and ``title_par`` named
+# groups; the first match wins (``or or``, not ``or and``).
+# Kills _parse_ref_defs __mutmut_18 (``m.group(None)`` raises), __mutmut_19
+# (``m.group('XXtitle_sqXX')`` raises), __mutmut_20 (``m.group('TITLE_SQ')``
+# raises), __mutmut_21 (``m.group(None)``), __mutmut_22 (``XXtitle_parXX``),
+# __mutmut_23 (``TITLE_PAR``) and __mutmut_13 (``or or`` → ``or and``; with
+# only title_par the ``and`` mutation collapses to ``None`` where the orig
+# returns the parenthesised title).
+REF_DEF_CASES = [
+    pytest.param(
+        "[logo]: img/x.png 'Single Title'\n",
+        "logo",
+        "img/x.png",
+        "Single Title",
+        id="single-quoted-title-parses",
+    ),
+    pytest.param(
+        "[pic]: img/y.png (Par Title)\n",
+        "pic",
+        "img/y.png",
+        "Par Title",
+        id="parenthesized-title-parses",
+    ),
+    pytest.param(
+        '[logo]: img/x.png "DQ Title"\n',
+        "logo",
+        "img/x.png",
+        "DQ Title",
+        id="double-quoted-title-parses",
+    ),
+    pytest.param("[logo]: img/x.png\n", "logo", "img/x.png", None, id="no-title"),
+    pytest.param("[LOGO]: img/x.png\n", "logo", "img/x.png", None, id="id-lowercased"),
+    pytest.param(
+        '[logo]: <img/my pic.png> "T"\n',
+        "logo",
+        "img/my pic.png",
+        "T",
+        id="angle-bracket-src-unangled",
+    ),
+]
 
 
 class TestRefDefParsing:
-    def test_ref_def_single_quoted_title_parses(self):
-        """Pins that ref defs with single-quoted titles resolve through
-        the ``title_sq`` named group.
+    @pytest.mark.parametrize("text, rid, src, title", REF_DEF_CASES)
+    def test_ref_def_parses(self, text, rid, src, title):
+        refs = _parse_ref_defs(text)
+        assert rid in refs
+        assert refs[rid]["src"] == src
+        assert refs[rid]["title"] == title
 
-        Kills _parse_ref_defs __mutmut_18 (``m.group(None)`` raises),
-        __mutmut_19 (``m.group('XXtitle_sqXX')`` raises), and
-        __mutmut_20 (``m.group('TITLE_SQ')`` raises).
-        """
-        refs = _parse_ref_defs("[logo]: img/x.png 'Single Title'\n")
-        assert "logo" in refs
-        assert refs["logo"]["title"] == "Single Title"
-        assert refs["logo"]["src"] == "img/x.png"
 
-    def test_ref_def_parenthesized_title_parses(self):
-        """Pins that ref defs with parenthesized titles resolve through
-        the ``title_par`` named group, and pins the title-precedence
-        short-circuit semantics (``or or`` — first match wins — not
-        ``or and``).
-
-        Kills _parse_ref_defs __mutmut_21 (``m.group(None)``),
-        __mutmut_22 (``XXtitle_parXX``), __mutmut_23 (``TITLE_PAR``),
-        and __mutmut_13 (``or or`` → ``or and``; with only title_par,
-        the ``and`` mutation collapses to ``None`` where the orig
-        returns the parenthesised title).
-        """
-        refs = _parse_ref_defs("[pic]: img/y.png (Par Title)\n")
-        assert "pic" in refs
-        assert refs["pic"]["title"] == "Par Title"
+# Each row: the chunk, the number of inline images replaced, fragments the
+# result must carry, fragments it must not
+INLINE_CASES = [
+    # With only a single-quoted title the caption must be the sq title, not
+    # None from an ``and``-collapse. Kills _replace_inline __mutmut_15
+    # (``or`` → ``and`` on the middle link of the title precedence).
+    pytest.param(
+        "![A](img/pic.png 'SQ Caption')",
+        1,
+        ["SQ Caption"],
+        [],
+        id="single-quoted-title-caption",
+    ),
+    pytest.param(
+        "![A](img/pic.png (Par Caption))",
+        1,
+        ["Par Caption"],
+        [],
+        id="parenthesized-title-caption",
+    ),
+    # ``![](src)`` yields ``alt=""`` in the rendered figure, not a sentinel.
+    # Kills _replace_inline __mutmut_8 (``alt or ""`` → ``alt or "XXXX"``).
+    pytest.param("![](img/a.png)", 1, ['alt=""'], ["XXXX"], id="empty-alt-preserved"),
+    # The per-chunk count accumulates across matches (``count += 1``), it
+    # does not reset to 1 per match. Kills _replace_inline __mutmut_31
+    # (``count += 1`` → ``count = 1``).
+    pytest.param(
+        "![A](a.png) and ![B](b.png) and ![C](c.png)",
+        3,
+        [],
+        [],
+        id="count-sums-multiple",
+    ),
+]
 
 
 class TestReplaceInlineMutationPins:
-    def test_inline_image_single_quoted_title_caption(self):
-        """Pins the title-precedence short-circuit in _replace_inline:
-        with only a single-quoted title, the caption must be the sq
-        title (not None from an ``and``-collapse).
+    @pytest.mark.parametrize("chunk, count, present, absent", INLINE_CASES)
+    def test_replace_inline(self, chunk, count, present, absent):
+        out, n = _replace_inline(chunk, figure_class=None)
+        assert n == count
+        for fragment in present:
+            assert fragment in out
+        for fragment in absent:
+            assert fragment not in out
 
-        Kills _replace_inline __mutmut_15 (``or`` → ``and`` on the
-        middle link of the title precedence).
-        """
-        out, count = _replace_inline(
-            "![A](img/pic.png 'SQ Caption')", figure_class=None
-        )
-        assert count == 1
-        assert "SQ Caption" in out
 
-    def test_inline_image_empty_alt_preserved(self):
-        """Pins that an inline image with no alt text (``![](src)``)
-        yields ``alt=""`` in the rendered figure — not a sentinel.
-
-        Kills _replace_inline __mutmut_8 (``alt or ""`` → ``alt or
-        "XXXX"``).
-        """
-        out, count = _replace_inline("![](img/a.png)", figure_class=None)
-        assert count == 1
-        assert 'alt=""' in out
-        assert "XXXX" not in out
-
-    def test_inline_image_count_sums_multiple(self):
-        """Pins that the per-chunk inline-image count accumulates
-        across matches (``count += 1``), not resets to 1 per match.
-
-        Kills _replace_inline __mutmut_31 (``count += 1`` →
-        ``count = 1``).
-        """
-        _, count = _replace_inline(
-            "![A](a.png) and ![B](b.png) and ![C](c.png)",
-            figure_class=None,
-        )
-        assert count == 3
+# Each row: the chunk, the reference definitions, the number of reference
+# images replaced, fragments the result must carry, fragments it must not
+REFERENCE_CASES = [
+    # ``![][id]`` yields ``alt=""``, not a sentinel. Kills _replace_reference
+    # __mutmut_8 (``alt or ""`` → ``alt or "XXXX"``).
+    pytest.param(
+        "![][pic]",
+        {"pic": {"src": "img/x.png", "title": "T"}},
+        1,
+        ['alt=""'],
+        ["XXXX"],
+        id="empty-alt-preserved",
+    ),
+    # When the ref def carries no title the caption falls back to the alt
+    # text, not to ``None``; the caption tag must not render literal "None".
+    # Kills _replace_reference __mutmut_24 (``_caption(alt, …)`` →
+    # ``_caption(None, …)``); with ``title=None``, _caption returns alt, and
+    # the alt must be real, not None.
+    pytest.param(
+        "![MyAlt][pic]",
+        {"pic": {"src": "img/x.png", "title": None}},
+        1,
+        ["MyAlt"],
+        ["<em>None</em>"],
+        id="no-title-uses-alt-as-caption",
+    ),
+    # The per-chunk count accumulates. Kills _replace_reference __mutmut_30
+    # (``count += 1`` → ``count = 1``).
+    pytest.param(
+        "![x][a] ![y][b] ![z][c]",
+        {
+            "a": {"src": "a.png", "title": "A"},
+            "b": {"src": "b.png", "title": "B"},
+            "c": {"src": "c.png", "title": "C"},
+        },
+        3,
+        [],
+        [],
+        id="count-sums-multiple",
+    ),
+]
 
 
 class TestReplaceReferenceMutationPins:
-    def test_reference_image_empty_alt_preserved(self):
-        """Pins that a reference image with empty alt (``![][id]``)
-        yields ``alt=""``, not a sentinel.
-
-        Kills _replace_reference __mutmut_8 (``alt or ""`` → ``alt or
-        "XXXX"``).
-        """
-        refs = {"pic": {"src": "img/x.png", "title": "T"}}
-        out, count = _replace_reference("![][pic]", refs, figure_class=None)
-        assert count == 1
-        assert 'alt=""' in out
-        assert "XXXX" not in out
+    @pytest.mark.parametrize("chunk, refs, count, present, absent", REFERENCE_CASES)
+    def test_replace_reference(self, chunk, refs, count, present, absent):
+        out, n = _replace_reference(chunk, refs, figure_class=None)
+        assert n == count
+        for fragment in present:
+            assert fragment in out
+        for fragment in absent:
+            assert fragment not in out
 
     def test_reference_image_unknown_ref_kept_verbatim(self):
         """Pins that when a reference image points to an unknown id,
@@ -348,151 +392,139 @@ class TestReplaceReferenceMutationPins:
         assert count == 0
         assert out == "![MyAlt][missing]"
 
-    def test_reference_image_no_title_uses_alt_as_caption(self):
-        """Pins that when a ref def carries no title, the caption
-        falls back to the image's alt text — not to ``None``.
 
-        Kills _replace_reference __mutmut_24 (``_caption(alt, …)`` →
-        ``_caption(None, …)``); with ``title=None``, _caption returns
-        alt, and the alt must be real, not None.
-        """
-        refs = {"pic": {"src": "img/x.png", "title": None}}
-        out, count = _replace_reference("![MyAlt][pic]", refs, figure_class=None)
-        assert count == 1
-        assert "MyAlt" in out
-        # Caption tag must not render literal "None"
-        assert "<em>None</em>" not in out
-
-    def test_reference_image_count_sums_multiple(self):
-        """Pins that the per-chunk reference-image count accumulates.
-
-        Kills _replace_reference __mutmut_30 (``count += 1`` →
-        ``count = 1``).
-        """
-        refs = {
-            "a": {"src": "a.png", "title": "A"},
-            "b": {"src": "b.png", "title": "B"},
-            "c": {"src": "c.png", "title": "C"},
-        }
-        _, count = _replace_reference(
-            "![x][a] ![y][b] ![z][c]", refs, figure_class=None
-        )
-        assert count == 3
+# Each row: the text, the code flag of the segments to look in, fragments
+# that some segment carrying that flag must contain
+SPLIT_CASES = [
+    # Plain-text segments between code fences are labelled ``(False, …)``
+    # (non-code), so the downstream loop runs image replacement on them.
+    # Kills _split_outside_code __mutmut_7 (``(False, …)`` → ``(True, …)``).
+    pytest.param(
+        "intro text\n\n```\nfenced\n```\n\ntrailing text",
+        False,
+        ["intro text", "trailing text"],
+        id="text-segments-marked-non-code",
+    ),
+    # A captured code fence carries the full matched text (``m.group(0)``),
+    # not just the leading anchor capture group (``m.group(1)`` is
+    # ``(^|\n)``, which is empty or a single newline).
+    # Kills _split_outside_code __mutmut_11 (``m.group(0)`` → ``m.group(1)``).
+    pytest.param(
+        "pre\n```python\nprint('hi')\n```\npost",
+        True,
+        ["print('hi')"],
+        id="full-code-fence-preserved-in-segment",
+    ),
+    # When inline code splits a non-code segment, the surrounding text keeps
+    # its non-code label. Kills _split_outside_code __mutmut_24
+    # (``(False, seg[...])`` → ``(True, seg[...])`` in the refinement path).
+    pytest.param(
+        "text before `inline` text after",
+        False,
+        ["text before", "text after"],
+        id="inline-code-refinement-marks-surrounding-text-non-code",
+    ),
+    pytest.param(
+        "text before `inline` text after",
+        True,
+        ["`inline`"],
+        id="inline-code-marked-code",
+    ),
+]
 
 
 class TestSplitOutsideCodeMutationPins:
-    def test_text_segments_marked_non_code(self):
-        """Pins that plain-text segments between code fences are
-        labelled ``(False, …)`` (non-code), so the downstream loop
-        runs image replacement on them.
+    @pytest.mark.parametrize("text, is_code, fragments", SPLIT_CASES)
+    def test_segment_labels(self, text, is_code, fragments):
+        segments = [s for flag, s in _split_outside_code(text) if flag == is_code]
+        for fragment in fragments:
+            assert any(fragment in s for s in segments)
 
-        Kills _split_outside_code __mutmut_7 (``(False, …)`` →
-        ``(True, …)``).
-        """
-        text = "intro text\n\n```\nfenced\n```\n\ntrailing text"
-        segs = _split_outside_code(text)
-        non_code = [s for is_code, s in segs if not is_code]
-        assert any("intro text" in s for s in non_code)
-        assert any("trailing text" in s for s in non_code)
 
-    def test_full_code_fence_preserved_in_segment(self):
-        """Pins that when a code fence is captured, the full matched
-        text (``m.group(0)``) is carried forward — not just the
-        leading anchor capture group (``m.group(1)`` is ``(^|\\n)``,
-        which is empty or a single newline).
-
-        Kills _split_outside_code __mutmut_11 (``m.group(0)`` →
-        ``m.group(1)``).
-        """
-        text = "pre\n```python\nprint('hi')\n```\npost"
-        segs = _split_outside_code(text)
-        code_segments = [s for is_code, s in segs if is_code]
-        assert any("print('hi')" in s for s in code_segments)
-
-    def test_inline_code_refinement_marks_surrounding_text_non_code(self):
-        """Pins that when inline code splits a non-code segment, the
-        surrounding text keeps its non-code label.
-
-        Kills _split_outside_code __mutmut_24 (``(False, seg[...])`` →
-        ``(True, seg[...])`` in the inline-code refinement path).
-        """
-        text = "text before `inline` text after"
-        segs = _split_outside_code(text)
-        non_code = [s for is_code, s in segs if not is_code]
-        assert any("text before" in s for s in non_code)
-        assert any("text after" in s for s in non_code)
+# Each row: the Markdown written to the file, the keyword arguments, the
+# count convert_markdown_file returns, fragments the rewritten file must
+# carry, fragments it must not
+PIPELINE_CASES = [
+    pytest.param(
+        "![A](x.png)\n",
+        {"figure_class": "img-figure"},
+        1,
+        ['<figure class="img-figure">'],
+        [],
+        id="applies-figure-class-when-provided",
+    ),
+    # A fenced code block's contents are written back unchanged: the
+    # segment loop appends ``chunk``, not ``None``. Kills convert_markdown_file
+    # __mutmut_17 (``converted.append(chunk)`` → ``converted.append(None)``).
+    pytest.param(
+        "pre ![A](a.png) mid\n\n```python\nx = 1\ny = 2\n```\n\npost",
+        {},
+        1,
+        ["x = 1\ny = 2"],
+        ["None"],
+        id="code-segment-preserved-verbatim",
+    ),
+    # The per-segment loop uses ``continue`` to skip code fences without
+    # aborting; images after a fence must still be processed.
+    # Kills convert_markdown_file __mutmut_18 (``continue`` → ``break``).
+    pytest.param(
+        "```\ncode\n```\n\n![TailImg](img/tail.png)",
+        {},
+        1,
+        ["TailImg"],
+        [],
+        id="processing-continues-past-code-fence",
+    ),
+    # ``figure_class`` is forwarded to _replace_reference, not dropped to
+    # ``None``, so the CSS class lands on reference-image figures too.
+    # Kills convert_markdown_file __mutmut_27
+    # (``_replace_reference(chunk, refs, figure_class)`` →
+    # ``_replace_reference(chunk, refs, None)``).
+    pytest.param(
+        '![Alt][pic]\n\n[pic]: img/x.png "T"\n',
+        {"figure_class": "my-fig"},
+        1,
+        ['class="my-fig"'],
+        [],
+        id="figure-class-reaches-reference-images",
+    ),
+    # The per-file total sums image counts across every non-code segment,
+    # not just the last one. Kills convert_markdown_file __mutmut_31
+    # (``total += c1 + c2`` → ``total = c1 + c2``).
+    pytest.param(
+        "![A](a.png)\n\n```\ncode\n```\n\n![B](b.png)",
+        {},
+        2,
+        [],
+        [],
+        id="total-accumulates-across-segments",
+    ),
+    # Per-segment strings are concatenated with ``""`` (empty) as joiner,
+    # not a sentinel. Kills convert_markdown_file __mutmut_40
+    # (``"".join(converted)`` → ``"XXXX".join(converted)``).
+    pytest.param(
+        "pre ![A](a.png)\n\n```\nfenced\n```\n\npost ![B](b.png)",
+        {},
+        2,
+        [],
+        ["XXXX"],
+        id="segments-joined-without-sentinel-separator",
+    ),
+]
 
 
 class TestConvertFilePipelineMutationPins:
-    def test_code_segment_preserved_verbatim(self, tmp_path: Path):
-        """Pins that a fenced code block's contents are written back
-        unchanged — the segment-loop appends ``chunk``, not ``None``.
-
-        Kills convert_markdown_file __mutmut_17 (``converted.append(
-        chunk)`` → ``converted.append(None)``).
-        """
+    @pytest.mark.parametrize("text, kwargs, count, present, absent", PIPELINE_CASES)
+    def test_pipeline(self, tmp_path: Path, text, kwargs, count, present, absent):
         md = tmp_path / "a.md"
-        code = "```python\nx = 1\ny = 2\n```"
-        write(md, f"pre ![A](a.png) mid\n\n{code}\n\npost")
-        convert_markdown_file(md)
+        write(md, text)
+        n = convert_markdown_file(md, **kwargs)
+        assert n == count
         out = read(md)
-        assert "x = 1\ny = 2" in out
-        # The fenced segment must not have been overwritten with "None".
-        assert "None" not in out.split("```")[1]
-
-    def test_processing_continues_past_code_fence(self, tmp_path: Path):
-        """Pins that the per-segment loop uses ``continue`` to skip
-        code fences without aborting; images after a fence must still
-        be processed.
-
-        Kills convert_markdown_file __mutmut_18 (``continue`` →
-        ``break``).
-        """
-        md = tmp_path / "a.md"
-        write(md, "```\ncode\n```\n\n![TailImg](img/tail.png)")
-        n = convert_markdown_file(md)
-        assert n == 1
-        assert "TailImg" in read(md)
-
-    def test_figure_class_reaches_reference_images(self, tmp_path: Path):
-        """Pins that ``figure_class`` is forwarded to
-        _replace_reference, not dropped to ``None``, so the CSS class
-        lands on reference-image figures too.
-
-        Kills convert_markdown_file __mutmut_27
-        (``_replace_reference(chunk, refs, figure_class)`` →
-        ``_replace_reference(chunk, refs, None)``).
-        """
-        md = tmp_path / "a.md"
-        write(md, '![Alt][pic]\n\n[pic]: img/x.png "T"\n')
-        convert_markdown_file(md, figure_class="my-fig")
-        out = read(md)
-        assert 'class="my-fig"' in out
-
-    def test_total_accumulates_across_segments(self, tmp_path: Path):
-        """Pins that the per-file total sums image counts across every
-        non-code segment, not just the last one.
-
-        Kills convert_markdown_file __mutmut_31 (``total += c1 + c2``
-        → ``total = c1 + c2``).
-        """
-        md = tmp_path / "a.md"
-        write(md, "![A](a.png)\n\n```\ncode\n```\n\n![B](b.png)")
-        n = convert_markdown_file(md)
-        assert n == 2
-
-    def test_segments_joined_without_sentinel_separator(self, tmp_path: Path):
-        """Pins that per-segment strings are concatenated with ``""``
-        (empty) as joiner, not a sentinel.
-
-        Kills convert_markdown_file __mutmut_40 (``"".join(converted)``
-        → ``"XXXX".join(converted)``).
-        """
-        md = tmp_path / "a.md"
-        write(md, "pre ![A](a.png)\n\n```\nfenced\n```\n\npost ![B](b.png)")
-        convert_markdown_file(md)
-        out = read(md)
-        assert "XXXX" not in out
+        for fragment in present:
+            assert fragment in out
+        for fragment in absent:
+            assert fragment not in out
 
     def test_utf8_non_ascii_roundtrip_under_c_locale(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -541,56 +573,59 @@ class TestConvertFilePipelineMutationPins:
             _locale.setlocale(_locale.LC_ALL, saved)
 
 
+# Each row: the keyword arguments of convert_markdown_dir, the total it
+# returns for one file holding one image, whether file.md.bak exists
+# afterwards, a fragment the file must carry
+DIR_CASES = [
+    # the file is left as it was
+    pytest.param({"dry_run": True}, 1, False, "![A](", id="dry-run-directory"),
+    # ``backup=True`` propagates through the dir wrapper to each file call,
+    # producing a ``.bak`` sidecar. Kills convert_markdown_dir __mutmut_11
+    # (``backup=backup`` → ``backup=None`` in the per-file call).
+    pytest.param({"backup": True}, 1, True, "<figure>", id="passes-backup-kwarg"),
+    # ``figure_class`` propagates through the dir wrapper to each file call.
+    # Kills convert_markdown_dir __mutmut_13 (``figure_class=figure_class``
+    # → ``figure_class=None``).
+    pytest.param(
+        {"figure_class": "dir-fig"},
+        1,
+        False,
+        'class="dir-fig"',
+        id="passes-figure-class-kwarg",
+    ),
+    # The per-file call in the dir wrapper includes every forwarded kwarg
+    # explicitly; dropping any of them makes the per-file call use
+    # convert_markdown_file's own default for that parameter, silently
+    # losing the caller's value. Kills convert_markdown_dir __mutmut_15
+    # (``backup=backup`` entry dropped; per-file default ``backup=False``
+    # overrides the dir-call's ``backup=True``).
+    pytest.param(
+        {"backup": True},
+        1,
+        True,
+        "<figure>",
+        id="kwarg-drop-silently-uses-per-file-default",
+    ),
+    # The last forwarded kwarg (``figure_class=``) is present in the
+    # per-file call; a trailing-comma-only variant that drops it would
+    # silently make every per-file call use the per-file default of
+    # ``None``. Kills convert_markdown_dir __mutmut_17 (the last kwarg in
+    # the per-file call signature dropped).
+    pytest.param(
+        {"figure_class": "dir-fig2"},
+        1,
+        False,
+        'class="dir-fig2"',
+        id="last-positional-kwarg-forwarded",
+    ),
+]
+
+
 class TestConvertDirKwargForwardingMutationPins:
-    def test_passes_backup_kwarg(self, tmp_path: Path):
-        """Pins that ``backup=True`` propagates through the dir
-        wrapper to each file call, producing a ``.bak`` sidecar.
-
-        Kills convert_markdown_dir __mutmut_11 (``backup=backup`` →
-        ``backup=None`` in the per-file call).
-        """
+    @pytest.mark.parametrize("kwargs, total, expect_bak, fragment", DIR_CASES)
+    def test_forwards_kwargs(self, tmp_path: Path, kwargs, total, expect_bak, fragment):
         f = tmp_path / "file.md"
         write(f, "![A](a.png)")
-        convert_markdown_dir(tmp_path, backup=True)
-        assert (tmp_path / "file.md.bak").exists()
-
-    def test_passes_figure_class_kwarg(self, tmp_path: Path):
-        """Pins that ``figure_class`` propagates through the dir
-        wrapper to each file call.
-
-        Kills convert_markdown_dir __mutmut_13 (``figure_class=
-        figure_class`` → ``figure_class=None``).
-        """
-        f = tmp_path / "file.md"
-        write(f, "![A](a.png)")
-        convert_markdown_dir(tmp_path, figure_class="dir-fig")
-        assert 'class="dir-fig"' in read(f)
-
-    def test_kwarg_drop_silently_uses_per_file_default(self, tmp_path: Path):
-        """Pins that the per-file call in the dir wrapper includes
-        every forwarded kwarg explicitly; dropping any of them makes
-        the per-file call use convert_markdown_file's own default for
-        that parameter — silently losing the caller's value.
-
-        Kills convert_markdown_dir __mutmut_15 (``backup=backup``
-        entry dropped; per-file default ``backup=False`` overrides
-        the dir-call's ``backup=True``).
-        """
-        f = tmp_path / "file.md"
-        write(f, "![A](a.png)")
-        convert_markdown_dir(tmp_path, backup=True)
-        assert (tmp_path / "file.md.bak").exists()
-
-    def test_last_positional_kwarg_forwarded(self, tmp_path: Path):
-        """Pins that the last forwarded kwarg (``figure_class=``) is
-        present in the per-file call; a trailing-comma-only variant
-        that drops it would silently make every per-file call use the
-        per-file default of ``None``.
-
-        Kills convert_markdown_dir __mutmut_17 (the last kwarg in the
-        per-file call signature dropped).
-        """
-        f = tmp_path / "file.md"
-        write(f, "![A](a.png)")
-        convert_markdown_dir(tmp_path, figure_class="dir-fig2")
-        assert 'class="dir-fig2"' in read(f)
+        assert convert_markdown_dir(tmp_path, **kwargs) == total
+        assert (tmp_path / "file.md.bak").exists() is expect_bak
+        assert fragment in read(f)
