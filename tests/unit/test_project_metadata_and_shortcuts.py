@@ -67,6 +67,27 @@ METADATA_CASES = [
         False,
         id="no-json-uses-defaults-and-keeps-unknown-placeholders",
     ),
+    # the other nine slots: without metadata_values.json each one holds the
+    # prompt the author reads in metadata.yaml to know what to fill in
+    pytest.param(
+        None,
+        "subtitle: {{BOOK_SUBTITLE}}\nauthor: {{AUTHOR_NAME}}\nisbn: {{ISBN_NUMBER}}\n"
+        "edition: {{BOOK_EDITION}}\npublisher: {{PUBLISHER_NAME}}\n"
+        "date: {{PUBLICATION_DATE}}\nlanguage: {{LANGUAGE}}\n"
+        "description: {{BOOK_DESCRIPTION}}\nkeywords:{{KEYWORDS}}\n",
+        "subtitle: Enter a short subtitle describing your book\n"
+        "author: Enter the author's full name\n"
+        "isbn: Enter the ISBN number (if available)\n"
+        "edition: Enter the edition of the book (e.g., 1st Edition, 2nd Edition)\n"
+        "publisher: Enter the publisher's name\n"
+        "date: Enter the publication date in YYYY-MM-DD format\n"
+        "language: Enter the book's language code (e.g., en, de, fr)\n"
+        "description: Provide a detailed description of your book\n"
+        "keywords:\n  - Enter some keywords here\n",
+        ["✅ metadata.yaml has been updated with values from metadata_values.json."],
+        False,
+        id="no-json-prompts-for-every-remaining-slot",
+    ),
     pytest.param(
         json.dumps({"BOOK_TITLE": "Mind"}),
         None,
@@ -113,6 +134,44 @@ def test_metadata_main(
         result
     )
     assert json_path.exists() is json_left
+
+
+def test_utf8_round_trip_under_c_locale(tmp_path, monkeypatch, capsys):
+    """Both config files are read and written as UTF-8 whatever the locale:
+    under LC_ALL=C the locale codec is ASCII and cannot carry the umlauts."""
+    import locale
+
+    saved = locale.setlocale(locale.LC_ALL)
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("LANG", "C")
+    locale.setlocale(locale.LC_ALL, "C")
+    try:
+        monkeypatch.chdir(tmp_path)
+        config = tmp_path / "config"
+        config.mkdir()
+        (config / "metadata_values.json").write_bytes(
+            json.dumps(
+                {"BOOK_TITLE": "Grüße", "KEYWORDS": ["Bär"]}, ensure_ascii=False
+            ).encode("utf-8")
+        )
+        yaml_path = config / "metadata.yaml"
+        yaml_path.write_bytes(
+            "# Übersicht\ntitle: {{BOOK_TITLE}}\nkeywords:{{KEYWORDS}}\n".encode(
+                "utf-8"
+            )
+        )
+
+        metadata.main()
+
+        assert capsys.readouterr().out.splitlines() == [
+            "✅ metadata.yaml has been updated with values from metadata_values.json.",
+            "🗑️ metadata_values.json has been deleted.",
+        ]
+        assert yaml_path.read_bytes().decode("utf-8") == (
+            "# Übersicht\ntitle: Grüße\nkeywords:\n  - Bär\n"
+        )
+    finally:
+        locale.setlocale(locale.LC_ALL, saved)
 
 
 # ---------------------------------------------------------------------------

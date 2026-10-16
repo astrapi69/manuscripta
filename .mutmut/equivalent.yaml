@@ -858,3 +858,229 @@ src/manuscripta/project/init.py:manuscripta.project.init.x_run_init_book_project
 #    and which both formats satisfy; §14.8.1 names logging format as outside
 #    its scope and needing its own ADR. (Its sibling mutant 2, format=None,
 #    is A: Formatter(None) renders the bare message without the level tag.))
+
+# project/metadata.py and utils/pandoc_batch.py — triage 2026-10-16
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/project/metadata.py — 5 equivalents across 2 clusters
+#   ad-hoc (open() defaults to mode "r")       : 2 mutants — main 79, 99
+#   ad-hoc (codec registry normalizes names)   : 3 mutants — main 84, 104, 156
+# Triage: tests/unit/test_project_metadata_and_shortcuts.py carries the
+# A-side: the row no-json-prompts-for-every-remaining-slot pins the written
+# metadata.yaml for the nine default slots the earlier rows did not reach
+# (key mutants leave the {{SLOT}} unfilled, value mutants change the prompt
+# the author reads), and test_utf8_round_trip_under_c_locale kills the
+# encoding=None / encoding-dropped siblings 77, 80, 97, 100, 149, 152.
+# ---------------------------------------------------------------------------
+
+# --- Ad-hoc — open() defaults to mode "r" ---
+# Both mutants drop the explicit "r" from a read-side open(); "r" is the
+# documented default of builtins.open, so the same text-mode reader opens
+# with the same encoding kwarg and the same content is read.
+#
+# main mutant 79: open(metadata_file, "r", encoding="utf-8") -> open(metadata_file, encoding="utf-8")
+src/manuscripta/project/metadata.py:manuscripta.project.metadata.x_main__mutmut_79
+# main mutant 99: open(yaml_file, "r", encoding="utf-8") -> open(yaml_file, encoding="utf-8")
+src/manuscripta/project/metadata.py:manuscripta.project.metadata.x_main__mutmut_99
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# Same reasoning as the convert.py / to_absolute.py / to_relative.py /
+# img_tags.py codec-alias clusters: codecs.lookup canonicalises case, so
+# "utf-8" and "UTF-8" name the identical codec.
+#
+# main mutant 84: open(metadata_file, "r", encoding="utf-8") -> "UTF-8"
+src/manuscripta/project/metadata.py:manuscripta.project.metadata.x_main__mutmut_84
+# main mutant 104: open(yaml_file, "r", encoding="utf-8") -> "UTF-8"
+src/manuscripta/project/metadata.py:manuscripta.project.metadata.x_main__mutmut_104
+# main mutant 156: open(yaml_file, "w", encoding="utf-8") -> "UTF-8"
+src/manuscripta/project/metadata.py:manuscripta.project.metadata.x_main__mutmut_156
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/utils/pandoc_batch.py — 68 equivalents across 7 clusters
+#   §14.8.1 (description/help wording)      : 54 mutants — parse_args 4, 5, 6
+#       and the XX-wrap / lower / upper triple on every help= literal:
+#       26-28, 48-50, 65-67, 88-90, 104-106, 125-127, 139-141, 161-163,
+#       195-197, 216-218, 238-240, 249-251, 262-264, 278-280, 295-297,
+#       308-310, 321-323
+#   §14.8.1 (usage-error wording)            : 1 mutant  — parse_args 341
+#   ad-hoc (same code point, other spelling) : 1 mutant  — patch_markdown_text 3
+#   ad-hoc (converges on the empty table)    : 3 mutants — load_defaults 2, 9, 11
+#   ad-hoc (codec registry normalizes names) : 3 mutants — _create_temp_with 16,
+#       run_one 15, 27
+#   ad-hoc (documented keyword defaults)     : 3 mutants — _create_temp_with 4,
+#       run_one 11, 13
+#   ad-hoc (best-effort cleanup swallows it) : 2 mutants — run_one 50, 51
+#   ad-hoc (coinciding conditions)           : 1 mutant  — run_one 46
+# Triage: tests/unit/test_pandoc_batch_run_and_main.py carries the A-side
+# (PARSE_ARGS_CASES: the table key and fallback of every option and the CLI
+# over it; PARSE_ARGS_ERRORS: the --to choices; OPTIONS_WITH_HELP and the
+# description paragraph: help PRESENCE; LOAD_DEFAULTS_CASES: a pyproject
+# without [tool]; REQUIRE_CMD_CASES and the name-sensitive `which`: the
+# binary looked up; RUN_ONE_CASES: the kept output directory and the
+# recognisable .md copy; RUN_ONE_LOG_CASES: the log assembly; the strict
+# decode and C-locale tests: UTF-8 either way; POOL_CASES: the worker count;
+# test_main_reports_failures: the [FAIL] lines, their logs, the failure
+# count), tests/unit/test_pandoc_batch_cmd_and_paths.py RESOURCE_PATH_CASES
+# the platform separator and the full command, and
+# tests/unit/test_pandoc_batch_patch_markdown_text.py the lone CR.
+#
+# C — specification gaps (9 survivors, NOT entries; counted against the
+# score). Per TESTING.md §14.5 they belong in the audit's "Specification
+# gaps surfaced by mutation testing" list:
+#   parse_args 215: `os.cpu_count() or 4` -> `or 5` — the job count when the
+#       CPU count is unknown is unspecified (help says "Parallel jobs." only);
+#       pinning 4 would be a literal hash check.
+#   run_one 57, 62: stdout tail [-1000:] -> [-1001:], stderr tail [-2000:]
+#       -> [-2001:] — how much of pandoc's output the log keeps is
+#       unspecified ("keep tails small"); a boundary literal, not a contract.
+#   run_one 39, 40, 42, 43, 44, 45: subprocess.run(cmd, capture_output=True,
+#       text=True) with either kwarg -> None / False / dropped — only what
+#       the stubbed subprocess.run sees changes (§14.2: wrapper noise). Seam
+#       needed: a fake pandoc executable on PATH (integration layer) or an
+#       injectable runner whose contract (captured, decoded output) a unit
+#       test can observe without restating the call.
+# ---------------------------------------------------------------------------
+
+# --- §14.8.1 — CLI help-text wording is incidental ---
+# parse_args mutants 4/5/6: parser description XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_4
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_5
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_6
+# parse_args mutants 26/27/28: --root help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_26
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_27
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_28
+# parse_args mutants 48/49/50: --outdir help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_48
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_49
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_50
+# parse_args mutants 65/66/67: --to help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_65
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_66
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_67
+# parse_args mutants 88/89/90: --from help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_88
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_89
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_90
+# parse_args mutants 104/105/106: --metadata-file help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_104
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_105
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_106
+# parse_args mutants 125/126/127: --resource-path help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_125
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_126
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_127
+# parse_args mutants 139/140/141: --lang help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_139
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_140
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_141
+# parse_args mutants 161/162/163: --standalone help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_161
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_162
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_163
+# parse_args mutants 195/196/197: --verbose help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_195
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_196
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_197
+# parse_args mutants 216/217/218: --jobs help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_216
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_217
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_218
+# parse_args mutants 238/239/240: --test-only help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_238
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_239
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_240
+# parse_args mutants 249/250/251: --extra help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_249
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_250
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_251
+# parse_args mutants 262/263/264: --print-config help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_262
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_263
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_264
+# parse_args mutants 278/279/280: --patch-md help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_278
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_279
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_280
+# parse_args mutants 295/296/297: --no-patch-md help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_295
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_296
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_297
+# parse_args mutants 308/309/310: --fix-inplace help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_308
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_309
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_310
+# parse_args mutants 321/322/323: --report-patches help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_321
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_322
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_323
+
+# --- §14.8.1 — usage-error wording is a diagnostic, the exit is the contract ---
+# parse_args mutant 341: p.error("--to is required (...)") -> the same text
+#   XX-wrapped. argparse still exits with 2 and the message still names --to
+#   and the pyproject table (both pinned by PARSE_ARGS_ERRORS/to-missing);
+#   the surrounding wording is operator-facing diagnostic text.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_341
+
+# --- Ad-hoc — the same code point spelled differently ---
+# patch_markdown_text mutant 3: startswith("﻿") -> startswith("﻿");
+#   both escapes denote U+FEFF, the literals compare equal.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_patch_markdown_text__mutmut_3
+
+# --- Ad-hoc — every branch converges on the empty table ---
+# load_defaults mutant 2: `if not pp or _toml is None` -> `and`. _toml is
+#   tomllib on the pinned 3.11 interpreter, so `_toml is None` is False and
+#   the mutant falls through with pp None into the try: load_toml(None)
+#   raises AttributeError on None.read_text, which `except Exception`
+#   turns into the same `return {}`. With pp set both forms evaluate False.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_load_defaults__mutmut_2
+# load_defaults mutants 9/11: .get("pandoc_batch", {}) -> .get("pandoc_batch",
+#   None) / .get("pandoc_batch"): the trailing `or {}` turns the None default
+#   into the same empty dict.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_load_defaults__mutmut_9
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_load_defaults__mutmut_11
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# Same reasoning as the convert.py / to_absolute.py / to_relative.py /
+# img_tags.py / metadata.py clusters: "utf-8" and "UTF-8" name the identical
+# codec. (The encoding=None / encoding-dropped siblings run_one 10, 12, 23,
+# 25 are A: killed under LC_ALL=C by test_run_one_utf8_round_trip_under_c_locale.)
+#
+# _create_temp_with mutant 16: patched.encode("utf-8") -> "UTF-8"
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x__create_temp_with__mutmut_16
+# run_one mutant 15: read_text(encoding="utf-8", ...) -> "UTF-8"
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_run_one__mutmut_15
+# run_one mutant 27: write_text(patched, encoding="utf-8") -> "UTF-8"
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_run_one__mutmut_27
+
+# --- Ad-hoc — the explicit keyword restates the documented default ---
+# _create_temp_with mutant 4: NamedTemporaryFile(..., delete=False) ->
+#   delete=None. tempfile tests the flag for truth on close(); None keeps
+#   the file exactly as False does, and run_one's unlink removes it later.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x__create_temp_with__mutmut_4
+# run_one mutants 11/13: read_text(encoding="utf-8", errors="strict") ->
+#   errors=None / errors dropped. "strict" is the documented default error
+#   handler of open(); a non-UTF-8 source raises the same UnicodeDecodeError
+#   (pinned by test_run_one_rejects_a_source_that_is_not_utf8, which is what
+#   kills the renamed-handler siblings 16 and 17 through their LookupError).
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_run_one__mutmut_11
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_run_one__mutmut_13
+
+# --- Ad-hoc — the best-effort cleanup swallows the only difference ---
+# run_one mutants 50/51: unlink(missing_ok=True) -> missing_ok=None / False.
+#   The call sits inside `try: ... except Exception: pass`; the temp copy
+#   exists at that point, and should it not, the FileNotFoundError the
+#   mutant would raise is swallowed by the same except. The source file, the
+#   returned triple and the copy's absence afterwards are identical.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_run_one__mutmut_50
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_run_one__mutmut_51
+
+# --- Ad-hoc — coinciding conditions ---
+# run_one mutant 46: `patch_md and not fix_inplace and input != infile` ->
+#   `(patch_md and not fix_inplace) or input != infile`. The temp copy is made
+#   exactly when `patch_md and not fix_inplace` holds, and only then does
+#   input_path_for_pandoc differ from infile; the third term is implied by
+#   the first two and implies them, so the conjunction and the disjunction
+#   evaluate alike for every reachable state.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_run_one__mutmut_46

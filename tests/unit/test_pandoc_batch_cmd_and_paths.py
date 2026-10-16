@@ -50,16 +50,34 @@ def test_build_cmd_basic(tmp_path: Path):
     assert str(infile) == cmd[-1]
 
 
-def test_build_cmd_resource_paths_and_extra(tmp_path: Path):
+# Each row: the platform (os.name), the --resource-path value pandoc gets for
+# the paths "a" and "b": pandoc separates them like PATH, ";" on Windows
+# and ":" elsewhere
+RESOURCE_PATH_CASES = [
+    pytest.param("posix", "a:b", id="posix-colon"),
+    pytest.param("nt", "a;b", id="windows-semicolon"),
+]
+
+
+@pytest.mark.parametrize("platform, joined", RESOURCE_PATH_CASES)
+def test_build_cmd_joins_resource_paths(platform, joined, tmp_path: Path, monkeypatch):
     infile = tmp_path / "x.md"
-    infile.write_text("x", encoding="utf-8")
-    args = _ns(resource_path=["a", "b"], extra=["--toc", "--css", "style.css"])
-    cmd = build_cmd(infile, None, args)
-    sep = ";" if os.name == "nt" else ":"
-    assert "--resource-path" in cmd
-    rp = cmd[cmd.index("--resource-path") + 1]
-    assert rp == sep.join(["a", "b"])
-    assert cmd[-3:] == ["--toc", "--css", "style.css"]
+    monkeypatch.setattr(os, "name", platform)
+    assert build_cmd(infile, None, _ns(resource_path=["a", "b"])) == [
+        "pandoc",
+        "--standalone",
+        "--from",
+        "markdown",
+        "--to",
+        "html",
+        "--metadata",
+        "lang=de",
+        "--resource-path",
+        joined,
+        "--output",
+        os.devnull,
+        str(infile),
+    ]
 
 
 # Each row: the fields overriding _ns(), with an output file?, the command
