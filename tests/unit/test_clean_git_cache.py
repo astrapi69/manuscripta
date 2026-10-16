@@ -145,10 +145,15 @@ def test_clean_git_cache_runs_commands(
     assert git.calls == [reflog, gc]
     assert [kw["cwd"] for kw in git.kwargs] == [str(tmp_path), str(tmp_path)]
 
-    # Ensure user-friendly prints happened
-    out = capsys.readouterr().out
-    assert "🧹 Cleaning Git object cache safely..." in out
-    assert "✅ Git object cache cleaned successfully." in out
+    # The operator sees the banner, each command with its output, the result
+    assert capsys.readouterr().out.splitlines() == [
+        "🧹 Cleaning Git object cache safely...",
+        f"🔧 Running: {' '.join(reflog)}",
+        "ok",
+        f"🔧 Running: {' '.join(gc)}",
+        "ok",
+        "✅ Git object cache cleaned successfully.",
+    ]
 
 
 def test_clean_git_cache_propagates_errors(monkeypatch, tmp_path: Path):

@@ -1390,3 +1390,348 @@ src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_update_header_a
 #   treats [] and None alike; no code iterates or indexes it before that.
 src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_35
 src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_39
+
+# round-3 graduates (chapters, bullet_points, emojis, loader, git_cache) — triage 2026-10-16
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/project/chapters.py — 24 equivalents across 5 clusters
+#   §14.8.3 (trampoline)              : 1 mutant  — create_chapter_files 1
+#   §14.8.1 (description/help wording): 15 mutants — _parse_args 3, 4, 5 and
+#       the XX-wrap / lower / upper triple on every plain help= literal:
+#       17-19, 31-33, 43-45, 66-68 (the --name-pattern help is an f-string,
+#       which mutmut does not mutate)
+#   §14.8.4 (empty slice, join no-op)  : 2 mutants  — _pattern_to_regex 15, 23
+#   ad-hoc (argparse defaults restated): 5 mutants  — _parse_args 7, 11, 39,
+#                                       47, 51
+#   ad-hoc (interchangeable witness)   : 1 mutant   — _ensure_valid_pattern 5
+# Triage: tests/unit/test_create_chapters_cli.py carries the A-side (the
+# help PRESENCE of the description and of every option, killing _parse_args
+# 2, 9/13, 23/27, 36/40, 49/53, 58/61; EXISTING_DIRECTORY_RUNS: an existing
+# chapter directory is no error and an existing chapter keeps its text,
+# killing the mkdir and touch exist_ok mutants 28/30/32 and 56/57; the
+# MAIN_RUNS row pattern-that-formats-without-the-token: the detection's
+# rejection reaches the operator verbatim, killing _pattern_to_regex 8/9).
+# ---------------------------------------------------------------------------
+
+# --- §14.8.3 — trampoline-induced equivalence ---
+# One free-function target with a literal default: create_chapter_files's
+# keyword-only `dry_run: bool = False`. The wrapper binds
+# `kwargs = {'dry_run': dry_run, 'name_pattern': name_pattern}` from the
+# original signature and forwards them to every mutant, so the mutated
+# default is never consulted. The behavioural side (a call without dry_run
+# writes the files) is pinned by test_project_dir_falls_back_to_cwd and
+# EXISTING_DIRECTORY_RUNS, which omit the keyword.
+#
+# create_chapter_files mutant 1: dry_run: bool = False -> True
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x_create_chapter_files__mutmut_1
+
+# --- §14.8.1 — CLI help-text wording is incidental ---
+# _parse_args mutants 3/4/5: parser description XX-wrap / lower / upper. The
+# PRESENCE of the description paragraph (mutant 2, description=None) is A,
+# killed by test_help_has_a_description_paragraph.
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_3
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_4
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_5
+# _parse_args mutants 17/18/19: --project-dir help wording XX-wrap / lower /
+# upper; 31/32/33: --total; 43/44/45: --start; 66/67/68: --dry-run. The
+# PRESENCE of each help text (help=None / help dropped) is A, killed by
+# test_every_option_has_help_text.
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_17
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_18
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_19
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_31
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_32
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_33
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_43
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_44
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_45
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_66
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_67
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_68
+
+# --- §14.8.4 — boundary-degenerate empty slice, downstream no-op ---
+# _pattern_to_regex builds `parts`, a list of regex fragments, with two
+# index-guarded appends and joins them with "".join(parts). Each mutant
+# flips one guard so that an empty slice enters the list.
+#
+# _pattern_to_regex mutant 15: `if m.start() > last` -> `>=`; admitted when
+#   the token starts exactly at `last` (a pattern beginning with the token,
+#   or two adjacent tokens): pattern[last:m.start()] is "".
+# Downstream trace: re.escape("") returns ""; parts.append("") adds an empty
+#   fragment; "".join(parts) renders "" as nothing, so the regex string and
+#   the compiled pattern are identical. `last` is set from m.end() either
+#   way; no other state is touched.
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__pattern_to_regex__mutmut_15
+# _pattern_to_regex mutant 23: `if last < len(pattern)` -> `<=`; admitted
+#   when the pattern ends with the token: pattern[last:] is "".
+# Downstream trace: re.escape("") returns ""; parts.append("") adds an empty
+#   fragment; "".join(parts) renders "" as nothing; "^" + ... + "$" and
+#   re.compile see the same string. No other state is touched.
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__pattern_to_regex__mutmut_23
+
+# --- Ad-hoc — the explicit keyword restates argparse's own default ---
+# _parse_args mutants 7/11 (--project-dir) and 47/51 (--name-pattern):
+#   type=str -> type=None / the kwarg dropped. argparse's default type is the
+#   identity on the string it parsed, so the Namespace carries the same str.
+#   The parsed values are pinned by PARSER_VALUES.
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_7
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_11
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_47
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_51
+# _parse_args mutant 39: --start default=None -> the kwarg dropped. None is
+#   argparse's own default for an option (same shape as pandoc_batch
+#   parse_args 112); pinned by PARSER_VALUES/start-default.
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__parse_args__mutmut_39
+
+# --- Ad-hoc — interchangeable witness ---
+# _ensure_valid_pattern mutant 5: pattern.format(num=2) -> format(num=3) in
+#   `first, second = pattern.format(num=1), pattern.format(num=2)`. The
+#   comparison asks whether the number reaches the name at all. A str.format
+#   rendering of an int is either injective on small ints (every type,
+#   width, precision and fill spec; attributes such as .real, .numerator or
+#   a bound method's repr with its object address) or constant over them (no
+#   {num} reference, an escaped {{num}}, a value-independent attribute such
+#   as .imag or .__class__), so 1 == 2 holds exactly when 1 == 3 holds; and a
+#   spec that raises for 2 raises the same error for 3. The rejection of a
+#   constant rendering is pinned by REJECTED_PATTERNS (no-placeholder,
+#   escaped-braces-are-no-placeholder).
+src/manuscripta/project/chapters.py:manuscripta.project.chapters.x__ensure_valid_pattern__mutmut_5
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/markdown/bullet_points.py — 12 equivalents across 5 clusters
+#   §14.8.3 (trampoline)                 : 3 mutants — convert_bullets_in_text 1,
+#                                          process_file 1, process_path 1
+#   ad-hoc (None for False, truth-tested): 4 mutants — convert_bullets_in_text
+#                                          6, 10, 29, 56
+#   ad-hoc (dead initial value)          : 2 mutants — convert_bullets_in_text 8, 9
+#   ad-hoc (codec registry normalizes)   : 2 mutants — process_file 5, 16
+#   ad-hoc (keyword restates the default): 1 mutant  — main 15
+# Triage: tests/unit/test_replace_md_bullet_points.py carries the A-side
+# (BULLET_CASES rows an-indented-first-line-is-no-continuation,
+# a-thematic-break-ends-the-list-for-the-indented-line-after-it and
+# a-whitespace-only-line-is-blank-and-ends-the-list, killing
+# convert_bullets_in_text 7, 30 and 48; PROCESS_PATHS/directory-target-
+# without-hard-breaks, killing process_path 14; the C-locale test, killing
+# the encoding=None / dropped siblings process_file 3, 12, 14).
+# ---------------------------------------------------------------------------
+
+# --- §14.8.3 — trampoline-induced equivalence ---
+# Three free-function targets with one literal default each
+# (`add_hard_break: bool = True`), Σ = 3 within the 2 × 3 stop-rule; the
+# wrappers bind `args = [text, add_hard_break]` (and the path / target
+# twins) from the original signatures. The behavioural side of the default
+# is pinned by BULLET_CASES (hard breaks without the keyword) and
+# test_process_file_writes_the_conversion_back_and_reports.
+#
+# convert_bullets_in_text mutant 1: add_hard_break: bool = True -> False
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_convert_bullets_in_text__mutmut_1
+# process_file mutant 1: add_hard_break: bool = True -> False
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_process_file__mutmut_1
+# process_path mutant 1: add_hard_break: bool = True -> False
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_process_path__mutmut_1
+
+# --- Ad-hoc — None for False on a flag that is only truth-tested ---
+# in_list is read only in `if in_list and ...` and in_code_block only in
+# `if in_code_block:` and `not in_code_block`; None and False are both falsy
+# and `not None` is the same True as `not False`, so every branch and every
+# later assignment is the same. The True siblings (7, 30) are A.
+#
+# convert_bullets_in_text mutant 6: initial in_list = False -> None
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_convert_bullets_in_text__mutmut_6
+# convert_bullets_in_text mutant 10: initial in_code_block = False -> None
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_convert_bullets_in_text__mutmut_10
+# convert_bullets_in_text mutant 29: in_list = False -> None after a thematic break
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_convert_bullets_in_text__mutmut_29
+# convert_bullets_in_text mutant 56: in_list = False -> None after a normal line
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_convert_bullets_in_text__mutmut_56
+
+# --- Ad-hoc — a dead initial value ---
+# last_list_indent is read only under `in_list and indent > last_list_indent`,
+# and in_list becomes True only on a bullet line, which assigns
+# `last_list_indent = indent` first; the initial value is never compared.
+#
+# convert_bullets_in_text mutant 8: last_list_indent = 0 -> None
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_convert_bullets_in_text__mutmut_8
+# convert_bullets_in_text mutant 9: last_list_indent = 0 -> 1
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_convert_bullets_in_text__mutmut_9
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# Same reasoning as the earlier codec-alias clusters: codecs.lookup
+# canonicalises case, so "utf-8" and "UTF-8" name the identical codec.
+#
+# process_file mutant 5: read_text(encoding="utf-8") -> "UTF-8"
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_process_file__mutmut_5
+# process_file mutant 16: write_text(fixed, encoding="utf-8") -> "UTF-8"
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_process_file__mutmut_16
+
+# --- Ad-hoc — the explicit keyword restates the documented default ---
+# main mutant 15: process_path(target, add_hard_break=True) -> the kwarg
+#   dropped. True is process_path's own default ("Hard breaks are enabled by
+#   default"), which the trampoline forwards (§14.8.3), so the file gets the
+#   same hard breaks; MAIN_RUNS/converts-with-hard-breaks pins them, and the
+#   None / False siblings 12 and 14 are A.
+src/manuscripta/markdown/bullet_points.py:manuscripta.markdown.bullet_points.x_main__mutmut_15
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/markdown/emojis.py — 41 equivalents across 6 clusters
+#   §14.8.1 (description/help wording)   : 27 mutants — parse_args 3, 4, 5 and
+#       the XX-wrap / lower / upper triple on every help= literal: 19-21,
+#       34-36, 45-47, 56-58, 67-69, 80-82, 105-107, 118-120
+#   ad-hoc (internal spec name)          : 2 mutants  — load_mapping_from_module
+#                                          13, 14
+#   ad-hoc (unreachable assert message)  : 6 mutants  — load_mapping_from_module
+#                                          21, 22, 23, 25, 26, 27
+#   ad-hoc (dead filter behind the glob) : 3 mutants  — iter_md_files 10, 11, 12
+#   ad-hoc (only str(path) is consumed)  : 2 mutants  — parse_args 60, 63
+#   ad-hoc (None for False, truth-tested): 1 mutant   — parse_args 121
+# Triage: tests/unit/test_replace_emojis_walk_and_cli.py carries the A-side
+# (CLI_CASES with every printed line and every file: the --report line, the
+# sums over sections, files_written, --no-overwrite after --overwrite; the
+# cwd default of --book-dir; the utf-8 default of --encoding under LC_ALL=C;
+# help PRESENCE), tests/unit/test_replace_emojis_io.py C_LOCALE_MODES (the
+# encoding reaches every read and write), tests/unit/test_replace_emojis_
+# text.py the-longer-key-wins row (the length order), and tests/unit/
+# test_replace_emojis_mapping.py the exact messages of the three
+# RuntimeErrors main lets propagate.
+# ---------------------------------------------------------------------------
+
+# --- §14.8.1 — CLI help-text wording is incidental ---
+# parse_args mutants 3/4/5: parser description XX-wrap / lower / upper. The
+# PRESENCE of the description paragraph (mutant 2) is A, killed by
+# test_help_has_a_description_paragraph.
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_3
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_4
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_5
+# parse_args mutants 19/20/21: --book-dir help wording XX-wrap / lower /
+# upper; 34/35/36: --sections; 45/46/47: --suffix; 56/57/58: --encoding;
+# 67/68/69: --map; 80/81/82: --overwrite; 105/106/107: --dry-run;
+# 118/119/120: --report. The PRESENCE of each help text (help=None / help
+# dropped) is A, killed by test_every_option_has_help_text.
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_19
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_20
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_21
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_34
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_35
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_36
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_45
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_46
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_47
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_56
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_57
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_58
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_67
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_68
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_69
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_80
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_81
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_82
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_105
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_106
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_107
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_118
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_119
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_120
+
+# --- Ad-hoc — an internal module name that nothing reads ---
+# load_mapping_from_module mutants 13/14: spec_from_file_location(
+#   "emoji_map_external", ...) -> "XXemoji_map_externalXX" / upper. The name
+#   only becomes module.__name__ / __spec__.name of a module that is executed
+#   once, never registered in sys.modules and discarded after its EMOJI_MAP
+#   is copied; no code path reads it, and the errors name the path, not the
+#   module.
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_load_mapping_from_module__mutmut_13
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_load_mapping_from_module__mutmut_14
+
+# --- Ad-hoc — the message of an assertion that cannot fail ---
+# load_mapping_from_module mutants 21/22/23 ("ModuleSpec is None") and
+#   25/26/27 ("ModuleSpec.loader is None"): XX-wrap / lower / upper of an
+#   assert message. The `if spec is None or spec.loader is None: raise
+#   RuntimeError(...)` guard two lines above already raised for exactly the
+#   condition each assert re-checks, so the assertions hold and their
+#   message operands are never evaluated or rendered. (The asserts only
+#   narrow types for mypy; a source cleanup could drop them.)
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_load_mapping_from_module__mutmut_21
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_load_mapping_from_module__mutmut_22
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_load_mapping_from_module__mutmut_23
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_load_mapping_from_module__mutmut_25
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_load_mapping_from_module__mutmut_26
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_load_mapping_from_module__mutmut_27
+
+# --- Ad-hoc — a filter the glob already satisfies ---
+# iter_md_files mutants 10/11/12: `if not str(p).endswith(".md.bak")` with
+#   str(None) / "XX.md.bakXX" / ".MD.BAK". sp.glob("*.md") yields only names
+#   ending in ".md"; a name ending in ".md.bak" ends in ".bak" and is never
+#   yielded, so the filter is never false in the original and stays never
+#   false under each mutant (str(None) = "None" ends in neither). The
+#   WALKS/skips-bak row holds because of the glob, not the filter. (Source
+#   seam: the filter is dead code.)
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_iter_md_files__mutmut_10
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_iter_md_files__mutmut_11
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_iter_md_files__mutmut_12
+
+# --- Ad-hoc — only str(module_path) is ever consumed ---
+# parse_args mutants 60/63: --map type=Path -> type=None / the kwarg dropped,
+#   so args.map is the str argparse parsed instead of a Path.
+#   load_mapping_from_module passes str(module_path) to
+#   spec_from_file_location and interpolates it into its two messages; a str
+#   and the Path built from it stringify alike, and `is None` holds for
+#   neither. The CLI rows with --map pin the loaded mapping either way.
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_60
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_63
+
+# --- Ad-hoc — None for False on a flag that is only truth-tested ---
+# parse_args mutant 121: set_defaults(overwrite=False) -> overwrite=None.
+#   args.overwrite is read in three places — process_file's `if overwrite:`
+#   and the two conditional expressions of the ✓ line — all truth tests, so
+#   a run without --overwrite / --no-overwrite copies and prints "Converted"
+#   under both. The True sibling is A (CLI_CASES/writes-copy-when-not-dry).
+src/manuscripta/markdown/emojis.py:manuscripta.markdown.emojis.x_parse_args__mutmut_121
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/config/loader.py — 1 equivalent
+#   ad-hoc (codec registry normalizes names): 1 mutant — load_yaml 6
+# Triage: tests/unit/test_config_loader.py test_load_yaml_reads_utf8_under_
+# c_locale kills the encoding=None / dropped siblings 2 and 4.
+# ---------------------------------------------------------------------------
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# load_yaml mutant 6: open(path, encoding="utf-8") -> "UTF-8"; codecs.lookup
+#   canonicalises case, so both name the identical codec.
+src/manuscripta/config/loader.py:manuscripta.config.loader.x_load_yaml__mutmut_6
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/utils/git_cache.py — 5 equivalents across 2 clusters
+#   §14.8.3 (trampoline)                 : 3 mutants — clean_git_cache 1, 2, 3
+#   ad-hoc (keyword restates the default): 2 mutants — main 7, 8
+# Triage: tests/unit/test_clean_git_cache.py pins the operator's stdout of
+# clean_git_cache line by line (banner, each command with its output, the
+# result), killing the XX-wrapped banner and result lines 5 and 33.
+# ---------------------------------------------------------------------------
+
+# --- §14.8.3 — trampoline-induced equivalence ---
+# One free-function target (clean_git_cache) carries two literal defaults
+# (aggressive True, prune "now"); prune draws two mutants (XX-wrap and
+# upper), so Σ = 3 exceeds the 2 × targets stop-rule and the wrapper was
+# read: it binds `args = [cwd, aggressive, prune]` from the original
+# signature and forwards them to every mutant, so none of the mutated
+# defaults is ever consulted. The behavioural side is pinned by
+# COMMAND_CASES (aggressive and prune passed explicitly) and
+# test_clean_git_cache_propagates_errors (prune omitted: --expire=now).
+#
+# clean_git_cache mutant 1: aggressive: bool = True -> False
+src/manuscripta/utils/git_cache.py:manuscripta.utils.git_cache.x_clean_git_cache__mutmut_1
+# clean_git_cache mutant 2: prune: str = "now" -> "XXnowXX"
+src/manuscripta/utils/git_cache.py:manuscripta.utils.git_cache.x_clean_git_cache__mutmut_2
+# clean_git_cache mutant 3: prune: str = "now" -> "NOW"
+src/manuscripta/utils/git_cache.py:manuscripta.utils.git_cache.x_clean_git_cache__mutmut_3
+
+# --- Ad-hoc — the explicit keyword restates the documented default ---
+# main mutants 7/8: clean_git_cache(cwd=repo_root, aggressive=True,
+#   prune="now") -> aggressive dropped / prune dropped. True and "now" are
+#   clean_git_cache's own defaults, which the trampoline forwards (§14.8.3),
+#   so the same two commands run; test_main_cleans_the_repository_above_the_
+#   package_aggressively pins them, and the None / False / renamed siblings
+#   are A.
+src/manuscripta/utils/git_cache.py:manuscripta.utils.git_cache.x_main__mutmut_7
+src/manuscripta/utils/git_cache.py:manuscripta.utils.git_cache.x_main__mutmut_8

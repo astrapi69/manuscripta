@@ -3,8 +3,10 @@ import pytest
 pytestmark = pytest.mark.unit
 
 # tests/test_replace_md_bullet_points.py
+import locale
 import runpy
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import manuscripta.markdown.bullet_points as bp
@@ -16,6 +18,20 @@ from manuscripta.markdown.bullet_points import (
 )
 
 PROG = "replace-md-bullet-points"
+
+
+@contextmanager
+def c_locale(monkeypatch):
+    """LC_ALL=C for the block: the locale codec is ASCII and can carry no
+    non-ASCII text, so a read or write that relies on it fails."""
+    saved = locale.setlocale(locale.LC_ALL)
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("LANG", "C")
+    locale.setlocale(locale.LC_ALL, "C")
+    try:
+        yield
+    finally:
+        locale.setlocale(locale.LC_ALL, saved)
 
 
 def seed(root: Path, files: dict[str, str]) -> None:
@@ -106,6 +122,21 @@ BULLET_CASES = [
         "• * item  \n• - x -  \n",
         id="markers-followed-by-text-are-bullets",
     ),
+    pytest.param(
+        "  indented first line\n- a\n",
+        "  indented first line\n• a  \n",
+        id="an-indented-first-line-is-no-continuation",
+    ),
+    pytest.param(
+        "- a\n***\n  plain\n",
+        "• a  \n***\n  plain\n",
+        id="a-thematic-break-ends-the-list-for-the-indented-line-after-it",
+    ),
+    pytest.param(
+        "- a\n   \nplain\n",
+        "• a  \n   \nplain\n",
+        id="a-whitespace-only-line-is-blank-and-ends-the-list",
+    ),
 ]
 
 
@@ -178,6 +209,16 @@ PROCESS_PATHS = [
         ["[ERROR] Path not found: TMP/missing.md"],
         id="missing-target-is-reported-on-stderr",
     ),
+    pytest.param(
+        {"a.md": "- x\n", "sub/b.md": "- y\n  more\n"},
+        ".",
+        False,
+        True,
+        {"a.md": "• x\n", "sub/b.md": "• y\n  more\n"},
+        ["[OK] TMP/a.md", "[OK] TMP/sub/b.md"],
+        [],
+        id="directory-target-without-hard-breaks",
+    ),
 ]
 
 
@@ -214,6 +255,17 @@ def test_process_file_writes_the_conversion_back_and_reports(tmp_path, capsys):
     process_file(path)
     assert path.read_text(encoding="utf-8") == "• x  \n"
     assert capsys.readouterr().out == f"[OK] {path}\n"
+
+
+def test_process_file_reads_and_writes_utf8_under_c_locale(tmp_path, monkeypatch):
+    """The file is read and written as UTF-8 whatever the locale: under
+    LC_ALL=C the locale codec is ASCII and can carry neither the umlaut nor
+    the bullet."""
+    path = tmp_path / "a.md"
+    path.write_bytes("- Grüße\n".encode("utf-8"))
+    with c_locale(monkeypatch):
+        process_file(path)
+    assert path.read_bytes().decode("utf-8") == "• Grüße  \n"
 
 
 # ---------------------------------------------------------------------------

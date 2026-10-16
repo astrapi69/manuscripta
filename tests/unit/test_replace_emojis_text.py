@@ -20,6 +20,15 @@ REPLACE_EMOJI_CASES = [
         {"AB": "X", "A": "Y"}, "AB A AB", "X Y X", 3, id="handles-overlap-order"
     ),
     pytest.param({"🧠": "★"}, "", "", 0, id="no-change-on-empty"),
+    # "B" sorts after "AB" by code point; only the length order keeps the
+    # longer key from being eaten by the shorter one
+    pytest.param(
+        {"AB": "X", "B": "Y"},
+        "AB",
+        "X",
+        1,
+        id="the-longer-key-wins-whatever-the-code-point-order",
+    ),
 ]
 
 
