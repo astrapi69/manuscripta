@@ -25,6 +25,38 @@ All notable changes to this project will be documented in this file.
   typographic pair becomes `« ... »` / `«...»` like a straight one; a pair nested inside
   guillemets stays as the second level. Before, every `“...”` was left as it was, so the Spanish
   edition of eternity-ebook kept three English pairs next to its guillemets (#16).
+- **`make-tag-message`**: the built-in de/en prompts render the version label into the title line
+  instead of the literal `{version_label}`; the JSON commit categories match keywords as whole
+  words, so "texts" and "default" no longer land in content_style and imagery (plurals such as
+  "images" no longer match either); the unreachable second "message file not found" guard is
+  gone, the preflight check owns it (#25).
+- **`generate-audiobook`**: a chapter whose synthesis fails with `--overwrite` keeps the previous
+  MP3: audio goes to `.<chapter>.part.mp3` first and moves into place when complete, and an engine
+  that produces no file counts as a failed chapter. The merged audiobook's title comes from the
+  directory holding the input, not the process cwd, and ffmpeg runs in the resolved output
+  directory, so a relative `--output` works from any cwd (#25).
+- **`translate-book-deepl`**: `DEEPL_AUTH_KEY` is read on every request instead of once at import,
+  `.skiplist` is read and written at the same path, and `--dry-run` no longer sleeps after every
+  block (#25).
+- **`translate-book` (LM Studio)**: a multi-paragraph answer is kept whole, only the `<think>`
+  block and a leading label are stripped; the `translate-book-*` shortcuts forward the program
+  name `translate-book-lmstudio` and their `translate` help names LM Studio, not DeepL (#25).
+- **Translation, both engines**: a translated file keeps its final newline (#25).
+- **`manuscripta-init --clean`**: an excluded item that is no longer on disk is reported as
+  "Missing (nothing to delete)" instead of being listed as a file and announced as deleted; with
+  nothing left on disk no deletion prompt appears (#25).
+- **`generate-images`**: unknown names in a prompt's character list are skipped instead of
+  leaving an empty `, ,` in the composed prompt (#25).
+- **`reorder-chapters`**: the header/anchor update keeps the chapter file's trailing newline, and
+  `--dry-run` previews the header change instead of warning "Header/anchor update failed" for
+  the not-yet-renamed target (#25).
+- **`unbold-md-headers`**: `main(argv)` honours the argv it is given (#25).
+- **Edge TTS**: `_run_async` returns the coroutine's result on the nest_asyncio path, so
+  `list_voices` and `validate` inside a running event loop no longer get `None` (#25).
+- **`strip-links`**: a fenced block with an info string comes back verbatim; its fence lines were
+  duplicated because the empty code span inside the fence line matched as inline code (#21).
+- **Tests**: the wheel-install layer installs the built wheel with `uv pip install` when uv
+  created the venv, so its two install tests run instead of skipping (#22).
 
 ## [0.10.0] - 2026-10-06
 
