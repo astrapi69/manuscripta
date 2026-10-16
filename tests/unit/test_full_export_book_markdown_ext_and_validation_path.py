@@ -3,113 +3,57 @@ import pytest
 pytestmark = pytest.mark.unit
 
 # tests/test_full_export_book_markdown_ext_and_validation_path.py
-import sys
-from pathlib import Path
-import importlib
+from manuscripta.export import book as feb
 
 
-def test_resolve_ext_for_markdown_and_others(monkeypatch):
-    """
-    Verifies:
-    - markdown default ext is 'md'
-    - markdown custom ext is respected
-    - other formats use FORMATS mapping as-is
-    """
-    # Make repo root importable (assuming tests/ is at repo root)
-    repo_root = Path(__file__).resolve().parent.parent
-    sys.path.insert(0, str(repo_root))
-
-    # Prevent chdir side-effects during import
-    import os
-
-    monkeypatch.setattr(os, "chdir", lambda _p: None)
-
-    feb = importlib.import_module("manuscripta.export.book")
-
+def test_module_exposes_formats_and_resolve_ext():
     # Sanity: module must expose FORMATS and resolve_ext
     assert hasattr(feb, "FORMATS"), "FORMATS not found in module"
     assert hasattr(feb, "resolve_ext"), "resolve_ext not found in module"
 
+
+# Each row: the format, the custom Markdown extension and the extension resolved
+RESOLVE_EXT_CASES = [
     # markdown defaults to 'md'
-    assert feb.resolve_ext("markdown", None) == "md"
-
+    pytest.param("markdown", None, "md", id="markdown-default"),
     # custom ext for markdown
-    assert feb.resolve_ext("markdown", "markdown") == "markdown"
-    assert feb.resolve_ext("markdown", "mdown") == "mdown"
-
+    pytest.param("markdown", "markdown", "markdown", id="markdown-custom-markdown"),
+    pytest.param("markdown", "mdown", "mdown", id="markdown-custom-mdown"),
+    pytest.param("markdown", "gfm", "gfm", id="markdown-custom-gfm"),
     # others come from mapping
-    assert feb.resolve_ext("pdf", None) == feb.FORMATS["pdf"]  # usually "pdf"
-    assert feb.resolve_ext("epub", None) == feb.FORMATS["epub"]
-    assert feb.resolve_ext("docx", None) == feb.FORMATS["docx"]
+    pytest.param("pdf", None, feb.FORMATS["pdf"], id="pdf-from-mapping"),
+    pytest.param("epub", None, feb.FORMATS["epub"], id="epub-from-mapping"),
+    pytest.param("docx", None, feb.FORMATS["docx"], id="docx-from-mapping"),
+]
 
 
-def test_validator_path_uses_resolved_ext(monkeypatch, tmp_path):
-    """
-    Simulate how the exporter computes output paths for validation.
-    Ensures that markdown uses the resolved extension (default or custom).
-    """
-    repo_root = Path(__file__).resolve().parent.parent
-    sys.path.insert(0, str(repo_root))
+@pytest.mark.parametrize("fmt, custom, expected", RESOLVE_EXT_CASES)
+def test_resolve_ext(fmt, custom, expected):
+    assert feb.resolve_ext(fmt, custom) == expected
 
-    import os
 
-    monkeypatch.setattr(os, "chdir", lambda _p: None)
-    feb = importlib.import_module("manuscripta.export.book")
-
-    OUTPUT_FILE = "mybook-ebook"
-    OUTPUT_DIR = tmp_path / "output"
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    def out_path(fmt, custom=None):
-        ext = feb.resolve_ext(fmt, custom if fmt == "markdown" else None)
-        return OUTPUT_DIR / f"{OUTPUT_FILE}.{ext}"
-
+# Each row: the format, the custom Markdown extension and the name of the
+# output file the validator gets for OUTPUT_FILE "mybook-ebook"
+OUTPUT_NAME_CASES = [
     # default markdown -> .md
-    assert out_path("markdown").name == "mybook-ebook.md"
-
+    pytest.param("markdown", None, "mybook-ebook.md", id="markdown-default"),
     # custom markdown extension -> respected
-    assert out_path("markdown", custom="gfm").name == "mybook-ebook.gfm"
-    assert out_path("markdown", custom="markdown").name == "mybook-ebook.markdown"
-
+    pytest.param("markdown", "gfm", "mybook-ebook.gfm", id="markdown-custom-gfm"),
+    pytest.param(
+        "markdown", "markdown", "mybook-ebook.markdown", id="markdown-custom-markdown"
+    ),
     # other formats unchanged
-    assert out_path("pdf").name == "mybook-ebook.pdf"
-    assert out_path("epub").name == "mybook-ebook.epub"
-    assert out_path("docx").name == "mybook-ebook.docx"
+    pytest.param("pdf", None, "mybook-ebook.pdf", id="pdf"),
+    pytest.param("epub", None, "mybook-ebook.epub", id="epub"),
+    pytest.param("docx", None, "mybook-ebook.docx", id="docx"),
+]
 
 
-def test_resolve_ext_and_paths(monkeypatch, tmp_path):
-    repo_root = Path(__file__).resolve().parent.parent
-    sys.path.insert(0, str(repo_root))
-
-    # neutralize chdir side-effects in module import
-    import os
-
-    monkeypatch.setattr(os, "chdir", lambda _p: None)
-
-    feb = importlib.import_module("manuscripta.export.book")
-    assert hasattr(feb, "resolve_ext")
-
-    # default markdown -> .md
-    assert feb.resolve_ext("markdown", None) == "md"
-    # custom markdown extension respected
-    assert feb.resolve_ext("markdown", "gfm") == "gfm"
-
-    # others via mapping
-    assert feb.resolve_ext("pdf", None) == feb.FORMATS["pdf"]
-    assert feb.resolve_ext("epub", None) == feb.FORMATS["epub"]
-    assert feb.resolve_ext("docx", None) == feb.FORMATS["docx"]
-
-    # simulate how output path is built for validation
+@pytest.mark.parametrize("fmt, custom, expected", OUTPUT_NAME_CASES)
+def test_validator_path_uses_resolved_ext(fmt, custom, expected, tmp_path):
+    """Simulate how the exporter computes output paths for validation:
+    markdown uses the resolved extension (default or custom)."""
     output_dir = tmp_path / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = "mybook-ebook"
-
-    def out(fmt, custom=None):
-        ext = feb.resolve_ext(fmt, custom if fmt == "markdown" else None)
-        return (output_dir / f"{output_file}.{ext}").name
-
-    assert out("markdown") == "mybook-ebook.md"
-    assert out("markdown", "markdown") == "mybook-ebook.markdown"
-    assert out("pdf") == "mybook-ebook.pdf"
-    assert out("epub") == "mybook-ebook.epub"
-    assert out("docx") == "mybook-ebook.docx"
+    ext = feb.resolve_ext(fmt, custom if fmt == "markdown" else None)
+    assert (output_dir / f"mybook-ebook.{ext}").name == expected

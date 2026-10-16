@@ -53,8 +53,26 @@ def wired_module(temp_project: Path, monkeypatch):
     return feb
 
 
-def test_pipeline_runs_convert_scripts_in_correct_order(
-    wired_module, temp_project, monkeypatch, capsys
+# Each row: the arguments after "--format markdown --extension md" and the
+# convert scripts main() runs, in order, as (module, argument)
+CONVERT_SCRIPT_CASES = [
+    pytest.param(
+        [],
+        [
+            ("to_absolute", None),
+            ("img_tags", "--to-absolute"),
+            ("to_relative", None),
+            ("img_tags", "--to-relative"),
+        ],
+        id="runs-convert-scripts-in-correct-order",
+    ),
+    pytest.param(["--skip-images"], [], id="skip-images-flag-skips-pre-and-post"),
+]
+
+
+@pytest.mark.parametrize("extra, expected", CONVERT_SCRIPT_CASES)
+def test_pipeline_convert_scripts(
+    extra, expected, wired_module, temp_project, monkeypatch
 ):
     feb = wired_module
     calls = []
@@ -70,45 +88,25 @@ def test_pipeline_runs_convert_scripts_in_correct_order(
     monkeypatch.setattr(feb, "run_script", fake_run_script)
     monkeypatch.setattr(feb, "compile_book", fake_compile_book)
 
-    argv = [sys.argv[0], "--format", "markdown", "--extension", "md"]
+    argv = [sys.argv[0], "--format", "markdown", "--extension", "md", *extra]
     monkeypatch.setattr(sys, "argv", argv)
 
     feb.main()
 
     assert compile_calls, "compile_book() was not called"
-    expected = [
-        ("to_absolute", None),
-        ("img_tags", "--to-absolute"),
-        ("to_relative", None),
-        ("img_tags", "--to-relative"),
-    ]
-    filtered = [c for c in calls if c[0] in ("to_absolute", "to_relative", "img_tags")]
-    assert (
-        filtered == expected
-    ), f"Call order mismatch.\nExpected: {expected}\nGot:      {filtered}"
+    assert calls == expected
 
 
-def test_skip_images_flag_skips_pre_and_post(wired_module, temp_project, monkeypatch):
-    feb = wired_module
-    calls = []
-
-    def fake_run_script(module_path, arg=None, **kwargs):
-        calls.append((module_path.split(".")[-1], arg))
-
-    monkeypatch.setattr(feb, "run_script", fake_run_script)
-    monkeypatch.setattr(feb, "compile_book", lambda *a, **k: None)
-
-    argv = [sys.argv[0], "--format", "markdown", "--extension", "md", "--skip-images"]
-    monkeypatch.setattr(sys, "argv", argv)
-
-    feb.main()
-
-    assert not calls, "convert scripts should not run when --skip-images is set"
+# Each row: the arguments after "--format markdown --extension md" and the
+# language compile_book receives (metadata.yaml says "de")
+LANGUAGE_CASES = [
+    pytest.param(["--lang", "en"], "en", id="cli-overrides-metadata"),
+    pytest.param([], "de", id="uses-metadata-when-cli-missing"),
+]
 
 
-def test_language_resolution_cli_overrides_metadata(
-    wired_module, temp_project, monkeypatch
-):
+@pytest.mark.parametrize("extra, lang", LANGUAGE_CASES)
+def test_language_resolution(extra, lang, wired_module, temp_project, monkeypatch):
     feb = wired_module
     seen = {}
 
@@ -118,32 +116,11 @@ def test_language_resolution_cli_overrides_metadata(
     monkeypatch.setattr(feb, "compile_book", capture_compile)
     monkeypatch.setattr(feb, "run_script", lambda *a, **k: None)
 
-    argv = [sys.argv[0], "--format", "markdown", "--extension", "md", "--lang", "en"]
+    argv = [sys.argv[0], "--format", "markdown", "--extension", "md", *extra]
     monkeypatch.setattr(sys, "argv", argv)
 
     feb.main()
-    assert seen.get("lang") == "en", "CLI --lang should override metadata.yaml language"
-
-
-def test_language_resolution_uses_metadata_when_cli_missing(
-    wired_module, temp_project, monkeypatch
-):
-    feb = wired_module
-    seen = {}
-
-    def capture_compile(*args, **kwargs):
-        seen["lang"] = args[5] if len(args) > 5 else kwargs.get("lang")
-
-    monkeypatch.setattr(feb, "compile_book", capture_compile)
-    monkeypatch.setattr(feb, "run_script", lambda *a, **k: None)
-
-    argv = [sys.argv[0], "--format", "markdown", "--extension", "md"]
-    monkeypatch.setattr(sys, "argv", argv)
-
-    feb.main()
-    assert (
-        seen.get("lang") == "de"
-    ), "Should use language from metadata.yaml when CLI --lang not provided"
+    assert seen.get("lang") == lang
 
 
 def test_run_script_bubbles_up_subprocess_errors(wired_module, monkeypatch):

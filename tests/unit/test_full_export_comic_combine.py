@@ -85,21 +85,18 @@ def test_includes_whole_file_when_no_body(tmp_path: Path):
     assert "No body tag here" in text
 
 
-def test_raises_when_no_html_or_missing_dir(tmp_path: Path):
-    # missing dir
-    missing = tmp_path / "nope"
-    out = tmp_path / "out/book.html"
-    try:
-        fec.combine_html_chapters(str(missing), str(out))
-        assert False, "expected FileNotFoundError for missing dir"
-    except FileNotFoundError:
-        pass
+# Each row: the chapter directory's name and whether it exists (empty)
+NO_CHAPTERS_CASES = [
+    pytest.param("nope", False, id="missing-dir"),
+    pytest.param("empty", True, id="empty-dir"),
+]
 
-    # empty dir
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    try:
-        fec.combine_html_chapters(str(empty), str(out))
-        assert False, "expected FileNotFoundError for empty dir"
-    except FileNotFoundError:
-        pass
+
+@pytest.mark.parametrize("name, exists", NO_CHAPTERS_CASES)
+def test_raises_when_no_html_or_missing_dir(name, exists, tmp_path: Path):
+    chapters = tmp_path / name
+    if exists:
+        chapters.mkdir()
+    out = tmp_path / "out/book.html"
+    with pytest.raises(FileNotFoundError):
+        fec.combine_html_chapters(str(chapters), str(out))

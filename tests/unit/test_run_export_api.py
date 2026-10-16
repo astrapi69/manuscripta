@@ -69,20 +69,30 @@ def _make_consumer_project(
     return root
 
 
+def _with_subdirs(root: Path, *names: str) -> Path:
+    """``root`` with only the given layout subdirectories."""
+    for name in names:
+        (root / name).mkdir()
+    return root
+
+
 # ---------------------------------------------------------------------------
 # Contract: source_dir is required
 # ---------------------------------------------------------------------------
 
 
-def test_run_export_requires_source_dir():
-    """Calling without source_dir must fail with TypeError at call time."""
-    with pytest.raises(TypeError):
-        book_mod.run_export()  # type: ignore[call-arg]
+# Each row: the positional arguments of a run_export() call that is a TypeError
+TYPE_ERROR_CALLS = [
+    # Calling without source_dir must fail with TypeError at call time.
+    pytest.param((), id="requires-source-dir"),
+    pytest.param((None,), id="rejects-none-source-dir"),
+]
 
 
-def test_run_export_rejects_none_source_dir():
+@pytest.mark.parametrize("args", TYPE_ERROR_CALLS)
+def test_run_export_type_error(args):
     with pytest.raises(TypeError):
-        book_mod.run_export(None)  # type: ignore[arg-type]
+        book_mod.run_export(*args)
 
 
 # ---------------------------------------------------------------------------
@@ -90,20 +100,30 @@ def test_run_export_rejects_none_source_dir():
 # ---------------------------------------------------------------------------
 
 
-def test_run_export_layout_error_lists_missing(tmp_path):
+# Each row: builds the source directory under tmp_path, the required
+# subdirectories the ManuscriptaLayoutError lists
+LAYOUT_ERROR_CASES = [
     # Create only one of the three required dirs so we can assert what's missing.
-    (tmp_path / "manuscript").mkdir()
+    pytest.param(
+        lambda t: _with_subdirs(t, "manuscript"),
+        {"config", "assets"},
+        id="lists-missing",
+    ),
+    pytest.param(
+        lambda t: t, {"manuscript", "config", "assets"}, id="lists-all-for-empty-dir"
+    ),
+    pytest.param(lambda t: t / "does-not-exist", set(), id="when-source-dir-missing"),
+]
+
+
+@pytest.mark.parametrize("build, missing", LAYOUT_ERROR_CASES)
+def test_run_export_layout_error(build, missing, tmp_path):
+    source = build(tmp_path)
     with pytest.raises(ManuscriptaLayoutError) as excinfo:
-        book_mod.run_export(tmp_path)
+        book_mod.run_export(source)
     err = excinfo.value
-    assert set(err.missing) == {"config", "assets"}
-    assert err.source_dir == tmp_path.resolve() or err.source_dir == tmp_path
-
-
-def test_run_export_layout_error_when_source_dir_missing(tmp_path):
-    nonexistent = tmp_path / "does-not-exist"
-    with pytest.raises(ManuscriptaLayoutError):
-        book_mod.run_export(nonexistent)
+    assert set(err.missing) == missing
+    assert err.source_dir == source.resolve() or err.source_dir == source
 
 
 # ---------------------------------------------------------------------------
@@ -223,9 +243,20 @@ def test_run_export_does_not_change_cwd(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_cli_main_uses_cwd_when_source_dir_omitted(tmp_path, monkeypatch):
+# Each row: run from the project directory?, the main() arguments ({src} is
+# the project directory)
+CLI_SOURCE_DIR_CASES = [
+    pytest.param(True, ["--format", "pdf"], id="uses-cwd-when-source-dir-omitted"),
+    pytest.param(
+        False, ["--source-dir", "{src}", "--format", "pdf"], id="honors-source-dir-flag"
+    ),
+]
+
+
+@pytest.mark.parametrize("in_project, argv", CLI_SOURCE_DIR_CASES)
+def test_cli_main_source_dir(in_project, argv, tmp_path, monkeypatch):
     _make_consumer_project(tmp_path)
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(tmp_path if in_project else tmp_path.parent)
 
     called = {}
 
@@ -235,26 +266,11 @@ def test_cli_main_uses_cwd_when_source_dir_omitted(tmp_path, monkeypatch):
         called["strict_images"] = strict_images
 
     monkeypatch.setattr(book_mod, "_run_pipeline", fake_pipeline)
-    book_mod.main(["--format", "pdf"])
+    book_mod.main([a.format(src=tmp_path) for a in argv])
 
     assert called["source_dir"] == tmp_path.resolve()
     assert called["strict_images"] is True
     assert "assets" in called["resource_path"]
-
-
-def test_cli_main_honors_source_dir_flag(tmp_path, monkeypatch):
-    _make_consumer_project(tmp_path)
-    elsewhere = tmp_path.parent
-    monkeypatch.chdir(elsewhere)
-
-    called = {}
-
-    def fake_pipeline(*, argv, source_dir, resource_path, strict_images):
-        called["source_dir"] = source_dir
-
-    monkeypatch.setattr(book_mod, "_run_pipeline", fake_pipeline)
-    book_mod.main(["--source-dir", str(tmp_path), "--format", "pdf"])
-    assert called["source_dir"] == tmp_path.resolve()
 
 
 # ---------------------------------------------------------------------------
