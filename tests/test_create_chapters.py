@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 from manuscripta.project.chapters import create_chapter_files, DEFAULT_PATTERN
 
 

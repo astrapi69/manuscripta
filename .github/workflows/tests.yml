@@ -1,0 +1,82 @@
+name: tests
+
+# Runs the whole suite on every push to main and every pull request and
+# publishes the line coverage to Codecov, which is where the README badge
+# and the awesome-well-tested verification read it from.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: tests + coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Secrets cannot be tested in a step's `if`; an env var can.
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Poetry installation
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pypoetry
+          key: poetry-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+
+      - name: Install Poetry
+        run: |
+          pipx install poetry || python -m pip install --user poetry
+
+      - name: Install dependencies
+        run: |
+          poetry install --with test --no-interaction
+
+      - name: Install Pandoc
+        # The integration layer runs real pandoc. The e2e layer also needs
+        # xelatex and skips itself when that is missing (tests/conftest.py),
+        # so the figure here is a little below a local run with LaTeX.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends pandoc
+
+      - name: Run the test suite with coverage
+        run: |
+          poetry run pytest --cov=manuscripta --cov-report=xml --cov-report=term
+
+      - name: Upload coverage to Codecov
+        # Needs the CODECOV_TOKEN repository secret (Codecov > manuscripta >
+        # Settings > Repository Upload Token). With the token an upload that
+        # fails fails the job: a green build with no published figure would
+        # be worse than a red one.
+        if: env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ env.CODECOV_TOKEN }}
+          files: coverage.xml
+          disable_search: true
+          fail_ci_if_error: true
+
+      - name: Coverage not uploaded
+        # Without the token the tests still gate the build; the missing
+        # figure shows up as a warning on the run instead of a red job.
+        if: env.CODECOV_TOKEN == ''
+        run: |
+          echo "::warning title=Coverage not uploaded::CODECOV_TOKEN is not set; add it as a repository secret so the Codecov badge and awesome-well-tested get a figure."

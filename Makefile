@@ -92,14 +92,14 @@ test-xml: ## Run tests with XML coverage (for CI)
 
 .PHONY: mutation mutation-check mutation-report mutation-fast
 
-mutation: ## Run mutation tests on the configured scope (no threshold enforcement)
-	poetry run --with mutation mutmut run
+mutation: ## Run mutation tests on the configured scope (no threshold enforcement; needs `poetry install --with mutation`)
+	poetry run mutmut run
 
 mutation-check: mutation ## Run mutation tests + enforce per-module thresholds (CI gate)
 	poetry run python scripts/check_mutation_thresholds.py
 
 mutation-report: ## Print a human-readable report of surviving mutants
-	poetry run --with mutation mutmut results
+	poetry run mutmut results
 
 mutation-fast: ## Dev loop — mutate only modules changed since main
 	@CHANGED=$$(git diff --name-only origin/main...HEAD -- 'src/manuscripta/**/*.py' | tr '\n' ' '); \
@@ -108,7 +108,7 @@ mutation-fast: ## Dev loop — mutate only modules changed since main
 		exit 0; \
 	fi; \
 	echo "Mutating only: $$CHANGED"; \
-	poetry run --with mutation mutmut run $$CHANGED
+	poetry run mutmut run $$CHANGED
 
 # ---------------------------------------------------------------------------
 # CI
