@@ -408,19 +408,22 @@ def _clean_and_speak(
         f"  {progress}Generating: {out_path.name} ({char_count:,} chars, ~{word_count:,} words)"
     )
 
+    # Synthesize next to the target and move into place only once complete, so
+    # a failure leaves a previously existing MP3 untouched
+    part_path = out_path.with_name(f".{out_path.stem}.part{out_path.suffix}")
     try:
         t0 = time.time()
-        tts.synthesize(text, out_path)
+        tts.synthesize(text, part_path)
+        part_path.replace(out_path)
         elapsed = time.time() - t0
 
-        file_size = out_path.stat().st_size / 1024 if out_path.exists() else 0
+        file_size = out_path.stat().st_size / 1024
         print(f"           Done in {elapsed:.1f}s ({file_size:.0f} KB)")
         return True
     except Exception as exc:
         print(f"           FAILED: {exc}")
-        # Remove partial file if it was created
-        if out_path.exists():
-            out_path.unlink()
+        # Remove the partial file if it was created
+        part_path.unlink(missing_ok=True)
         print("           Continuing with next chapter...")
         return False
 
@@ -588,19 +591,20 @@ def _derive_voice_short_name(voice: str) -> str:
 
 
 def _derive_book_title(input_path: Path) -> str:
-    """Derive a book title from the project root directory name.
-    This is typically the git repo folder, e.g. 'eternity-ebook'.
-    Falls back to EPUB filename or input directory name.
+    """Derive a book title from the name of the project root: the directory
+    holding the input (the manuscript folder or the EPUB file), typically the
+    git repo folder, e.g. 'eternity-ebook'. Falls back to the EPUB file stem or
+    the input directory name when the input sits directly under the file
+    system root.
     """
-    # Use the current working directory (project root) as the canonical name
-    project_name = Path.cwd().name
+    project_name = input_path.resolve().parent.name
     if project_name:
         # Adapt naming for audiobook context
         return project_name.replace("-ebook", "-audiobook").replace(
             "_ebook", "_audiobook"
         )
     # Fallback
-    if input_path.is_file():
+    if input_path.suffix.lower() == ".epub":
         return input_path.stem
     return input_path.name
 
@@ -675,7 +679,8 @@ def merge_audiobook(
         print(f"\nMerging {len(chapter_files)} chapter(s) into {merged_name}...")
         t0 = time.time()
 
-        # Use relative paths since cwd is set to output_dir
+        # Relative file names: ffmpeg runs inside the output directory, resolved
+        # to an absolute path so a relative --output does not depend on the cwd
         result = subprocess.run(
             [
                 "ffmpeg",
@@ -692,7 +697,7 @@ def merge_audiobook(
             ],
             capture_output=True,
             text=True,
-            cwd=str(output_dir),
+            cwd=str(output_dir.resolve()),
         )
 
         if result.returncode != 0:

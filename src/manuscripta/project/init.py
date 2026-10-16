@@ -327,14 +327,28 @@ def check_excluded_on_disk(base_path: Path, exclude: list[str], stats: InitStats
 
 
 def clean_excluded(base_path: Path, excluded_items: list[str]):
-    """Interactively delete excluded items that exist on disk."""
+    """Interactively delete excluded items that exist on disk.
+
+    An item that is not on disk is reported as missing: it is neither
+    listed for deletion nor counted as deleted.
+    """
     if not excluded_items:
         return
 
-    print("\nThe following excluded items still exist on disk:")
+    print()
+    present: list[str] = []
     for item in excluded_items:
-        full = base_path / item
-        kind = "dir" if full.is_dir() else "file"
+        if (base_path / item).exists():
+            present.append(item)
+        else:
+            log.info("Excluded item not on disk: %s", item)
+            print(f"  Missing (nothing to delete): {item}")
+    if not present:
+        return
+
+    print("The following excluded items still exist on disk:")
+    for item in present:
+        kind = "dir" if (base_path / item).is_dir() else "file"
         print(f"  - {item} ({kind})")
 
     answer = input("\nDelete these items? [y/N]: ").strip().lower()
@@ -342,13 +356,13 @@ def clean_excluded(base_path: Path, excluded_items: list[str]):
         print("Skipped. No items deleted.")
         return
 
-    for item in excluded_items:
+    for item in present:
         full = base_path / item
         try:
             if full.is_dir():
                 shutil.rmtree(full)
                 log.info("Deleted directory: %s", item)
-            elif full.is_file():
+            else:
                 full.unlink()
                 log.info("Deleted file: %s", item)
             print(f"  Deleted: {item}")

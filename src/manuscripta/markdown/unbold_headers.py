@@ -181,7 +181,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--encoding", default="utf-8", help="File encoding (default: utf-8)."
     )
 
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     allowed_levels = parse_levels(args.levels)
     # normalize and validate extensions
     raw_parts = [p.strip().lower() for p in args.ext.split(",") if p.strip()]

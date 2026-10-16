@@ -12,9 +12,8 @@ import argparse
 from time import sleep
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables; the key itself is read when translating
 load_dotenv()
-DEEPL_AUTH_KEY = os.getenv("DEEPL_AUTH_KEY")
 
 DEEPL_API_URL = "https://api-free.deepl.com/v2/translate"
 
@@ -46,11 +45,12 @@ def log_skipped(reason: str, file_path: str):
 
 
 def translate_text(text: str, source_lang: str, target_lang: str) -> str:
-    if not DEEPL_AUTH_KEY:
+    auth_key = os.getenv("DEEPL_AUTH_KEY")
+    if not auth_key:
         raise EnvironmentError("❌ Please set the DEEPL_AUTH_KEY environment variable.")
 
     data = {
-        "auth_key": DEEPL_AUTH_KEY,
+        "auth_key": auth_key,
         "text": text,
         "source_lang": source_lang.upper(),
         "target_lang": target_lang.upper(),
@@ -114,26 +114,31 @@ def translate_markdown_file(
         log_skipped("empty", norm_path)
         return
 
-    blocks = original_text.split("\n\n")
+    # Blocks are stripped before they are sent, so the file's own terminator
+    # is set aside and written back after the translated body.
+    body = original_text.rstrip("\n")
+    terminator = original_text[len(body) :]
+    blocks = body.split("\n\n")
     translated_blocks = []
 
     for block in blocks:
-        if block.strip():
-            try:
-                translated = (
-                    translate_text(block.strip(), source_lang, target_lang)
-                    if not dry_run
-                    else block
-                )
-                sleep(TRANSLATION_DELAY)
-            except Exception as e:
-                print(f"⚠️ Failed to translate block:\n{block[:100]}...\nError: {e}")
-                translated = block
-            translated_blocks.append(translated)
-        else:
+        if not block.strip():
             translated_blocks.append("")
+            continue
 
-    translated_text = "\n\n".join(translated_blocks)
+        if dry_run:
+            translated_blocks.append(block)
+            continue
+
+        try:
+            translated = translate_text(block.strip(), source_lang, target_lang)
+            sleep(TRANSLATION_DELAY)
+        except Exception as e:
+            print(f"⚠️ Failed to translate block:\n{block[:100]}...\nError: {e}")
+            translated = block
+        translated_blocks.append(translated)
+
+    translated_text = "\n\n".join(translated_blocks) + terminator
 
     if not dry_run:
         with open(file_path, "w", encoding="utf-8") as f:
@@ -173,7 +178,7 @@ def main():
     )
 
     args = parser.parse_args()
-    skiplist = load_skiplist()
+    skiplist = load_skiplist(SKIPLIST_PATH)
     translated_files = set()
 
     try:
@@ -204,7 +209,7 @@ def main():
             print(f"📊 Total files marked as translated: {len(translated_files)}")
 
             normalized_translated = {normalize_path(path) for path in translated_files}
-            current_skiplist = load_skiplist()
+            current_skiplist = load_skiplist(SKIPLIST_PATH)
             new_entries = sorted(normalized_translated - current_skiplist)
             combined_entries = sorted(current_skiplist.union(normalized_translated))
 

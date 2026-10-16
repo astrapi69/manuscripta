@@ -243,27 +243,34 @@ REASONING_CASES = [
         id="think-spans-lines",
     ),
     pytest.param("<think>only reasoning</think>", "", id="think-only"),
+    # Only the reasoning block and a leading label are stripped: a preamble
+    # section stays, and so does every paragraph of a multi-paragraph answer.
     pytest.param(
         "Here is the translation:\n\nHallo Welt",
-        "Hallo Welt",
-        id="last-section-wins",
+        "Here is the translation:\n\nHallo Welt",
+        id="preamble-section-kept",
     ),
-    # A genuine two-paragraph answer loses its first paragraph: blocks are
-    # sent one paragraph at a time, so the last section is taken as the answer.
     pytest.param(
         "Erster Absatz.\n\nZweiter Absatz.",
-        "Zweiter Absatz.",
-        id="multi-paragraph-keeps-last-only",
+        "Erster Absatz.\n\nZweiter Absatz.",
+        id="multi-paragraph-kept-whole",
+    ),
+    pytest.param(
+        "<think>hmm</think>\nErster Absatz.\n\nZweiter Absatz.",
+        "Erster Absatz.\n\nZweiter Absatz.",
+        id="think-then-multi-paragraph-kept-whole",
     ),
     pytest.param("Translation: Hallo Welt", "Hallo Welt", id="label-translation"),
     pytest.param("ÜBERSETZUNG : Hallo Welt", "Hallo Welt", id="label-uebersetzung"),
     pytest.param("Final:Hallo Welt", "Hallo Welt", id="label-final"),
     pytest.param("answer: Hallo Welt", "Hallo Welt", id="label-answer"),
     pytest.param("Summary: Hallo Welt", "Summary: Hallo Welt", id="unknown-label-kept"),
+    # A label is stripped only where the answer starts; a preamble before it
+    # keeps the label in place.
     pytest.param(
         "<think>x</think>Note:\n\nTranslation: Hallo Welt",
-        "Hallo Welt",
-        id="think-then-sections-then-label",
+        "Note:\n\nTranslation: Hallo Welt",
+        id="think-then-sections-label-not-leading",
     ),
 ]
 
@@ -425,15 +432,15 @@ def test_translate_text_strips_the_models_reasoning(sandbox, monkeypatch):
 # --- translate_markdown_file -----------------------------------------------
 
 MD = "# Title\n\nFirst paragraph.\n\n<tr><td>cell</td></tr>\n\n\n\nLast paragraph.\n"
-# Blocks are stripped before they are sent, so the file's final newline is
-# gone after translation; the empty block between the double blank line stays.
+# Blocks are stripped before they are sent; the file's final newline and the
+# empty block between the double blank line survive the translation.
 TRANSLATED_MD = (
     "<<# Title>>\n\n<<First paragraph.>>\n\n<tr><td>cell</td></tr>\n\n\n\n"
-    "<<Last paragraph.>>"
+    "<<Last paragraph.>>\n"
 )
 TRANSLATED_MD_WITH_TR = (
     "<<# Title>>\n\n<<First paragraph.>>\n\n<<<tr><td>cell</td></tr>>>\n\n\n\n"
-    "<<Last paragraph.>>"
+    "<<Last paragraph.>>\n"
 )
 
 # Each row: the file content (None: no file), the skiplist, the keyword

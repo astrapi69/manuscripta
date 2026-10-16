@@ -51,11 +51,18 @@ def strip_links_in_text(text: str) -> Tuple[str, int]:
     if not text:
         return text, 0
 
-    # First, locate all fenced blocks and inline code to protect them.
-    spans: List[Tuple[int, int]] = []
-    for rx in (FENCED_RX, INLINE_CODE_RX):
-        for m in rx.finditer(text):
-            spans.append((m.start(), m.end()))
+    # First, locate all fenced blocks and inline code to protect them. The
+    # backtick pairs of a fence line match INLINE_CODE_RX too, so only inline
+    # spans outside the fenced blocks count; an overlapping span would copy
+    # the fence a second time.
+    spans: List[Tuple[int, int]] = [
+        (m.start(), m.end()) for m in FENCED_RX.finditer(text)
+    ]
+    spans.extend(
+        (m.start(), m.end())
+        for m in INLINE_CODE_RX.finditer(text)
+        if not any(s <= m.start() < e for s, e in spans)
+    )
     spans.sort()
 
     # Walk the text, processing only non-protected segments.

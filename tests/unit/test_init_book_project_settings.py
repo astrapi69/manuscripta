@@ -358,6 +358,8 @@ CHECK_EXCLUDED_CASES = [
 def _place(base: Path, present: list[tuple[str, str]]):
     for entry, kind in present:
         path = base / entry
+        if kind == "missing":
+            continue
         if kind == "dir":
             path.mkdir(parents=True)
         else:
@@ -378,8 +380,9 @@ def test_check_excluded_on_disk(tmp_path, exclude, present, recorded):
 # ---------------------------------------------------------------------------
 # clean_excluded
 # ---------------------------------------------------------------------------
-# Each row: the items present on disk as (entry, kind), the answer typed,
-# the entries left on disk afterwards, the lines printed after the listing
+# Each row: the items as (entry, kind) with kind "dir", "file" or "missing"
+# (not on disk), the answer typed, the entries left on disk afterwards, the
+# lines printed after the listing
 CLEAN_DECISIONS = [
     pytest.param(
         [("d", "dir"), ("f.md", "file")],
@@ -409,30 +412,59 @@ CLEAN_DECISIONS = [
         ["Skipped. No items deleted."],
         id="enter-defaults-to-no",
     ),
+    pytest.param(
+        [("d", "dir"), ("gone", "missing"), ("f.md", "file")],
+        "y",
+        [],
+        ["  Deleted: d", "  Deleted: f.md"],
+        id="missing-item-reported-not-listed-not-deleted",
+    ),
+    pytest.param(
+        [("gone.md", "missing"), ("d", "dir")],
+        "n",
+        ["d"],
+        ["Skipped. No items deleted."],
+        id="missing-item-reported-before-no",
+    ),
 ]
 
 
-@pytest.mark.parametrize("present, answer, left, printed", CLEAN_DECISIONS)
-def test_clean_excluded(tmp_path, capsys, answers, present, answer, left, printed):
-    _place(tmp_path, present)
+@pytest.mark.parametrize("items, answer, left, printed", CLEAN_DECISIONS)
+def test_clean_excluded(tmp_path, capsys, answers, items, answer, left, printed):
+    _place(tmp_path, items)
     queue, prompts = answers
     queue.append(answer)
-    items = [entry for entry, _ in present]
+    names = [entry for entry, _ in items]
 
-    mod.clean_excluded(tmp_path, items)
+    mod.clean_excluded(tmp_path, names)
 
     lines = capsys.readouterr().out.splitlines()
-    listing = ["The following excluded items still exist on disk:"] + [
-        f"  - {entry} ({kind})" for entry, kind in present
+    missing = [
+        f"  Missing (nothing to delete): {entry}"
+        for entry, kind in items
+        if kind == "missing"
     ]
-    assert lines == [""] + listing + printed
+    listing = ["The following excluded items still exist on disk:"] + [
+        f"  - {entry} ({kind})" for entry, kind in items if kind != "missing"
+    ]
+    assert lines == [""] + missing + listing + printed
     assert prompts == ["\nDelete these items? [y/N]: "]
-    assert [e for e in items if (tmp_path / e).exists()] == left
+    assert [e for e in names if (tmp_path / e).exists()] == left
 
 
 def test_clean_excluded_with_nothing_asks_nothing(tmp_path, capsys, answers):
     mod.clean_excluded(tmp_path, [])
     assert capsys.readouterr().out == ""
+    assert answers[1] == []
+
+
+def test_clean_excluded_with_only_missing_items_asks_nothing(tmp_path, capsys, answers):
+    mod.clean_excluded(tmp_path, ["gone", "sub/gone.md"])
+    assert capsys.readouterr().out.splitlines() == [
+        "",
+        "  Missing (nothing to delete): gone",
+        "  Missing (nothing to delete): sub/gone.md",
+    ]
     assert answers[1] == []
 
 
