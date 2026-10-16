@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **`--backup` / `--no-backup` for `fix-german-quotes`, `fix-english-quotes`, `fix-french-quotes` and
+  `fix-spanish-quotes`**: a changed file gets its `.bak` copy only when Git does not track it
+  (`git ls-files`); in a repository the copy is redundant and left 5 to 30 untracked files to delete
+  after each run. `--backup` forces the copy, `--no-backup` skips it everywhere. The `Written:` line
+  says which of the two happened (#17).
+
 ### Fixed
 - **`export-*` shortcuts and `--help`**: `--help` / `-h` on every export shortcut (`export-epub`,
   `export-pdf-safe`, `export-print-version-hardcover`, ...) prints the usage of the shortcut and

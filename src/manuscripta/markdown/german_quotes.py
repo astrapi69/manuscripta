@@ -44,9 +44,14 @@ hard line wrap split across two lines is still closed correctly. Blank
 lines end a paragraph; YAML frontmatter and fenced code blocks are never
 touched.
 
+A changed file gets a <file>.bak copy next to it unless Git tracks the
+file, where the copy is redundant (the history has the old text).
+--backup forces the copy, --no-backup skips it everywhere.
+
 Usage:
   fix-german-quotes input.md
   fix-german-quotes input.md --dry-run
+  fix-german-quotes input.md --no-backup
   fix-german-quotes ./my_book/           (recursive, *.md)
   fix-german-quotes ./docs/ --pattern "*.markdown"
   fix-english-quotes ./my_book/          (same options)
@@ -57,6 +62,7 @@ Usage:
 import argparse
 import re
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -224,6 +230,21 @@ def parse_args(style: QuoteStyle = GERMAN):
         "--pattern",
         default=DEFAULT_PATTERN,
         help=f"Glob pattern for directory mode (default: {DEFAULT_PATTERN}).",
+    )
+    backup = parser.add_mutually_exclusive_group()
+    backup.add_argument(
+        "--backup",
+        dest="backup",
+        action="store_true",
+        default=None,
+        help="Write <file>.bak next to each changed file, also for one Git "
+        "tracks. Default: only for a file Git does not track.",
+    )
+    backup.add_argument(
+        "--no-backup",
+        dest="backup",
+        action="store_false",
+        help="Never write <file>.bak.",
     )
     return parser.parse_args()
 
@@ -997,11 +1018,38 @@ def print_stats(stats: dict, style: QuoteStyle = GERMAN):
         print(f"  {label:<28}{value}")
 
 
+def is_git_tracked(path: Path) -> bool:
+    """Whether Git tracks ``path``: it is in the index of a repository that
+    contains it.
+
+    False outside a repository, for an untracked file and when git is not
+    installed.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", path.name],
+            cwd=path.parent,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
 def process_single_file(
-    file_path: Path, dry_run: bool, global_stats: dict, style: QuoteStyle = GERMAN
+    file_path: Path,
+    dry_run: bool,
+    global_stats: dict,
+    style: QuoteStyle = GERMAN,
+    backup: bool | None = None,
 ) -> list[str]:
     """
     Process a single file: read, convert, optionally write.
+
+    ``backup`` decides whether a changed file gets a ``<file>.bak`` copy:
+    True always, False never, None (the default) only when Git does not
+    track the file.
 
     Returns a list of warning strings. Updates global_stats in-place.
     """
@@ -1024,10 +1072,19 @@ def process_single_file(
         print_diff(content, result)
     else:
         if result != content:
-            backup_path = file_path.with_suffix(file_path.suffix + ".bak")
-            shutil.copy2(file_path, backup_path)
+            if backup is None:
+                backup = not is_git_tracked(file_path)
+                skip_reason = "tracked by Git"
+            else:
+                skip_reason = "--no-backup"
+            if backup:
+                backup_path = file_path.with_suffix(file_path.suffix + ".bak")
+                shutil.copy2(file_path, backup_path)
+                note = f"backup: {backup_path}"
+            else:
+                note = f"no backup, {skip_reason}"
             file_path.write_text(result, encoding="utf-8")
-            print(f"  Written: {file_path} (backup: {backup_path})")
+            print(f"  Written: {file_path} ({note})")
         else:
             print(f"  Unchanged: {file_path}")
 
@@ -1063,7 +1120,7 @@ def main(style: QuoteStyle = GERMAN):
 
     for file_path in files:
         file_warnings = process_single_file(
-            file_path, args.dry_run, global_stats, style
+            file_path, args.dry_run, global_stats, style, args.backup
         )
         # Prefix warnings with file path for directory mode
         for w in file_warnings:

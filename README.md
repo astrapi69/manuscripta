@@ -238,7 +238,9 @@ respaced: a lone one, such as the marker in `### » Title`, and one next to a ha
 their spacing. `fix-french-quotes` also puts a no-break space before `; : ! ?` (`Quoi ?`),
 except where the mark is markup or no punctuation: URLs, times (`10:30`), footnote definitions
 (`[^1]:`), table alignment colons (`---:`), HTML entities (`&nbsp;`), `![image]` and `(?)`. All four
-commands take the same arguments (`--dry-run`, `--pattern`, a file or a directory).
+commands take the same arguments (`--dry-run`, `--pattern`, `--backup` / `--no-backup`, a file or a
+directory). A changed file gets a `.bak` copy next to it unless Git tracks the file, where the copy
+is redundant; `--backup` forces the copy and `--no-backup` skips it.
 
 ### Path Tools
 
