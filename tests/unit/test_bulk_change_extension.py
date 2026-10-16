@@ -4,6 +4,7 @@ pytestmark = pytest.mark.unit
 
 # tests/test_bulk_change_extension.py
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -84,6 +85,36 @@ CHANGE_EXTENSION_CASES = [
         {"d1.png": DATA, "d2.PNG": DATA},
         id="dry-run-does-not-change-files",
     ),
+    pytest.param(
+        {
+            "a.png": DATA,
+            "a.jpg": b"old",
+            "b.png": DATA,
+            "b.jpg": b"old",
+            "n.txt": DATA,
+            "z.png": DATA,
+        },
+        "png",
+        "jpg",
+        dict(overwrite=False),
+        {
+            "processed": 6,
+            "renamed": 1,
+            "skipped_conflict": 2,
+            "skipped_nonmatch": 3,
+            "planned": 1,
+            "errors": 0,
+        },
+        {
+            "a.png": DATA,
+            "a.jpg": b"old",
+            "b.png": DATA,
+            "b.jpg": b"old",
+            "n.txt": DATA,
+            "z.jpg": DATA,
+        },
+        id="every-conflict-and-nonmatch-counted-later-files-still-renamed",
+    ),
 ]
 
 
@@ -147,6 +178,14 @@ def test_file_instead_of_directory_is_error(tmp_path: Path, capsys):
     assert tree(tmp_path) == {"file.png": DATA}
 
 
+def complete(renamed: int, conflicts: int = 0, errors: int = 0) -> str:
+    """The summary line of a real run."""
+    return (
+        f"✅ Rename complete: {renamed} file(s) changed. "
+        f"{conflicts} conflict(s) skipped. {errors} error(s)."
+    )
+
+
 def refusing(message: str):
     """A Path method that fails with PermissionError(``message``)."""
 
@@ -178,6 +217,26 @@ FILESYSTEM_FAILURES = [
         {"a.png": DATA, "a.jpg": b"old"},
         id="overwrite-cannot-remove-target",
     ),
+    pytest.param(
+        {"a.png": DATA, "b.png": DATA},
+        "rename",
+        False,
+        "❌ Failed to rename '{dir}/a.png' → '{dir}/a.jpg': read-only\n"
+        "❌ Failed to rename '{dir}/b.png' → '{dir}/b.jpg': read-only\n",
+        {"planned": 2, "renamed": 0, "errors": 2},
+        {"a.png": DATA, "b.png": DATA},
+        id="every-failed-rename-counted",
+    ),
+    pytest.param(
+        {"a.png": DATA, "a.jpg": b"old", "b.png": DATA, "b.jpg": b"old"},
+        "unlink",
+        True,
+        "❌ Failed to remove existing target '{dir}/a.jpg': read-only\n"
+        "❌ Failed to remove existing target '{dir}/b.jpg': read-only\n",
+        {"planned": 0, "renamed": 0, "errors": 2},
+        {"a.png": DATA, "a.jpg": b"old", "b.png": DATA, "b.jpg": b"old"},
+        id="every-unremovable-target-counted",
+    ),
 ]
 
 
@@ -193,18 +252,8 @@ def test_filesystem_failures_are_counted(
     assert {name: getattr(res, name) for name in fields} == fields
     out, stderr = capsys.readouterr()
     assert stderr == err.replace("{dir}", str(tmp_path))
-    assert out == (
-        "✅ Rename complete: 0 file(s) changed. 0 conflict(s) skipped. 1 error(s).\n"
-    )
+    assert out == complete(0, errors=fields["errors"]) + "\n"
     assert tree(tmp_path) == files_after
-
-
-def complete(renamed: int, conflicts: int = 0, errors: int = 0) -> str:
-    """The summary line of a real run."""
-    return (
-        f"✅ Rename complete: {renamed} file(s) changed. "
-        f"{conflicts} conflict(s) skipped. {errors} error(s)."
-    )
 
 
 # Each row: the files, the arguments after the program name ({dir}: the
@@ -295,8 +344,78 @@ def test_main_reads_sys_argv_when_called_without_arguments(tmp_path, monkeypatch
     assert tree(tmp_path) == {"x.gif": DATA}
 
 
-def test_main_requires_both_extensions(tmp_path: Path, capsys):
+# Each row: the arguments after the directory, the option argparse reports as
+# missing
+MISSING_OPTIONS = [
+    pytest.param(["--from", "png"], "--to", id="to-missing"),
+    pytest.param(["--to", "jpg"], "--from", id="from-missing"),
+]
+
+
+@pytest.mark.parametrize("args, missing", MISSING_OPTIONS)
+def test_main_requires_both_extensions(args, missing, tmp_path: Path, capsys):
     with pytest.raises(SystemExit) as ex:
-        main([str(tmp_path), "--from", "png"])
+        main([str(tmp_path), *args])
     assert ex.value.code == 2
-    assert "the following arguments are required: --to" in capsys.readouterr().err
+    required = f"the following arguments are required: {missing}"
+    assert required in capsys.readouterr().err
+
+
+def test_dry_run_lists_every_planned_rename_in_order(tmp_path: Path, capsys):
+    make_files(tmp_path, {"b.png": DATA, "a.png": DATA, "sub/c.PNG": DATA})
+    args = [str(tmp_path), "--from", "png", "--to", "jpg", "--dry-run", "-r"]
+    assert main(args) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "🔎 (dry-run) a.png → a.jpg",
+        "🔎 (dry-run) b.png → b.jpg",
+        "🔎 (dry-run) sub/c.PNG → sub/c.jpg",
+        "✅ Dry-run complete: 3 file(s) would be changed.",
+    ]
+    assert tree(tmp_path) == {"b.png": DATA, "a.png": DATA, "sub/c.PNG": DATA}
+
+
+def help_output(monkeypatch, capsys) -> str:
+    """The --help page, rendered wide enough that no entry wraps."""
+    monkeypatch.setenv("COLUMNS", "200")
+    with pytest.raises(SystemExit) as ex:
+        main(["--help"])
+    assert ex.value.code == 0
+    return capsys.readouterr().out
+
+
+def option_help_text(help_out: str, flag: str) -> str:
+    """The help text argparse attached to the listing entry of ``flag`` (""
+    when the entry carries none)."""
+    sections = re.split(
+        r"^(?:positional arguments|options):$", help_out, maxsplit=1, flags=re.M
+    )
+    for line in sections[1].splitlines():
+        entry = line.strip()
+        if entry.startswith(flag):
+            parts = re.split(r"\s{2,}", entry, maxsplit=1)
+            return parts[1] if len(parts) > 1 else ""
+    raise AssertionError(f"{flag} is not listed")
+
+
+# Each row: an argument whose --help entry must carry some help text; what the
+# text says is not asserted
+OPTIONS_WITH_HELP = [
+    pytest.param("directory", id="directory"),
+    pytest.param("--from", id="from"),
+    pytest.param("--to", id="to"),
+    pytest.param("-r, --recursive", id="recursive"),
+    pytest.param("--case-sensitive", id="case-sensitive"),
+    pytest.param("--dry-run", id="dry-run"),
+    pytest.param("--overwrite", id="overwrite"),
+]
+
+
+@pytest.mark.parametrize("flag", OPTIONS_WITH_HELP)
+def test_every_option_has_help_text(flag, monkeypatch, capsys):
+    assert option_help_text(help_output(monkeypatch, capsys), flag) != ""
+
+
+def test_help_has_a_description_paragraph(monkeypatch, capsys):
+    out = help_output(monkeypatch, capsys)
+    paragraphs = [p.strip() for p in out.split("\n\n") if p.strip()]
+    assert not paragraphs[1].startswith(("positional arguments:", "options:"))

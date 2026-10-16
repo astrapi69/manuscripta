@@ -214,17 +214,21 @@ mutmut = "==3.5.0"
 paths_to_mutate = [
     # Per ADR-0002 "Initial in-scope list" — 7 modules. Adding/removing
     # an entry requires updating ADR-0002, this list, and TESTING.md §14.
-    # markdown/german_quotes is intentionally NOT here: it is currently
-    # debt-tracked at 84 % coverage (target 85 %), and ADR-0002's
-    # debt-graduation rule excludes debt modules from mutation scope.
-    # Add it back in the same commit that removes it from
-    # baseline-coverage.json.
     "src/manuscripta/exceptions.py",
     "src/manuscripta/paths/to_absolute.py",
     "src/manuscripta/paths/to_relative.py",
     "src/manuscripta/images/convert.py",
     "src/manuscripta/markdown/normalize_toc.py",
     "src/manuscripta/audiobook/tts/text_chunking.py",
+    # Graduated from the TESTING.md §12 debt table on 2026-10-16 (#26 took
+    # them past their coverage targets); thresholds per the tier structure
+    # in §14.7, entry at the default tier where the measured score still
+    # sits below 85 % pending survivor triage.
+    "src/manuscripta/markdown/german_quotes.py",
+    "src/manuscripta/markdown/unbold_headers.py",
+    "src/manuscripta/paths/img_tags.py",
+    "src/manuscripta/utils/bulk_extension.py",
+    "src/manuscripta/project/reorder.py",
     # src/manuscripta/audiobook/tts/retry.py removed — insufficient
     # mutable surface per ADR-0002 §"Score formula treatment of
     # trampoline-induced equivalence". All three mutmut-3.x mutants
@@ -288,13 +292,18 @@ default = 75
 "src/manuscripta/images/convert.py" = 85
 "src/manuscripta/markdown/normalize_toc.py" = 85
 "src/manuscripta/audiobook/tts/text_chunking.py" = 80
+# Graduated 2026-10-16. german_quotes, img_tags and bulk_extension enter
+# at the pure-transform tier (the latter two after survivor triage per
+# TESTING.md §14.5); unbold_headers and reorder at the default tier with
+# their measured scores noted, to be raised to 85 once triaged.
+"src/manuscripta/markdown/german_quotes.py" = 85
+"src/manuscripta/markdown/unbold_headers.py" = 75
+"src/manuscripta/paths/img_tags.py" = 85
+"src/manuscripta/utils/bulk_extension.py" = 85
+"src/manuscripta/project/reorder.py" = 75
 # "src/manuscripta/audiobook/tts/retry.py" = 80 — removed alongside
 # its paths_to_mutate entry above (§14.8.3 insufficient mutable
 # surface). Restore this line to 80 when the module re-enters scope.
-# Threshold for markdown/german_quotes is intentionally absent until
-# the module exits the coverage debt table (per ADR-0002 §debt-
-# graduation rule). When re-added: 85 % per the "pure transforms"
-# tier in the same ADR.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

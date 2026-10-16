@@ -453,3 +453,212 @@ src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_m
 src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_59
 # main mutant 76: write_text(..., encoding="utf-8") -> "UTF-8"
 src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_main__mutmut_76
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/paths/img_tags.py — 21 equivalents across 6 paths
+#   §14.8.1 (help/description wording): 12 mutants — main 3, 4, 5, 16, 17,
+#                                       18, 29, 30, 31, 44, 45, 46
+#   §14.8.3 (trampoline)              : 1 mutant  — convert_markdown_tree 1
+#   ad-hoc (codec-alias)              : 2 mutants — _convert_src_for_file 4,
+#                                       convert_markdown_tree 56
+#   ad-hoc (dead `or` arm)            : 1 mutant  — _convert_src_for_file 11
+#   ad-hoc (argparse identity type)   : 2 mutants — main 33, 37
+#   ad-hoc (None re-derived to same)  : 3 mutants — main 50, 66, 69
+# Triage: branch test/coverage-80 (tests/unit/test_convert_img_tags.py
+# carries the A-side: help PRESENCE, the three default directories, relative
+# md_directories, the UTF-8 contract under LC_ALL=C, the per-file and
+# per-tree counters and the tag rebuilt without attributes).
+# ---------------------------------------------------------------------------
+
+# --- §14.8.1 — CLI help-text wording is incidental ---
+# main mutants 3/4/5: parser description XX-wrap / lower / upper.
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_3
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_4
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_5
+# main mutants 16/17/18: --to-absolute help wording XX-wrap / lower / upper.
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_16
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_17
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_18
+# main mutants 29/30/31: --to-relative help wording XX-wrap / lower / upper.
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_29
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_30
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_31
+# main mutants 44/45/46: --base-dir help wording XX-wrap / lower / upper.
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_44
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_45
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_46
+
+# --- §14.8.3 — trampoline-induced equivalence ---
+# One free-function target (convert_markdown_tree) with one literal default
+# (to_absolute: bool = True; the other two defaults are None, which mutmut
+# does not mutate). Expected-count signature Σ = 1. The wrapper binds
+# `args = [base_dir, md_directories, to_absolute, assets_dir]` from the
+# original signature, so the mutant's own default is never consulted.
+#
+# convert_markdown_tree mutant 1: to_absolute: bool = True -> False
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_convert_markdown_tree__mutmut_1
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# Same reasoning as the convert.py / to_absolute.py / to_relative.py
+# codec-alias clusters: codecs.lookup canonicalises case, so "utf-8" and
+# "UTF-8" name the identical codec. (The encoding=None / kwarg-dropped
+# siblings 2, 52 and 54 are A: killed under LC_ALL=C by
+# test_utf8_round_trip_under_c_locale.)
+#
+# _convert_src_for_file mutant 4: read_text(encoding="utf-8") -> "UTF-8"
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x__convert_src_for_file__mutmut_4
+# convert_markdown_tree mutant 56: write_text(..., encoding="utf-8") -> "UTF-8"
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_convert_markdown_tree__mutmut_56
+
+# --- Ad-hoc — dead `or` arm: the substitute never reaches an observer ---
+# _convert_src_for_file mutant 11: `raw_attrs = match.group(1) or ""` ->
+#   `or "XXXX"`. IMG_TAG_RE is r"<img\b([^>]*)>": group 1 always
+#   participates, so match.group(1) is a str and the `or` arm is taken only
+#   for the bare tag "<img>" where it is "". ATTR_RE needs an "=" and finds
+#   nothing in "XXXX", so attrs == {} either way, "src" is absent, and repl
+#   returns match.group(0) — the bare tag verbatim — before build_img_tag
+#   or the counters could see the substitute.
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x__convert_src_for_file__mutmut_11
+
+# --- Ad-hoc — argparse `type=str` is the identity on an argv token ---
+# argparse applies `type` to the command-line token, which is already a
+# str, and to a str default; `str(s) is s` for a str. With type=None
+# argparse applies no conversion and yields the same token. args.base_dir is
+# the identical string under both.
+#
+# main mutant 33: --base-dir type=str -> type=None
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_33
+# main mutant 37: --base-dir type=str kwarg dropped (argparse default: None)
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_37
+
+# --- Ad-hoc cluster: None re-derived by the callee to the same value ---
+# main computes `assets = base / "assets"` with `base =
+# Path(args.base_dir).resolve()` and passes it as assets_dir.
+# convert_markdown_tree does `base_dir = base_dir.resolve()` (a no-op on the
+# already-resolved base) and, when assets_dir is None, substitutes
+# `base_dir / "assets"` — the identical path. Every mutant below makes
+# main pass None (or nothing) and lets the callee re-derive it.
+#
+# main mutant 50: `assets = base / "assets"` -> `assets = None`
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_50
+# main mutant 66: convert_markdown_tree(..., assets_dir=assets) -> assets_dir=None
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_66
+# main mutant 69: the assets_dir kwarg dropped (signature default: None)
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_69
+
+# (C-category, NOT annotated: main mutants 34, 38 and 42 — the --base-dir
+#  default `str(Path(__file__).resolve().parent.parent)` set to None,
+#  dropped, or `str(None)`. The help text promises "defaults to repository
+#  root", but since the module moved from scripts/ into the package the
+#  expression resolves to src/manuscripta/, the package directory. A test
+#  can only kill these by pinning that directory as the default, which §14.5
+#  C forbids ("do NOT pin current behaviour as correct"), or by running the
+#  converter outside tmp_path. Spec gap; they remain counted survivors by
+#  design until the default is decided.)
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/utils/bulk_extension.py — 34 equivalents across 5 paths
+#   §14.8.1 (help/description wording): 24 mutants — parse_args 3, 4, 5, 12,
+#       13, 14, 28, 29, 30, 44, 45, 46, 61, 62, 63, 78, 79, 80, 91, 92, 93,
+#       104, 105, 106
+#   §14.8.1 (print-None)              : 2 mutants — change_extension 54, 73
+#   §14.8.3 (trampoline)              : 4 mutants — change_extension 1, 2, 3, 4
+#   ad-hoc (fresh counter, 0 + 1 == 1): 2 mutants — change_extension 12, 20
+#   ad-hoc (argparse derives dest)    : 2 mutants — parse_args 65, 69
+# Triage: branch test/coverage-80 (tests/unit/test_bulk_change_extension.py
+# carries the A-side: help PRESENCE, `required` on --from, the counters
+# across several conflicts / non-matches / failures, the loop continuing
+# after a skip, and the dry-run listing).
+# ---------------------------------------------------------------------------
+
+# --- §14.8.1 — CLI help-text wording is incidental ---
+# parse_args mutants 3/4/5: parser description XX-wrap / lower / upper.
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_3
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_4
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_5
+# parse_args mutants 12/13/14: directory help wording XX-wrap / lower / upper.
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_12
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_13
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_14
+# parse_args mutants 28/29/30: --from help wording XX-wrap / lower / upper.
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_28
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_29
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_30
+# parse_args mutants 44/45/46: --to help wording XX-wrap / lower / upper.
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_44
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_45
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_46
+# parse_args mutants 61/62/63: -r/--recursive help wording XX-wrap / lower / upper.
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_61
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_62
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_63
+# parse_args mutants 78/79/80: --case-sensitive help wording XX-wrap / lower / upper.
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_78
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_79
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_80
+# parse_args mutants 91/92/93: --dry-run help wording XX-wrap / lower / upper.
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_91
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_92
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_93
+# parse_args mutants 104/105/106: --overwrite help wording XX-wrap / lower / upper.
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_104
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_105
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_106
+
+# --- §14.8.1 — diagnostic print content is not a contract ---
+# Both mutants replace a per-file progress line with print(None), which
+# renders as the literal "None". The print statement remains, the counters,
+# the summary line and the files on disk — the contract the tests pin — are
+# unchanged. The dry-run listing is NOT in this cluster: showing what would
+# change is the whole output of --dry-run, so its line is pinned (A) by
+# test_dry_run_lists_every_planned_rename_in_order.
+#
+# change_extension mutant 54: print(f"⏭️  Skip (exists): ...") -> print(None)
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_change_extension__mutmut_54
+# change_extension mutant 73: print(f"🔄 {p} → {new_path}") -> print(None)
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_change_extension__mutmut_73
+
+# --- §14.8.3 — trampoline-induced equivalence ---
+# One free-function target (change_extension) carries four literal
+# keyword-only defaults (recursive, case_insensitive, dry_run, overwrite).
+# Σ(literal-default kwargs) = 4, which exceeds the 2 × targets stop-rule, so
+# the wrapper was read: it binds `kwargs = {'recursive': recursive,
+# 'case_insensitive': case_insensitive, 'dry_run': dry_run, 'overwrite':
+# overwrite}` from the original signature and forwards them to every
+# mutant, so none of the four mutated defaults is ever consulted. The
+# behavioural side of each flag is pinned through the explicit kwargs in
+# CHANGE_EXTENSION_CASES and the CLI flags in MAIN_RUNS.
+#
+# change_extension mutant 1: recursive: bool = False -> True
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_change_extension__mutmut_1
+# change_extension mutant 2: case_insensitive: bool = True -> False
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_change_extension__mutmut_2
+# change_extension mutant 3: dry_run: bool = False -> True
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_change_extension__mutmut_3
+# change_extension mutant 4: overwrite: bool = False -> True
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_change_extension__mutmut_4
+
+# --- Ad-hoc cluster: fresh counter, `+= 1` and `= 1` both yield 1 ---
+# Both mutants sit in the early-exit guards at the top of change_extension,
+# two lines after `result = RenameResult(changed_paths=[])` whose errors
+# field starts at 0, and are followed immediately by `return result`. No
+# other increment can precede them, so 0 + 1 and 1 are the same observable
+# RenameResult. (The three `errors += 1` inside the loop — mutants 61, 83 —
+# and the loop counters 44/51 are A: killed by the rows with two conflicts,
+# non-matches or failures.)
+#
+# change_extension mutant 12: missing-directory guard, errors += 1 -> = 1
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_change_extension__mutmut_12
+# change_extension mutant 20: not-a-directory guard, errors += 1 -> = 1
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_change_extension__mutmut_20
+
+# --- Ad-hoc — argparse derives the same dest from the option string ---
+# Without an explicit dest, argparse takes the first long option string,
+# strips the leading dashes and replaces "-" with "_": "--case-sensitive"
+# -> "case_sensitive", the very literal the source spells out. ns.case_sensitive
+# resolves identically; main's `not ns.case_sensitive` is unchanged.
+#
+# parse_args mutant 65: dest="case_sensitive" -> dest=None
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_65
+# parse_args mutant 69: the dest kwarg dropped
+src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_69
