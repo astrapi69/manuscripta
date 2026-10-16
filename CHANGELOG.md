@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- **Nightly mutation testing** fails the workflow when a module sits below its threshold, after
+  writing the audit and opening the issue (ADR-0002 amendment); pull requests still do not run
+  it. The default threshold is 85 % (was 75 %) and `text_chunking` moves from 80 % to 85 %; no
+  module in scope sits below 85 %.
+
 ## [0.11.1] - 2026-10-16
 
 ### Fixed

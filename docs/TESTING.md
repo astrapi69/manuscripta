@@ -946,7 +946,7 @@ triage the same day, and the last five debt modules in round 3):
 | `src/manuscripta/paths/to_relative.py` | 85 % | pure path/text transform |
 | `src/manuscripta/images/convert.py` | 85 % | markdown→HTML transform |
 | `src/manuscripta/markdown/normalize_toc.py` | 85 % | pure text transform |
-| `src/manuscripta/audiobook/tts/text_chunking.py` | 80 % | pure string-splitting |
+| `src/manuscripta/audiobook/tts/text_chunking.py` | 85 % | pure string-splitting (80 % until 2026-10-16, raised at 100 %) |
 | `src/manuscripta/markdown/german_quotes.py` | 85 % | pure text transform; graduated from §12 (entered at 90 %) |
 | `src/manuscripta/markdown/unbold_headers.py` | 85 % | pure text transform; graduated (measured 80 % on entry, 100 % after survivor triage) |
 | `src/manuscripta/paths/img_tags.py` | 85 % | pure path/text transform; graduated (measured 79 % on entry, 99 % after survivor triage) |
@@ -1074,6 +1074,13 @@ spec work as Phase 6 material.
 
 ### 14.6 Trade-off statement: nightly signal, not a merge gate
 
+Since 2026-10-16 (ADR-0002 amendment) the nightly job turns red when a
+module sits below its threshold, after writing the audit and opening
+the issue. Pull requests never run the workflow, so nothing is gated;
+a green nightly is the published floor: every module in scope scored
+at least the `default` of `[tool.manuscripta.mutation_thresholds]`
+(85 %) on somebody else's machine.
+
 Mutation testing is a **quality signal**, not a **merge contract**.
 ADR-0001's coverage gate is the merge contract.
 
@@ -1112,8 +1119,9 @@ the same commit that updates `baseline-coverage.json` should:
    `pyproject.toml`.
 2. Add a threshold entry to `[tool.manuscripta.mutation_thresholds]`
    following the tier structure: 95 % for tiny exception-style
-   modules, 85 % for pure transforms, 80 % for retry / chunking-style
-   logic, 75 % default.
+   modules, 85 % for pure transforms and, since 2026-10-16, as the
+   default for everything else (the 80 % chunking tier and the 75 %
+   default are gone; every module in scope measured at or above 85 %).
 3. Update §14.1 above with a row in the in-scope table.
 4. Update ADR-0002's "Initial in-scope list" header to "Current
    in-scope list" and add the row.

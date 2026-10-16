@@ -289,19 +289,22 @@ also_copy = ["src/", "tests/"]
 # section. Targets differ by module category per ADR-0002:
 #   - exceptions (trivially testable): 95%
 #   - pure transforms (convert.*, fix_german_quotes, normalize_toc):  85%
-#   - tts text_chunking / retry:                                       80%
-#   - modules added later without a specific entry:                    75%
+#   - tts text_chunking: 85% since 2026-10-16 (was 80%; measured 100%)
+#   - modules added later without a specific entry:                    85%
+#     (raised from 75% on 2026-10-16 once every module in scope sat at
+#     or above 85%; `default` is the floor the nightly workflow enforces
+#     and fails below, see ADR-0002's amendment)
 # Reducing any threshold here requires an ADR (same policy as coverage
 # thresholds — see TESTING.md §3 and ADR-0003).
 
 [tool.manuscripta.mutation_thresholds]
-default = 75
+default = 85
 "src/manuscripta/exceptions.py" = 95
 "src/manuscripta/paths/to_absolute.py" = 85
 "src/manuscripta/paths/to_relative.py" = 85
 "src/manuscripta/images/convert.py" = 85
 "src/manuscripta/markdown/normalize_toc.py" = 85
-"src/manuscripta/audiobook/tts/text_chunking.py" = 80
+"src/manuscripta/audiobook/tts/text_chunking.py" = 85
 # Graduated 2026-10-16. german_quotes, img_tags and bulk_extension enter
 # at the pure-transform tier (the latter two after survivor triage per
 # TESTING.md §14.5); unbold_headers and reorder at the default tier with
