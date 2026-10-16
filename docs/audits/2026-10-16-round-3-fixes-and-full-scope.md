@@ -75,17 +75,36 @@ stubbed subprocess keyword arguments) stand as listed there.
 - `help_output` / `option_help_text` are duplicated in three test files; a `tests/helpers/cli.py`
   would dedupe them.
 
-## Annotations that stopped being equivalent
+## False kills from the shared temp directory
 
-The full gate after this round reported twelve to_absolute annotations as orphans: the mutants
-(`_protect_segments` 10, 17, 22, 23; `_find_image_tag` 28, 29, 32, 40, 47, 66, 105;
-`_convert_images_in_text` 4), judged equivalent under §14.8.4 and §14.8.5 against the
-to_absolute tests, are killed once the round-3 unit tests drive the scanner through other callers
-(the img_tags default base-dir runs among them). The entries are removed, the traces stay as
-history; to_absolute reads 302 killed / 0 survived / 11 equivalent, 100 %.
+The first full gate after this round reported twenty-two of the twenty-three to_absolute
+annotations as orphans: the annotated mutants had been "killed". Applying two of them by hand
+showed what killed them: a fixture error, not an assertion. Every mutant is a forked pytest
+session, and all of them shared `/tmp/pytest-of-<user>`; the sessions raced for the numbered
+directories (`could not create numbered dir ... after 10 tries`), left 17 548 of them behind,
+exhausted the tmpfs inodes, and from then on any test using `tmp_path` could error out, which
+mutmut records as a kill. The same mechanism had lifted german_quotes to 94.8 % in that run.
+
+Two fixes, both in the test infrastructure:
+
+- `tests/conftest.py`: under `MUTANT_UNDER_TEST` each session gets its own basetemp from
+  `tempfile.mkdtemp()` and removes it in `pytest_unconfigure`.
+- `tests/unit/conftest.py`: an autouse fixture restores the eight path globals that
+  `manuscripta.export.book._configure_paths` rewrites (`BOOK_DIR`, `OUTPUT_DIR`, ..., `LOG_FILE`).
+  `main()` and `run_export()` call it, so a test that drove either left an absolute `LOG_FILE`
+  into its own tmp directory behind, and `compile_book()` in a later test appended to it. The
+  shared basetemp had hidden that leak because the directory outlived the session; with a
+  per-session basetemp it became a `FileNotFoundError` in mutmut's in-process stats run.
+  `tests/unit/test_export_book_fill.py` additionally keeps `LOG_FILE` in `tmp_path`, so the
+  repository's `export.log` no longer collects test output.
+
+With both in place the gate reads to_absolute 289 / 1 / 23 (99.7 %) and german_quotes 90.2 %
+again, no orphans, and the nineteen modules at the numbers in the tables above.
 
 ## Tooling
 
+- Watch `/tmp/pytest-of-<user>` after a mutation run: thousands of entries mean the per-child
+  basetemp is not in effect and the scores are not to be trusted.
 - `python -m mutmut run` breaks on mutmut 3.5.0 (the trampoline re-imports `__main__`); the
   console script works. The threshold script's own `mutmut results` call via `-m` is unaffected.
 - A filtered `mutmut run` resets every other in-scope module; the threshold script now fails on

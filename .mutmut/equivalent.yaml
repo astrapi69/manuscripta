@@ -258,26 +258,23 @@ src/manuscripta/images/convert.py:manuscripta.images.convert.x_convert_markdown_
 
 # _protect_segments mutant 3: idx = 0 -> 1. Tokens {{FENCE_1}}, {{FENCE_2}},
 #   … — counter shifted, still strictly monotonic; unique, non-colliding.
-# 2026-10-16 (round 3): twelve of the to_absolute annotations below were
-# reported as orphans by scripts/check_mutation_thresholds.py after the
-# round-3 unit tests (the img_tags default base-dir runs among them) drove
-# the scanner through other callers and killed them: _protect_segments
-# 10, 17, 22, 23; _find_image_tag 28, 29, 32, 40, 47, 66, 105;
-# _convert_images_in_text 4. Their entries are removed; the traces above
-# them stay as history of why they were once judged equivalent.
 src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__protect_segments__mutmut_3
 # _protect_segments mutant 9: idx += 1 -> idx -= 1. Counter 0, -1, -2, … —
 #   strictly monotonic (decreasing); {{fence_-2}} shape qualifies per policy.
 src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__protect_segments__mutmut_9
 # _protect_segments mutant 10: idx += 1 -> idx += 2. Counter 0, 2, 4, … —
 #   strictly monotonic; unique.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__protect_segments__mutmut_10
 # _protect_segments mutant 17: prefix "FENCE" -> None. Tokens {{None_N}} —
 #   {{None_0}} explicitly qualifies per policy; INLINE pass unchanged and
 #   the shared counter keeps the two spellings disjoint.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__protect_segments__mutmut_17
 # _protect_segments mutant 22: prefix "FENCE" -> "XXFENCEXX". {{XXFENCEXX_N}}
 #   explicitly qualifies per policy.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__protect_segments__mutmut_22
 # _protect_segments mutant 23: prefix "FENCE" -> "fence". Lowercase spelling,
 #   disjoint from "INLINE"; unique.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__protect_segments__mutmut_23
 # _protect_segments mutant 26: prefix "INLINE" -> None. Mirror of mutant 17.
 src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__protect_segments__mutmut_26
 # _protect_segments mutant 31: prefix "INLINE" -> "XXINLINEXX". As mutant 22.
@@ -309,24 +306,29 @@ src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x_convert_fil
 #   i + 3. j == -1 means no "]" exists anywhere in text[i+2:], so every
 #   later candidate also has j == -1 and is skipped the same way; both
 #   cursors walk malformed candidates to the same terminal return None.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__find_image_tag__mutmut_28
 # _find_image_tag mutant 29: branch-1 skip `continue` -> `break`. Break
 #   returns None immediately; but j == -1 (no "]" in the remainder) implies
 #   no later candidate can be well-formed (any image needs a "]"), so the
 #   original's continued search also ends in return None. Identical result.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__find_image_tag__mutmut_29
 # _find_image_tag mutant 32: branch-2 guard `j + 1 >= n` -> `j + 2 >= n`.
 #   The guard and the text[j+1] != "(" check it interacts with execute the
 #   identical body (pos = i + 2; continue). Extra-trigger case j+1 == n-1
 #   with "(" after "]": the original enters the paren scan at k = j+2 = n,
 #   the `while k < n` body never runs, and control falls to the same
 #   malformed-skip. All paths converge.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__find_image_tag__mutmut_32
 # _find_image_tag mutant 40: branch-2 skip (`text[j+1] != "("`) pos = i + 2
 #   -> i + 3. A candidate starting at exactly i+2 ("![![…") shares the same
 #   first "]" (j' = j: positions i+2/i+3 hold "!["), hence the same
 #   text[j+1] != "(" verdict — it would be skipped identically, landing
 #   both cursors at the same next find() position.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__find_image_tag__mutmut_40
 # _find_image_tag mutant 105: branch-3 skip (unclosed parens) pos = i + 2
 #   -> i + 3. Same shared-structure argument as mutant 40: a candidate at
 #   i+2 scans the same unclosed-paren tail and is skipped the same way.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__find_image_tag__mutmut_105
 # _split_inside_parens mutant 55: `while j < n` -> `j <= n`. The j == n
 #   probe s[n] would IndexError, but reaching it requires a whitespace run
 #   extending to the end of s — impossible: s = inside.strip() at function
@@ -350,12 +352,15 @@ src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__split_insi
 #   consumed only via `not in_angle` and `if in_angle`; None and False are
 #   indistinguishable under both, and every reassignment overwrites the
 #   initial value with a literal True/False.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__find_image_tag__mutmut_47
 # _find_image_tag mutant 66: angle-exit `in_angle = False` -> None. Same
 #   consumers as mutant 47.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__find_image_tag__mutmut_66
 # _convert_images_in_text mutant 4: `idx = 0` -> None. Before its first
 #   reassignment idx is used only as a slice start (text[None:x] ==
 #   text[0:x] by language rule) and as str.find's start argument (None ==
 #   "from 0" by language rule). After the first tag idx is reassigned.
+src/manuscripta/paths/to_absolute.py:manuscripta.paths.to_absolute.x__convert_images_in_text__mutmut_4
 
 # (C-category, NOT annotated: _find_image_tag mutant 62 — angle-enter
 #  k += 1 -> k += 2, observable only on an empty "<>" target where the

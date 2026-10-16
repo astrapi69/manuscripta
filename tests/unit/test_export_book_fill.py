@@ -34,6 +34,13 @@ from manuscripta.export import book as bm
 # --------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _log_file_in_tmp(tmp_path, monkeypatch):
+    """compile_book appends Pandoc's output to bm.LOG_FILE; keep that out of
+    the repository's export.log and out of other tests' directories."""
+    monkeypatch.setattr(bm, "LOG_FILE", str(tmp_path / "export.log"))
+
+
 class _CP:
     """Minimal stand-in for a subprocess.CompletedProcess."""
 

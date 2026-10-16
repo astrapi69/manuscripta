@@ -16,7 +16,10 @@ in existing test files keep working.
 
 from __future__ import annotations
 
+import os
 import shutil
+import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -38,7 +41,20 @@ from helpers.project import scaffold as _scaffold
 _LAYER_MARKERS = {"unit", "integration", "e2e", "e2e_wheel"}
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
+    # Under mutmut every mutant is a forked pytest session; with the shared
+    # /tmp/pytest-of-<user> basetemp those sessions race for the numbered
+    # directories ("could not create numbered dir ... after 10 tries"),
+    # pile up thousands of them (17 548 on 2026-10-16, /tmp full) and the
+    # resulting fixture errors count as kills. Each mutmut child gets its
+    # own basetemp, removed again in pytest_unconfigure. tryfirst so it is
+    # set before the tmpdir plugin reads config.option.basetemp.
+    if os.environ.get("MUTANT_UNDER_TEST") and config.option.basetemp is None:
+        base = Path(tempfile.mkdtemp(prefix="manuscripta-mutmut-"))
+        config.option.basetemp = base
+        config._manuscripta_mutmut_basetemp = base  # type: ignore[attr-defined]
+
     config.addinivalue_line("markers", "unit: Layer-1 unit test (pure logic, no I/O)")
     config.addinivalue_line(
         "markers", "integration: Layer-2 integration test (real Pandoc, no LaTeX)"
@@ -54,6 +70,12 @@ def pytest_configure(config):
         "markers", "requires_latex: requires xelatex binary on PATH"
     )
     config.addinivalue_line("markers", "slow: slow test (visual diff or scale)")
+
+
+def pytest_unconfigure(config):
+    base = getattr(config, "_manuscripta_mutmut_basetemp", None)
+    if base is not None:
+        shutil.rmtree(base, ignore_errors=True)
 
 
 def _has(binary: str) -> bool:
