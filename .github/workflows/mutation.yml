@@ -141,6 +141,35 @@ jobs:
             fi
           } > "$audit_dir/current-mutation.md"
 
+      - name: Refresh the mutation badge in the README
+        # The global score uses the per-module formula of
+        # scripts/check_mutation_thresholds.py over every in-scope module:
+        # killed / (total - equivalent). Shields.io renders the static badge
+        # and awesome-well-tested reads the figure off it.
+        if: always()
+        run: |
+          score="$(python3 - <<'PY'
+          import re
+          killed = denom = 0
+          for line in open("/tmp/mutation-threshold-report.txt", encoding="utf-8"):
+              m = re.match(r"src/\S+\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)", line)
+              if m:
+                  k, _surv, _tout, eq, total = map(int, m.groups())
+                  killed += k
+                  denom += total - eq
+          print(f"{100.0 * killed / denom:.1f}" if denom else "")
+          PY
+          )"
+          if [ -z "$score" ]; then
+            echo "No threshold table; badge left as it is."
+            exit 0
+          fi
+          color=red
+          awk "BEGIN {exit !($score >= 70)}" && color=yellow
+          awk "BEGIN {exit !($score >= 90)}" && color=brightgreen
+          echo "mutation score: $score % ($color)"
+          sed -i -E "s#img\.shields\.io/badge/mutation%20score-[0-9.]+%25-[a-z]+#img.shields.io/badge/mutation%20score-${score}%25-${color}#" README.md
+
       - name: Commit rotated audit
         if: always()
         env:
@@ -148,7 +177,7 @@ jobs:
         run: |
           git config user.name  "manuscripta-mutation-bot"
           git config user.email "actions-bot@users.noreply.github.com"
-          git add docs/audits/current-mutation.md docs/audits/history/ || true
+          git add docs/audits/current-mutation.md docs/audits/history/ README.md || true
           if git diff --staged --quiet; then
             echo "Audit unchanged; nothing to commit."
             exit 0
