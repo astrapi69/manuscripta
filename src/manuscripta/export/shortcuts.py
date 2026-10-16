@@ -5,11 +5,14 @@ Shortcuts for book export pipelines with **validated passthrough options**.
 
 Features
 --------
-- Forwards extra CLI options to the underlying scripts while validating them
+- Forwards extra CLI options to the underlying scripts after validating them
   against public allow-lists (value-agnostic, name-based).
-- Logs valid vs invalid options.
-- Optional `--strict-opts` flag: if present, abort on invalid options; otherwise
-  continue and drop the invalid ones.
+- ``-h`` / ``--help`` prints the usage of the shortcut and of the target
+  script and returns without touching the manuscript or ``output/``.
+- An unknown option aborts with exit status 2 before the target runs, so a
+  misspelled flag never starts an export with the defaults.
+- ``--strict-opts`` is still accepted for compatibility. It is consumed here
+  and has no effect, since unknown options always abort.
 
 Targets
 -------
@@ -42,7 +45,8 @@ Poetry shortcuts:
     poetry run export-pdf --output-file=final
     poetry run export-pdf-safe --output-file=draft
     poetry run export-epub2 --cover=assets/covers/cover.jpg
-    poetry run export-print-version-hardcover --lang=de --strict-opts
+    poetry run export-print-version-hardcover --lang=de
+    poetry run export-epub --help
 
 Direct module execution:
     python scripts/shortcuts_export.py export --format pdf -- --skip-images --output-file=foo
@@ -59,9 +63,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Iterable, List
 
+from manuscripta.export.book import _build_arg_parser as _full_export_parser
+from manuscripta.export.book import _build_cli_arg_parser as _full_export_cli_parser
 from manuscripta.export.book import main as export_main
+from manuscripta.export.print_version import _build_arg_parser as _print_version_parser
 from manuscripta.export.print_version import main as export_print_version_main
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -84,15 +92,41 @@ FULL_EXPORT_ALLOWED_OPTS = {
     "--skip-images",
     "--keep-relative-paths",
     "--copy-epub-to",
+    # The CLI layer of manuscripta.export.book, peeled off before its parser
+    "--source-dir",
+    "--resource-path",
+    "--strict-images",
+    "--no-strict-images",
 }
 
 PRINT_VERSION_ALLOWED_OPTS = {
     "--book-type",
     "--export-format",
-    "--scripts-dir",
     "--dry-run",
-    "--no-restore",
-    "--strict-opts",  # handled here; not forwarded further
+    "--restore",
+    "--exact-name",
+}
+
+# Consumed here, never forwarded: --strict-opts has no effect any more, and a
+# bare -- only separates the shortcut from its passthrough.
+_CONSUMED_TOKENS = {"--strict-opts", "--"}
+
+HELP_OPTS = {"-h", "--help"}
+
+DEFAULT_COVER = "assets/covers/cover.jpg"
+
+# The targets, named after the scripts the shortcuts stand in for
+FULL_EXPORT = "full_export_book.py"
+PRINT_VERSION = "print_version_build.py"
+
+# The console script each target runs as (the argv[0] of the synthetic argv)
+_TARGET_PROG = {FULL_EXPORT: "full-export", PRINT_VERSION: "print-version-build"}
+
+# print_version_build.py consumes its own options and forwards the rest to
+# full_export_book.py, so its shortcuts accept both sets.
+_TARGET_ALLOWED = {
+    FULL_EXPORT: FULL_EXPORT_ALLOWED_OPTS,
+    PRINT_VERSION: PRINT_VERSION_ALLOWED_OPTS | FULL_EXPORT_ALLOWED_OPTS,
 }
 
 __all__ = [
@@ -121,6 +155,7 @@ __all__ = [
     "export_html",
     # Utilities:
     "list_allowed_opts",
+    "print_shortcut_help",
     "main",
 ]
 
@@ -141,12 +176,19 @@ def _has_any_option(extra: Iterable[str], names: set[str]) -> bool:
 def _split_valid_invalid_options(
     extra: List[str], allowed: set[str]
 ) -> tuple[list[str], list[str]]:
+    """Split ``extra`` into the tokens to forward and the unknown ones.
+
+    An option is a token that starts with ``-``; its name is the part before
+    ``=``. The token after an option given without ``=`` is that option's
+    value when it does not start with ``-`` and goes into the same bucket.
+    Any other token (a stray positional) is unknown.
+    """
     valid: List[str] = []
     invalid: List[str] = []
     i = 0
     while i < len(extra):
         tok = extra[i]
-        if tok.startswith("--"):
+        if tok.startswith("-"):
             name = tok.split("=", 1)[0]
             bucket = valid if name in allowed else invalid
             bucket.append(tok)
@@ -157,8 +199,54 @@ def _split_valid_invalid_options(
             ):
                 bucket.append(extra[i + 1])
                 i += 1
+        else:
+            invalid.append(tok)
         i += 1
     return valid, invalid
+
+
+def _wants_help(extra: Iterable[str]) -> bool:
+    """Whether ``-h`` or ``--help`` is among the passthrough tokens."""
+    return any(tok in HELP_OPTS for tok in extra)
+
+
+def _help_parsers(target: str) -> list[argparse.ArgumentParser]:
+    """The parsers whose options ``target`` accepts, in the order to print."""
+    full_export = [_full_export_cli_parser(), _full_export_parser()]
+    for parser in full_export:
+        parser.prog = _TARGET_PROG[FULL_EXPORT]
+    if target == FULL_EXPORT:
+        return full_export
+    print_version = _print_version_parser()
+    print_version.prog = _TARGET_PROG[PRINT_VERSION]
+    return [print_version, *full_export]
+
+
+def print_shortcut_help(
+    target: str, base_args: list[str], prog: str | None = None
+) -> None:
+    """Print the usage of a shortcut and the options of its target.
+
+    ``prog`` defaults to the name the shortcut was called as.
+    """
+    prog = prog or Path(sys.argv[0]).name or "export-shortcut"
+    runs = " ".join([_TARGET_PROG[target], *base_args])
+    print(f"usage: {prog} [-h] [OPTION ...]")
+    print()
+    print(f"Runs {target} as")
+    print(f"  {runs} [OPTION ...]")
+    print()
+    print(f"Every OPTION is checked against the options of {target} listed below")
+    print("and forwarded unchanged. An unknown option aborts with exit status 2")
+    print("before any source file is touched or anything is exported.")
+    print("--strict-opts is accepted for compatibility and has no effect.")
+    if target == PRINT_VERSION:
+        print()
+        print(f"{PRINT_VERSION} consumes its own options and forwards the rest")
+        print(f"to {FULL_EXPORT}.")
+    for parser in _help_parsers(target):
+        print()
+        print(parser.format_help(), end="")
 
 
 def _run_full_export(args_list: List[str]):
@@ -173,11 +261,43 @@ def _run_print_version(args_list: List[str]):
     export_print_version_main()
 
 
+def _forward(target: str, base_args: list[str], extra: Iterable[str]) -> None:
+    """Validate ``extra`` and run ``target`` with ``base_args`` plus the valid options.
+
+    ``-h`` / ``--help`` anywhere in ``extra`` prints the help and returns
+    without running anything. An unknown option prints the offending tokens
+    and exits with status 2 before the target runs.
+    """
+    tokens = list(extra)
+    if _wants_help(tokens):
+        print_shortcut_help(target, base_args)
+        return
+
+    tokens = [t for t in tokens if t not in _CONSUMED_TOKENS]
+    valid, invalid = _split_valid_invalid_options(tokens, _TARGET_ALLOWED[target])
+
+    if invalid:
+        print(f"⚠️ Invalid options for {target}:")
+        print("   " + " ".join(invalid))
+        print("🛑 Aborting: unknown options are never forwarded. See --help.")
+        sys.exit(2)
+
+    if valid:
+        print(f"🔧 Forwarding valid options to {target}:")
+        print("   " + " ".join(valid))
+
+    args = [*base_args, *valid]
+    if target == PRINT_VERSION:
+        _run_print_version(args)
+    else:
+        _run_full_export(args)
+
+
 def list_allowed_opts() -> None:
     print("Allowed options (by target):")
-    print("  full_export_book.py:")
+    print(f"  {FULL_EXPORT}:")
     print("   ", " ".join(sorted(FULL_EXPORT_ALLOWED_OPTS)))
-    print("  print_version_build.py:")
+    print(f"  {PRINT_VERSION}:")
     print("   ", " ".join(sorted(PRINT_VERSION_ALLOWED_OPTS)))
 
 
@@ -193,24 +313,7 @@ def export(format: str, cover: str | None = None, *extra: str):
     args = ["--format", format]
     if cover:
         args.extend(["--cover", cover])
-
-    strict = "--strict-opts" in extra
-    extra = [t for t in extra if t != "--strict-opts"]
-    valid, invalid = _split_valid_invalid_options(list(extra), FULL_EXPORT_ALLOWED_OPTS)
-
-    if invalid:
-        print("⚠️ Invalid options for full_export_book.py:")
-        print("   " + " ".join(invalid))
-        if strict:
-            print("🛑 Aborting due to --strict-opts.")
-            return
-
-    if valid:
-        print("🔧 Forwarding valid options to full_export_book.py:")
-        print("   " + " ".join(valid))
-
-    args.extend(valid)
-    _run_full_export(args)
+    _forward(FULL_EXPORT, args, extra)
 
 
 def export_pdf(*extra: str):
@@ -251,35 +354,12 @@ def export_html(*extra: str):
 def _export_all_formats(include_cover: bool, *extra: str):
     """
     Internal helper for exporting all major formats, with or without a cover.
-    Handles strict option validation and passthrough of allowed flags.
+    Validates the passthrough options and forwards the allowed flags.
     """
-    # Base argument: all supported formats
     args = ["--format", "pdf,epub,docx,markdown,html"]
-
-    # Optional cover
     if include_cover:
-        args.extend(["--cover", "assets/covers/cover.jpg"])
-
-    # Strict mode handling
-    strict = "--strict-opts" in extra
-    extra = [t for t in extra if t != "--strict-opts"]
-
-    # Validate against the allowed options table from full_export_book.py
-    valid, invalid = _split_valid_invalid_options(list(extra), FULL_EXPORT_ALLOWED_OPTS)
-
-    if invalid:
-        print("⚠️ Invalid options for full_export_book.py:")
-        print("   " + " ".join(invalid))
-        if strict:
-            print("🛑 Aborting due to --strict-opts.")
-            return
-
-    if valid:
-        print("🔧 Forwarding valid options to full_export_book.py:")
-        print("   " + " ".join(valid))
-
-    args.extend(valid)
-    _run_full_export(args)
+        args.extend(["--cover", DEFAULT_COVER])
+    _forward(FULL_EXPORT, args, extra)
 
 
 def export_all_formats(*extra: str):
@@ -306,25 +386,7 @@ def export_epub2(*extra: str):
     """
     if not extra:
         extra = tuple(sys.argv[1:])
-    args = ["--epub2"]
-
-    strict = "--strict-opts" in extra
-    extra = [t for t in extra if t != "--strict-opts"]
-    valid, invalid = _split_valid_invalid_options(list(extra), FULL_EXPORT_ALLOWED_OPTS)
-
-    if invalid:
-        print("⚠️ Invalid options for full_export_book.py:")
-        print("   " + " ".join(invalid))
-        if strict:
-            print("🛑 Aborting due to --strict-opts.")
-            return
-
-    if valid:
-        print("🔧 Forwarding valid options to full_export_book.py:")
-        print("   " + " ".join(valid))
-
-    args.extend(valid)
-    _run_full_export(args)
+    _forward(FULL_EXPORT, ["--epub2"], extra)
 
 
 def export_epub_with_cover(*extra: str):
@@ -333,25 +395,7 @@ def export_epub_with_cover(*extra: str):
     """
     if not extra:
         extra = tuple(sys.argv[1:])
-    args = ["--format", "epub", "--cover", "assets/covers/cover.jpg"]
-
-    strict = "--strict-opts" in extra
-    extra = [t for t in extra if t != "--strict-opts"]
-    valid, invalid = _split_valid_invalid_options(list(extra), FULL_EXPORT_ALLOWED_OPTS)
-
-    if invalid:
-        print("⚠️ Invalid options for full_export_book.py:")
-        print("   " + " ".join(invalid))
-        if strict:
-            print("🛑 Aborting due to --strict-opts.")
-            return
-
-    if valid:
-        print("🔧 Forwarding valid options to full_export_book.py:")
-        print("   " + " ".join(valid))
-
-    args.extend(valid)
-    _run_full_export(args)
+    _forward(FULL_EXPORT, ["--format", "epub", "--cover", DEFAULT_COVER], extra)
 
 
 def export_epub2_with_cover(*extra: str):
@@ -360,25 +404,7 @@ def export_epub2_with_cover(*extra: str):
     """
     if not extra:
         extra = tuple(sys.argv[1:])
-    args = ["--epub2", "--cover", "assets/covers/cover.jpg"]
-
-    strict = "--strict-opts" in extra
-    extra = [t for t in extra if t != "--strict-opts"]
-    valid, invalid = _split_valid_invalid_options(list(extra), FULL_EXPORT_ALLOWED_OPTS)
-
-    if invalid:
-        print("⚠️ Invalid options for full_export_book.py:")
-        print("   " + " ".join(invalid))
-        if strict:
-            print("🛑 Aborting due to --strict-opts.")
-            return
-
-    if valid:
-        print("🔧 Forwarding valid options to full_export_book.py:")
-        print("   " + " ".join(valid))
-
-    args.extend(valid)
-    _run_full_export(args)
+    _forward(FULL_EXPORT, ["--epub2", "--cover", DEFAULT_COVER], extra)
 
 
 def export_print_version_epub(*extra: str):
@@ -388,26 +414,7 @@ def export_print_version_epub(*extra: str):
     """
     if not extra:
         extra = tuple(sys.argv[1:])
-    strict = "--strict-opts" in extra
-    extra = [t for t in extra if t != "--strict-opts"]
-
-    # Allow both sets: print_version_build consumes some, forwards others
-    valid, invalid = _split_valid_invalid_options(
-        list(extra), PRINT_VERSION_ALLOWED_OPTS | FULL_EXPORT_ALLOWED_OPTS
-    )
-
-    if invalid:
-        print("⚠️ Invalid options for print_version_build/full_export:")
-        print("   " + " ".join(invalid))
-        if strict:
-            print("🛑 Aborting due to --strict-opts.")
-            return
-
-    if valid:
-        print("🔧 Forwarding valid options:")
-        print("   " + " ".join(valid))
-
-    _run_print_version(valid)
+    _forward(PRINT_VERSION, [], extra)
 
 
 def export_print_version_paperback(*extra: str):
@@ -416,27 +423,7 @@ def export_print_version_paperback(*extra: str):
     """
     if not extra:
         extra = tuple(sys.argv[1:])
-    args = ["--book-type", "paperback"]
-
-    strict = "--strict-opts" in extra
-    extra = [t for t in extra if t != "--strict-opts"]
-    valid, invalid = _split_valid_invalid_options(
-        list(extra), PRINT_VERSION_ALLOWED_OPTS | FULL_EXPORT_ALLOWED_OPTS
-    )
-
-    if invalid:
-        print("⚠️ Invalid options for print_version_build/full_export:")
-        print("   " + " ".join(invalid))
-        if strict:
-            print("🛑 Aborting due to --strict-opts.")
-            return
-
-    if valid:
-        print("🔧 Forwarding valid options:")
-        print("   " + " ".join(valid))
-
-    args.extend(valid)
-    _run_print_version(args)
+    _forward(PRINT_VERSION, ["--book-type", "paperback"], extra)
 
 
 def export_print_version_hardcover(*extra: str):
@@ -445,27 +432,7 @@ def export_print_version_hardcover(*extra: str):
     """
     if not extra:
         extra = tuple(sys.argv[1:])
-    args = ["--book-type", "hardcover"]
-
-    strict = "--strict-opts" in extra
-    extra = [t for t in extra if t != "--strict-opts"]
-    valid, invalid = _split_valid_invalid_options(
-        list(extra), PRINT_VERSION_ALLOWED_OPTS | FULL_EXPORT_ALLOWED_OPTS
-    )
-
-    if invalid:
-        print("⚠️ Invalid options for print_version_build/full_export:")
-        print("   " + " ".join(invalid))
-        if strict:
-            print("🛑 Aborting due to --strict-opts.")
-            return
-
-    if valid:
-        print("🔧 Forwarding valid options:")
-        print("   " + " ".join(valid))
-
-    args.extend(valid)
-    _run_print_version(args)
+    _forward(PRINT_VERSION, ["--book-type", "hardcover"], extra)
 
 
 def export_safe(format: str, *extra: str):
@@ -480,23 +447,7 @@ def export_safe(format: str, *extra: str):
     if not _has_any_option(extra, {"--skip-images", "--keep-relative-paths"}):
         args.append("--skip-images")  # default safe behavior
 
-    strict = "--strict-opts" in extra
-    extra = [t for t in extra if t != "--strict-opts"]
-    valid, invalid = _split_valid_invalid_options(list(extra), FULL_EXPORT_ALLOWED_OPTS)
-
-    if invalid:
-        print("⚠️ Invalid options for full_export_book.py:")
-        print("   " + " ".join(invalid))
-        if strict:
-            print("🛑 Aborting due to --strict-opts.")
-            return
-
-    if valid:
-        print("🔧 Forwarding valid options to full_export_book.py:")
-        print("   " + " ".join(valid))
-
-    args.extend(valid)
-    _run_full_export(args)
+    _forward(FULL_EXPORT, args, extra)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -532,73 +483,38 @@ def export_html_safe(*extra: str):
     return export_safe("html", *extra)
 
 
-def export_print_version_paperback_safe(*extra: str):
+def _export_print_version_safe(book_type: str, *extra: str):
     """
-    Print-optimized EPUB for paperback **in Safe Mode**:
-      - Forces --skip-images and --keep-relative-paths (no in-place source edits).
-      - Validates passthrough; aborts if --strict-opts and invalid flags present.
+    Print-optimized EPUB for ``book_type`` **in Safe Mode**:
+      - Forces --skip-images unless the user already chose one of the two
+        image flags (no in-place source edits).
+      - Validates the passthrough; an unknown option aborts.
     """
-    if not extra:
-        extra = tuple(sys.argv[1:])
-    args = ["--book-type", "paperback"]
+    args = ["--book-type", book_type]
 
     # Add exactly one safe flag if none provided by user
     if not _has_any_option(extra, {"--skip-images", "--keep-relative-paths"}):
         args.append("--skip-images")
 
-    strict = "--strict-opts" in extra
-    extra = [t for t in extra if t != "--strict-opts"]
-    valid, invalid = _split_valid_invalid_options(
-        list(extra), PRINT_VERSION_ALLOWED_OPTS | FULL_EXPORT_ALLOWED_OPTS
-    )
+    _forward(PRINT_VERSION, args, extra)
 
-    if invalid:
-        print("⚠️ Invalid options for print_version_build/full_export:")
-        print("   " + " ".join(invalid))
-        if strict:
-            print("🛑 Aborting due to --strict-opts.")
-            return
 
-    if valid:
-        print("🔧 Forwarding valid options (safe mode):")
-        print("   " + " ".join(valid))
-
-    args.extend(valid)
-    _run_print_version(args)
+def export_print_version_paperback_safe(*extra: str):
+    """
+    Print-optimized EPUB for paperback **in Safe Mode**.
+    """
+    if not extra:
+        extra = tuple(sys.argv[1:])
+    return _export_print_version_safe("paperback", *extra)
 
 
 def export_print_version_hardcover_safe(*extra: str):
     """
-    Print-optimized EPUB for hardcover **in Safe Mode**:
-      - Forces --skip-images and --keep-relative-paths (no in-place source edits).
-      - Validates passthrough; aborts if --strict-opts and invalid flags present.
+    Print-optimized EPUB for hardcover **in Safe Mode**.
     """
     if not extra:
         extra = tuple(sys.argv[1:])
-    args = ["--book-type", "hardcover"]
-
-    if not _has_any_option(extra, {"--skip-images", "--keep-relative-paths"}):
-        args.append("--skip-images")
-
-    strict = "--strict-opts" in extra
-    extra = [t for t in extra if t != "--strict-opts"]
-    valid, invalid = _split_valid_invalid_options(
-        list(extra), PRINT_VERSION_ALLOWED_OPTS | FULL_EXPORT_ALLOWED_OPTS
-    )
-
-    if invalid:
-        print("⚠️ Invalid options for print_version_build/full_export:")
-        print("   " + " ".join(invalid))
-        if strict:
-            print("🛑 Aborting due to --strict-opts.")
-            return
-
-    if valid:
-        print("🔧 Forwarding valid options (safe mode):")
-        print("   " + " ".join(valid))
-
-    args.extend(valid)
-    _run_print_version(args)
+    return _export_print_version_safe("hardcover", *extra)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

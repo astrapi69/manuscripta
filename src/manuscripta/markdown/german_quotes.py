@@ -30,11 +30,13 @@ fix-french-quotes, fix-spanish-quotes:
   Single: ‘ ’ and apostrophe ’, as in English
 
   Converted: straight double quotes, straight single quotes (as in
-  English, so l'homme becomes l’homme) and the space inside every
-  guillemet, existing ones included. English and German typographic
-  quotes are left alone: “ ” is the second level in both languages.
-  fix-french-quotes also sets a no-break space before ; : ! ? (see
-  space_punctuation), so it covers French spacing as a whole.
+  English, so l'homme becomes l’homme), top-level English typographic
+  double quotes (“realidad” becomes «realidad») and the space inside
+  every guillemet, existing ones included. An English pair inside an
+  open « » pair stays: “ ” is the second level in both languages.
+  German typographic quotes are left alone. fix-french-quotes also
+  sets a no-break space before ; : ! ? (see space_punctuation), so it
+  covers French spacing as a whole.
 
 Quotes are paired per block, not per line: a paragraph, a list item, a
 heading or a table row is converted as a whole, so a quotation that a
@@ -42,9 +44,14 @@ hard line wrap split across two lines is still closed correctly. Blank
 lines end a paragraph; YAML frontmatter and fenced code blocks are never
 touched.
 
+A changed file gets a <file>.bak copy next to it unless Git tracks the
+file, where the copy is redundant (the history has the old text).
+--backup forces the copy, --no-backup skips it everywhere.
+
 Usage:
   fix-german-quotes input.md
   fix-german-quotes input.md --dry-run
+  fix-german-quotes input.md --no-backup
   fix-german-quotes ./my_book/           (recursive, *.md)
   fix-german-quotes ./docs/ --pattern "*.markdown"
   fix-english-quotes ./my_book/          (same options)
@@ -55,6 +62,7 @@ Usage:
 import argparse
 import re
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,7 +114,8 @@ class QuoteStyle:
     open_single: str
     close_single: str
     # Convert English typographic quotes (U+201C/U+201D, U+2018/U+2019).
-    # Off for English, where they already are the target.
+    # Off for English, where they already are the target. A guillemet style
+    # converts only the top-level pairs: one nested inside « » stays.
     convert_english_typographic: bool
     # Convert straight single quotes and apostrophes. Off for German, where
     # a straight ' cannot be told apart from an apostrophe.
@@ -144,7 +153,7 @@ FRENCH = QuoteStyle(
     close_double=GUILLEMET_CLOSE,
     open_single=EN_OPEN_SINGLE,
     close_single=EN_CLOSE_SINGLE,
-    convert_english_typographic=False,
+    convert_english_typographic=True,
     convert_straight_single=True,
     guillemet_space=FR_GUILLEMET_SPACE,
     punctuation_space=FR_PUNCTUATION_SPACE,
@@ -156,7 +165,7 @@ SPANISH = QuoteStyle(
     close_double=GUILLEMET_CLOSE,
     open_single=EN_OPEN_SINGLE,
     close_single=EN_CLOSE_SINGLE,
-    convert_english_typographic=False,
+    convert_english_typographic=True,
     convert_straight_single=True,
     guillemet_space="",
 )
@@ -221,6 +230,21 @@ def parse_args(style: QuoteStyle = GERMAN):
         "--pattern",
         default=DEFAULT_PATTERN,
         help=f"Glob pattern for directory mode (default: {DEFAULT_PATTERN}).",
+    )
+    backup = parser.add_mutually_exclusive_group()
+    backup.add_argument(
+        "--backup",
+        dest="backup",
+        action="store_true",
+        default=None,
+        help="Write <file>.bak next to each changed file, also for one Git "
+        "tracks. Default: only for a file Git does not track.",
+    )
+    backup.add_argument(
+        "--no-backup",
+        dest="backup",
+        action="store_false",
+        help="Never write <file>.bak.",
     )
     return parser.parse_args()
 
@@ -369,57 +393,102 @@ def replace_straight_double_quotes(
     return "".join(chars)
 
 
+def _nests_english_double(style: QuoteStyle) -> bool:
+    """Whether an English “…” pair inside the double quotes of ``style`` is a
+    nested quotation that stays.
+
+    That needs the style's own double quotes to differ from the English
+    ones, so that an open pair can be tracked: true for the guillemets of
+    French and Spanish, which use “…” as their second level. German “ is
+    the English opener, so there every pair converts.
+    """
+    own = {style.open_double, style.close_double}
+    return not own & {EN_OPEN_DOUBLE, EN_CLOSE_DOUBLE}
+
+
+def _converts_english_single(style: QuoteStyle) -> bool:
+    """Whether the English single-quote stage can change anything for ``style``.
+
+    False for a style whose single quotes are the English ones (French and
+    Spanish): ‘…’ is already the target there.
+    """
+    return (style.open_single, style.close_single) != (
+        EN_OPEN_SINGLE,
+        EN_CLOSE_SINGLE,
+    )
+
+
 def replace_english_double_quotes(
-    line: str, protected: list[tuple[int, int]], stats: dict
+    line: str,
+    protected: list[tuple[int, int]],
+    stats: dict,
+    style: QuoteStyle = GERMAN,
 ) -> str:
     """
-    Replace English typographic double quotation marks with German ones.
+    Replace English typographic double quotation marks with those of ``style``.
 
     Only active when U+201D (EN_CLOSE_DOUBLE) is present.
     U+201C is ambiguous (= DE_CLOSE_DOUBLE), so it is only treated as
     EN_OPEN_DOUBLE when a matching U+201D follows.
 
     Strategy:
-    - U+201C...U+201D pairs -> U+201E...U+201C (German)
-    - Standalone U+201D -> U+201C
+    - U+201C...U+201D pairs -> open_double...close_double of ``style``
+      (German „...“, guillemets «...»)
+    - Standalone U+201D -> close_double of ``style``
+
+    For a style whose double quotes differ from the English ones (the
+    guillemets of French and Spanish) an English pair inside an open pair
+    of the style's own quotes is a nested quotation and stays: «Dijo “no”»
+    keeps its “no”, while a top-level “realidad” becomes «realidad».
     """
     chars = list(line)
+    nested = _nests_english_double(style)
+
+    # The candidates: U+201D closers and U+201C openers outside protected
+    # regions and, for a nesting style, outside its own open pairs.
+    close_positions: list[int] = []
+    open_positions: list[int] = []
+    depth = 0
+    for i, ch in enumerate(chars):
+        if is_protected(i, protected):
+            continue
+        if nested and ch == style.open_double:
+            depth += 1
+        elif nested and ch == style.close_double:
+            depth = max(depth - 1, 0)
+        elif depth:
+            continue
+        elif ch == EN_CLOSE_DOUBLE:
+            close_positions.append(i)
+        elif ch == EN_OPEN_DOUBLE:
+            open_positions.append(i)
 
     # Only act when U+201D is present at all
-    close_positions = []
-    for i, ch in enumerate(chars):
-        if ch == EN_CLOSE_DOUBLE and not is_protected(i, protected):
-            close_positions.append(i)
-
     if not close_positions:
         return line
 
-    # Find U+201C positions as potential openers
-    open_positions = []
-    for i, ch in enumerate(chars):
-        if ch == EN_OPEN_DOUBLE and not is_protected(i, protected):
-            open_positions.append(i)
-
     changed = False
 
-    # Match pairs: U+201C followed by U+201D
-    used_close = set()
-    used_open = set()
-    for op in open_positions:
-        for ci, cp in enumerate(close_positions):
-            if cp > op and ci not in used_close:
-                # Pair found: U+201C -> U+201E, U+201D -> U+201C
-                chars[op] = DE_OPEN_DOUBLE
-                chars[cp] = DE_CLOSE_DOUBLE
+    # Match pairs: each U+201D takes the nearest unused U+201C before it.
+    # The nearest, not the earliest: after the straight-quote stage a German
+    # line reads „Straight“ and “English”, and the “ that closes the first
+    # pair must not be taken for the opener of the second.
+    used_open: set[int] = set()
+    used_close: set[int] = set()
+    for ci, cp in enumerate(close_positions):
+        for op in reversed(open_positions):
+            if op < cp and op not in used_open:
+                chars[op] = style.open_double
+                chars[cp] = style.close_double
+                used_open.add(op)
                 used_close.add(ci)
-                used_open.add(open_positions.index(op))
                 changed = True
                 break
 
-    # Convert remaining standalone U+201D to U+201C
+    # Convert remaining standalone U+201D to the closing quote
     for ci, cp in enumerate(close_positions):
         if ci not in used_close:
-            chars[cp] = DE_CLOSE_DOUBLE
+            chars[cp] = style.close_double
             changed = True
 
     if changed:
@@ -429,16 +498,24 @@ def replace_english_double_quotes(
 
 
 def replace_english_single_quotes(
-    line: str, protected: list[tuple[int, int]], stats: dict
+    line: str,
+    protected: list[tuple[int, int]],
+    stats: dict,
+    style: QuoteStyle = GERMAN,
 ) -> str:
     """
-    Replace English typographic single quotation marks with German ones.
+    Replace English typographic single quotation marks with those of ``style``.
 
     U+2018 (') -> DE_CLOSE_SINGLE (stays, is identical)
     U+2019 (') -> must be handled context-dependently.
 
-    Strategy: U+2018...U+2019 pairs -> U+201A...U+2018 (German)
+    Strategy: U+2018...U+2019 pairs -> open_single...close_single of
+    ``style`` (German ‚...‘). Nothing to do for a style whose single
+    quotes are the English ones (French and Spanish).
     """
+    if not _converts_english_single(style):
+        return line
+
     chars = list(line)
 
     open_positions = []
@@ -461,8 +538,8 @@ def replace_english_single_quotes(
         for ci, cp in enumerate(close_positions):
             if cp > op and ci not in used_close:
                 # Pair found
-                chars[op] = DE_OPEN_SINGLE
-                chars[cp] = DE_CLOSE_SINGLE
+                chars[op] = style.open_single
+                chars[cp] = style.close_single
                 used_close.add(ci)
                 changed = True
                 break
@@ -702,12 +779,12 @@ def process_block(
         protected = mask_protected_regions(text)
 
         # 2. English typographic double quotation marks
-        text = replace_english_double_quotes(text, protected, stats)
+        text = replace_english_double_quotes(text, protected, stats, style)
 
         protected = mask_protected_regions(text)
 
         # 3. English typographic single quotation marks
-        text = replace_english_single_quotes(text, protected, stats)
+        text = replace_english_single_quotes(text, protected, stats, style)
 
     if style.convert_straight_single:
         protected = mask_protected_regions(text)
@@ -921,9 +998,13 @@ def print_stats(stats: dict, style: QuoteStyle = GERMAN):
         rows.append(
             ("English typographic double:", f"{stats['english_double']} correction(s)")
         )
-        rows.append(
-            ("English typographic single:", f"{stats['english_single']} correction(s)")
-        )
+        if _converts_english_single(style):
+            rows.append(
+                (
+                    "English typographic single:",
+                    f"{stats['english_single']} correction(s)",
+                )
+            )
     if style.convert_straight_single:
         rows.append(
             (f"Straight ' -> {style.name}:", f"{stats['straight_single']} mark(s)")
@@ -942,11 +1023,38 @@ def print_stats(stats: dict, style: QuoteStyle = GERMAN):
         print(f"  {label:<28}{value}")
 
 
+def is_git_tracked(path: Path) -> bool:
+    """Whether Git tracks ``path``: it is in the index of a repository that
+    contains it.
+
+    False outside a repository, for an untracked file and when git is not
+    installed.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", path.name],
+            cwd=path.parent,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
 def process_single_file(
-    file_path: Path, dry_run: bool, global_stats: dict, style: QuoteStyle = GERMAN
+    file_path: Path,
+    dry_run: bool,
+    global_stats: dict,
+    style: QuoteStyle = GERMAN,
+    backup: bool | None = None,
 ) -> list[str]:
     """
     Process a single file: read, convert, optionally write.
+
+    ``backup`` decides whether a changed file gets a ``<file>.bak`` copy:
+    True always, False never, None (the default) only when Git does not
+    track the file.
 
     Returns a list of warning strings. Updates global_stats in-place.
     """
@@ -969,10 +1077,19 @@ def process_single_file(
         print_diff(content, result)
     else:
         if result != content:
-            backup_path = file_path.with_suffix(file_path.suffix + ".bak")
-            shutil.copy2(file_path, backup_path)
+            if backup is None:
+                backup = not is_git_tracked(file_path)
+                skip_reason = "tracked by Git"
+            else:
+                skip_reason = "--no-backup"
+            if backup:
+                backup_path = file_path.with_suffix(file_path.suffix + ".bak")
+                shutil.copy2(file_path, backup_path)
+                note = f"backup: {backup_path}"
+            else:
+                note = f"no backup, {skip_reason}"
             file_path.write_text(result, encoding="utf-8")
-            print(f"  Written: {file_path} (backup: {backup_path})")
+            print(f"  Written: {file_path} ({note})")
         else:
             print(f"  Unchanged: {file_path}")
 
@@ -1008,7 +1125,7 @@ def main(style: QuoteStyle = GERMAN):
 
     for file_path in files:
         file_warnings = process_single_file(
-            file_path, args.dry_run, global_stats, style
+            file_path, args.dry_run, global_stats, style, args.backup
         )
         # Prefix warnings with file path for directory mode
         for w in file_warnings:

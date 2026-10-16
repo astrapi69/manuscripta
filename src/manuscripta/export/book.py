@@ -889,6 +889,42 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build_cli_arg_parser() -> argparse.ArgumentParser:
+    """The options of the CLI layer, peeled off before the main parser.
+
+    ``add_help`` is off so that ``--help`` reaches the main parser, which
+    documents the export options; the shortcuts print both parsers.
+    """
+    cli = argparse.ArgumentParser(add_help=False)
+    cli.add_argument(
+        "--source-dir",
+        type=str,
+        default=None,
+        help="Book project directory (default: the current directory).",
+    )
+    cli.add_argument(
+        "--resource-path",
+        action="append",
+        default=None,
+        help="Extra resource directory (repeatable).",
+    )
+    strict_group = cli.add_mutually_exclusive_group()
+    strict_group.add_argument(
+        "--strict-images",
+        dest="strict_images",
+        action="store_true",
+        default=None,
+        help="Fail the build on a missing image (default).",
+    )
+    strict_group.add_argument(
+        "--no-strict-images",
+        dest="strict_images",
+        action="store_false",
+        help="Continue with a warning on a missing image.",
+    )
+    return cli
+
+
 def _run_pipeline(
     *,
     argv: list[str],
@@ -1207,22 +1243,7 @@ def main(argv: list[str] | None = None) -> None:
     # Peel off --source-dir and strict-images toggles before delegating to the
     # full parser. We do this with a small parser rather than adding them to
     # the main parser so that argv parsing stays shared with run_export().
-    cli = argparse.ArgumentParser(add_help=False)
-    cli.add_argument("--source-dir", type=str, default=None)
-    cli.add_argument(
-        "--resource-path",
-        action="append",
-        default=None,
-        help="Extra resource directory (repeatable).",
-    )
-    strict_group = cli.add_mutually_exclusive_group()
-    strict_group.add_argument(
-        "--strict-images", dest="strict_images", action="store_true", default=None
-    )
-    strict_group.add_argument(
-        "--no-strict-images", dest="strict_images", action="store_false"
-    )
-    ns, remaining = cli.parse_known_args(argv_in)
+    ns, remaining = _build_cli_arg_parser().parse_known_args(argv_in)
 
     source_dir = Path(ns.source_dir) if ns.source_dir else Path.cwd()
     resource_paths = [Path(p) for p in (ns.resource_path or [])] or None

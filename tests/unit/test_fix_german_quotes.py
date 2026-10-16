@@ -4,6 +4,8 @@ pytestmark = pytest.mark.unit
 
 """Unit tests for fix-german-quotes - German typographic quote conversion."""
 
+import shutil
+import subprocess
 import sys
 
 from manuscripta.markdown.german_quotes import (
@@ -21,12 +23,14 @@ from manuscripta.markdown.german_quotes import (
     find_quote_positions,
     format_context,
     format_line_range,
+    is_git_tracked,
     is_in_frontmatter,
     is_protected,
     is_single_line_block,
     main,
     make_stats,
     mask_protected_regions,
+    parse_args,
     print_diff,
     print_stats,
     process_block,
@@ -916,3 +920,197 @@ class TestMain:
             main()
         assert exc.value.code == 1
         assert "No files matching '*.markdown'" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Backups: <file>.bak unless Git tracks the file, --backup / --no-backup (#17)
+# ---------------------------------------------------------------------------
+def _make_file(
+    tmp_path, *, repo: bool, tracked: bool, subdir: bool = False, text='"Hello"'
+):
+    """A Markdown file, inside a Git repository when ``repo`` and staged there
+    when ``tracked`` (no commit needed), in a subdirectory when ``subdir``."""
+    if repo:
+        if shutil.which("git") is None:
+            pytest.skip("git is not installed")
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    folder = tmp_path / "manuscript" if subdir else tmp_path
+    folder.mkdir(exist_ok=True)
+    f = folder / "t.md"
+    f.write_text(text, encoding="utf-8")
+    if tracked:
+        subprocess.run(["git", "add", "--", f.name], cwd=f.parent, check=True)
+    return f
+
+
+# Each row: in a repository?, tracked?, the backup argument, dry run?, whether
+# t.md.bak exists afterwards, the note of the "Written:" line (None: no such
+# line, as in a dry run). {bak} is the backup path.
+BACKUP_DECISIONS = [
+    pytest.param(
+        False, False, None, False, True, "backup: {bak}", id="default-outside-repo"
+    ),
+    pytest.param(
+        True, False, None, False, True, "backup: {bak}", id="default-untracked"
+    ),
+    pytest.param(
+        True,
+        True,
+        None,
+        False,
+        False,
+        "no backup, tracked by Git",
+        id="default-tracked",
+    ),
+    pytest.param(True, True, True, False, True, "backup: {bak}", id="backup-tracked"),
+    pytest.param(
+        False, False, True, False, True, "backup: {bak}", id="backup-outside-repo"
+    ),
+    pytest.param(
+        False,
+        False,
+        False,
+        False,
+        False,
+        "no backup, --no-backup",
+        id="no-backup-outside-repo",
+    ),
+    pytest.param(
+        True,
+        False,
+        False,
+        False,
+        False,
+        "no backup, --no-backup",
+        id="no-backup-untracked",
+    ),
+    pytest.param(False, False, True, True, False, None, id="dry-run-never-copies"),
+]
+
+# Each row: in a repository?, tracked?, in a subdirectory?, git on PATH?, expected
+GIT_TRACKED_CASES = [
+    pytest.param(False, False, False, True, False, id="outside-a-repository"),
+    pytest.param(True, False, False, True, False, id="untracked"),
+    pytest.param(True, True, False, True, True, id="tracked"),
+    pytest.param(True, True, True, True, True, id="tracked-in-a-subdirectory"),
+    pytest.param(True, False, True, True, False, id="untracked-in-a-subdirectory"),
+    pytest.param(True, True, False, False, False, id="git-not-installed"),
+]
+
+# Each row: the arguments after the input path and the backup value parsed
+PARSE_ARGS_CASES = [
+    pytest.param([], None, id="default-is-git-aware"),
+    pytest.param(["--backup"], True, id="backup"),
+    pytest.param(["--no-backup"], False, id="no-backup"),
+]
+
+# Each row: the arguments, the exit status, the stream and a text it carries
+PARSE_ARGS_EXITS = [
+    pytest.param(
+        ["x.md", "--backup", "--no-backup"],
+        2,
+        "err",
+        "not allowed with argument --backup",
+        id="both-flags-conflict",
+    ),
+    pytest.param(
+        ["--help"],
+        0,
+        "out",
+        "only for a file Git does not track",
+        id="help-documents-default",
+    ),
+]
+
+# Each row: in a repository?, tracked?, the flags, whether t.md.bak exists afterwards
+MAIN_BACKUP_CASES = [
+    pytest.param(False, False, ["--no-backup"], False, id="no-backup"),
+    pytest.param(True, True, ["--backup"], True, id="backup-forces-copy-for-tracked"),
+    pytest.param(True, True, [], False, id="default-tracked"),
+    pytest.param(False, False, [], True, id="default-outside-repo"),
+]
+
+
+class TestBackup:
+    @pytest.mark.parametrize(
+        "repo, tracked, backup, dry_run, expect_bak, note", BACKUP_DECISIONS
+    )
+    def test_backup_decision(
+        self, repo, tracked, backup, dry_run, expect_bak, note, tmp_path, capsys
+    ):
+        f = _make_file(tmp_path, repo=repo, tracked=tracked)
+        bak = f.parent / "t.md.bak"
+        process_single_file(
+            f, dry_run=dry_run, global_stats=make_stats(), backup=backup
+        )
+        assert bak.exists() is expect_bak
+        if expect_bak:
+            assert bak.read_text(encoding="utf-8") == '"Hello"'
+        out = capsys.readouterr().out
+        if note is None:
+            assert f.read_text(encoding="utf-8") == '"Hello"'
+            assert "Written:" not in out
+        else:
+            assert DE_OPEN_DOUBLE in f.read_text(encoding="utf-8")
+            assert f"Written: {f} ({note.format(bak=bak)})" in out
+
+    def test_an_unchanged_file_asks_git_nothing(self, tmp_path, monkeypatch):
+        calls: list = []
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append(a))
+        f = tmp_path / "t.md"
+        f.write_text("No quotes here", encoding="utf-8")
+        process_single_file(f, dry_run=False, global_stats=make_stats())
+        assert calls == []
+
+    @pytest.mark.parametrize(
+        "repo, tracked, subdir, git_on_path, expected", GIT_TRACKED_CASES
+    )
+    def test_is_git_tracked(
+        self, repo, tracked, subdir, git_on_path, expected, tmp_path, monkeypatch
+    ):
+        f = _make_file(tmp_path, repo=repo, tracked=tracked, subdir=subdir)
+        if not git_on_path:
+
+            def no_git(*args, **kwargs):
+                raise FileNotFoundError("git")
+
+            monkeypatch.setattr(subprocess, "run", no_git)
+        assert is_git_tracked(f) is expected
+
+    @pytest.mark.parametrize("argv_tail, expected", PARSE_ARGS_CASES)
+    def test_parse_args_backup_option(self, argv_tail, expected, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", "x.md", *argv_tail])
+        assert parse_args().backup is expected
+
+    @pytest.mark.parametrize("argv, code, stream, text", PARSE_ARGS_EXITS)
+    def test_parse_args_exits(self, argv, code, stream, text, monkeypatch, capsys):
+        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", *argv])
+        with pytest.raises(SystemExit) as exc:
+            parse_args()
+        assert exc.value.code == code
+        assert text in getattr(capsys.readouterr(), stream)
+
+    @pytest.mark.parametrize("repo, tracked, flags, expect_bak", MAIN_BACKUP_CASES)
+    def test_main_backup(self, repo, tracked, flags, expect_bak, tmp_path, monkeypatch):
+        f = _make_file(tmp_path, repo=repo, tracked=tracked)
+        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", str(f), *flags])
+        main()
+        assert DE_OPEN_DOUBLE in f.read_text(encoding="utf-8")
+        assert (tmp_path / "t.md.bak").exists() is expect_bak
+
+
+class TestMixedStraightAndEnglishPairs:
+    # After the straight stage a line reads „Straight“ and “English”; the “
+    # that closes the first pair must not be taken for the opener of the second
+    def test_english_closer_pairs_with_its_nearest_opener(self):
+        text = f'"Straight" and {EN_OPEN_DOUBLE}English{EN_CLOSE_DOUBLE}'
+        assert process_line(text, 1, make_stats(), []) == (
+            f"{DE_OPEN_DOUBLE}Straight{DE_CLOSE_DOUBLE} and "
+            f"{DE_OPEN_DOUBLE}English{DE_CLOSE_DOUBLE}"
+        )
+
+    def test_the_unclosed_opener_is_the_earlier_one(self):
+        text = f"{EN_OPEN_DOUBLE} {EN_OPEN_DOUBLE}a{EN_CLOSE_DOUBLE}"
+        assert process_line(text, 1, make_stats(), []) == (
+            f"{EN_OPEN_DOUBLE} {DE_OPEN_DOUBLE}a{DE_CLOSE_DOUBLE}"
+        )

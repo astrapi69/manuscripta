@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **`--backup` / `--no-backup` for `fix-german-quotes`, `fix-english-quotes`, `fix-french-quotes` and
+  `fix-spanish-quotes`**: a changed file gets its `.bak` copy only when Git does not track it
+  (`git ls-files`); in a repository the copy is redundant and left 5 to 30 untracked files to delete
+  after each run. `--backup` forces the copy, `--no-backup` skips it everywhere. The `Written:` line
+  says which of the two happened (#17).
+
+### Fixed
+- **`export-*` shortcuts and `--help`**: `--help` / `-h` on every export shortcut (`export-epub`,
+  `export-pdf-safe`, `export-print-version-hardcover`, ...) prints the usage of the shortcut and
+  the options of `full-export` and `print-version-build` and exits without touching the
+  manuscript or `output/`. Before, `--help` was dropped as an unknown option and a full export
+  ran with the defaults. An unknown option now aborts with exit status 2 instead of being
+  dropped silently; `--strict-opts` is still accepted and has no effect. The allow-list gained
+  `--source-dir`, `--resource-path`, `--strict-images` and `--no-strict-images` (the README
+  example `export-pdf --source-dir=...` was dropped before) and `--restore` / `--exact-name` for
+  `print-version-build`; the stale `--scripts-dir` and `--no-restore` are gone (#18).
+- **`fix-french-quotes` and `fix-spanish-quotes` convert English `“...”`**: a top-level English
+  typographic pair becomes `« ... »` / `«...»` like a straight one; a pair nested inside
+  guillemets stays as the second level. Before, every `“...”` was left as it was, so the Spanish
+  edition of eternity-ebook kept three English pairs next to its guillemets (#16).
+
 ## [0.10.0] - 2026-10-06
 
 ### Added
