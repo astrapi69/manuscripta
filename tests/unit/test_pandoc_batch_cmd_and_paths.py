@@ -60,3 +60,91 @@ def test_build_cmd_resource_paths_and_extra(tmp_path: Path):
     rp = cmd[cmd.index("--resource-path") + 1]
     assert rp == sep.join(["a", "b"])
     assert cmd[-3:] == ["--toc", "--css", "style.css"]
+
+
+# Each row: the fields overriding _ns(), with an output file?, the command
+# built ({in}: the input file, {out}: the output file)
+BUILD_CMD_CASES = [
+    pytest.param(
+        dict(verbose=True),
+        True,
+        [
+            "pandoc",
+            "--verbose",
+            "--standalone",
+            "--from",
+            "markdown",
+            "--to",
+            "html",
+            "--metadata",
+            "lang=de",
+            "--output",
+            "{out}",
+            "{in}",
+        ],
+        id="verbose-first",
+    ),
+    pytest.param(
+        dict(metadata_file=Path("meta.yaml")),
+        True,
+        [
+            "pandoc",
+            "--standalone",
+            "--from",
+            "markdown",
+            "--to",
+            "html",
+            "--metadata-file",
+            "meta.yaml",
+            "--metadata",
+            "lang=de",
+            "--output",
+            "{out}",
+            "{in}",
+        ],
+        id="metadata-file-before-lang",
+    ),
+    pytest.param(
+        dict(standalone=False, lang=None),
+        False,
+        [
+            "pandoc",
+            "--from",
+            "markdown",
+            "--to",
+            "html",
+            "--output",
+            os.devnull,
+            "{in}",
+        ],
+        id="bare-command-to-devnull",
+    ),
+    pytest.param(
+        dict(to="epub", from_fmt="gfm", extra=["--toc"]),
+        True,
+        [
+            "pandoc",
+            "--standalone",
+            "--from",
+            "gfm",
+            "--to",
+            "epub",
+            "--metadata",
+            "lang=de",
+            "--output",
+            "{out}",
+            "{in}",
+            "--toc",
+        ],
+        id="extra-args-after-input",
+    ),
+]
+
+
+@pytest.mark.parametrize("fields, with_outfile, command", BUILD_CMD_CASES)
+def test_build_cmd(fields, with_outfile, command, tmp_path: Path):
+    infile = tmp_path / "x.md"
+    outfile = (tmp_path / "x.out") if with_outfile else None
+    placeholders = {"{in}": str(infile), "{out}": str(outfile)}
+    expected = [placeholders.get(part, part) for part in command]
+    assert build_cmd(infile, outfile, _ns(**fields)) == expected

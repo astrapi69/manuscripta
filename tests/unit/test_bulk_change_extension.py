@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from manuscripta.utils.bulk_extension import change_extension  # <- fixed import
+from manuscripta.utils.bulk_extension import change_extension, main  # <- fixed import
 
 DATA = b"data"
 
@@ -123,3 +123,180 @@ def test_cli_smoke(tmp_path: Path):
     out = subprocess.run(cmd, capture_output=True, text=True)
     assert out.returncode == 0
     assert (src / "one.jpg").exists()
+
+
+def test_to_dict_stringifies_changed_paths(tmp_path: Path):
+    make_files(tmp_path, {"a.png": DATA, "n.txt": DATA})
+    assert change_extension(tmp_path, "png", "jpg").to_dict() == {
+        "processed": 2,
+        "renamed": 1,
+        "skipped_conflict": 0,
+        "skipped_nonmatch": 1,
+        "errors": 0,
+        "planned": 1,
+        "changed_paths": [(str(tmp_path / "a.png"), str(tmp_path / "a.jpg"))],
+    }
+
+
+def test_file_instead_of_directory_is_error(tmp_path: Path, capsys):
+    target = tmp_path / "file.png"
+    target.write_bytes(DATA)
+    res = change_extension(target, "png", "jpg")
+    assert (res.errors, res.processed) == (1, 0)
+    assert capsys.readouterr().err == f"❌ Not a directory: {target}\n"
+    assert tree(tmp_path) == {"file.png": DATA}
+
+
+def refusing(message: str):
+    """A Path method that fails with PermissionError(``message``)."""
+
+    def method(self, *args, **kwargs):
+        raise PermissionError(message)
+
+    return method
+
+
+# Each row: the files, the Path method failing, overwrite?, the "❌" line
+# printed to stderr ({dir}: the directory), the RenameResult fields expected,
+# the files afterwards
+FILESYSTEM_FAILURES = [
+    pytest.param(
+        {"a.png": DATA},
+        "rename",
+        False,
+        "❌ Failed to rename '{dir}/a.png' → '{dir}/a.jpg': read-only\n",
+        {"planned": 1, "renamed": 0, "errors": 1},
+        {"a.png": DATA},
+        id="rename-fails",
+    ),
+    pytest.param(
+        {"a.png": DATA, "a.jpg": b"old"},
+        "unlink",
+        True,
+        "❌ Failed to remove existing target '{dir}/a.jpg': read-only\n",
+        {"planned": 0, "renamed": 0, "errors": 1},
+        {"a.png": DATA, "a.jpg": b"old"},
+        id="overwrite-cannot-remove-target",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "files, method, overwrite, err, fields, files_after", FILESYSTEM_FAILURES
+)
+def test_filesystem_failures_are_counted(
+    files, method, overwrite, err, fields, files_after, tmp_path, monkeypatch, capsys
+):
+    make_files(tmp_path, files)
+    monkeypatch.setattr(Path, method, refusing("read-only"))
+    res = change_extension(tmp_path, "png", "jpg", overwrite=overwrite)
+    assert {name: getattr(res, name) for name in fields} == fields
+    out, stderr = capsys.readouterr()
+    assert stderr == err.replace("{dir}", str(tmp_path))
+    assert out == (
+        "✅ Rename complete: 0 file(s) changed. 0 conflict(s) skipped. 1 error(s).\n"
+    )
+    assert tree(tmp_path) == files_after
+
+
+def complete(renamed: int, conflicts: int = 0, errors: int = 0) -> str:
+    """The summary line of a real run."""
+    return (
+        f"✅ Rename complete: {renamed} file(s) changed. "
+        f"{conflicts} conflict(s) skipped. {errors} error(s)."
+    )
+
+
+# Each row: the files, the arguments after the program name ({dir}: the
+# directory), the exit code, the files afterwards, the last line printed ("":
+# nothing printed), the stderr
+MAIN_RUNS = [
+    pytest.param(
+        {"one.png": DATA, "two.PNG": DATA, "keep.jpg": b"k"},
+        ["{dir}", "--from", "png", "--to", "jpg"],
+        0,
+        {"one.jpg": DATA, "two.jpg": DATA, "keep.jpg": b"k"},
+        complete(2),
+        "",
+        id="png-to-jpg",
+    ),
+    pytest.param(
+        {"a.png": DATA, "sub/b.png": DATA},
+        ["{dir}", "--from", ".png", "--to", ".jpeg", "-r"],
+        0,
+        {"a.jpeg": DATA, "sub/b.jpeg": DATA},
+        complete(2),
+        "",
+        id="recursive",
+    ),
+    pytest.param(
+        {"a.png": DATA, "b.PNG": DATA},
+        ["{dir}", "--from", "png", "--to", "jpg", "--case-sensitive"],
+        0,
+        {"a.jpg": DATA, "b.PNG": DATA},
+        complete(1),
+        "",
+        id="case-sensitive",
+    ),
+    pytest.param(
+        {"a.png": DATA},
+        ["{dir}", "--from", "png", "--to", "jpg", "--dry-run"],
+        0,
+        {"a.png": DATA},
+        "✅ Dry-run complete: 1 file(s) would be changed.",
+        "",
+        id="dry-run",
+    ),
+    pytest.param(
+        {"a.png": DATA, "a.jpg": b"old"},
+        ["{dir}", "--from", "png", "--to", "jpg"],
+        0,
+        {"a.png": DATA, "a.jpg": b"old"},
+        complete(0, conflicts=1),
+        "",
+        id="conflict-skipped",
+    ),
+    pytest.param(
+        {"a.png": DATA, "a.jpg": b"old"},
+        ["{dir}", "--from", "png", "--to", "jpg", "--overwrite"],
+        0,
+        {"a.jpg": DATA},
+        complete(1),
+        "",
+        id="overwrite",
+    ),
+    pytest.param(
+        {},
+        ["{dir}/missing", "--from", "png", "--to", "jpg"],
+        1,
+        {},
+        "",
+        "❌ Directory does not exist: {dir}/missing\n",
+        id="missing-directory-exits-1",
+    ),
+]
+
+
+@pytest.mark.parametrize("files, args, code, files_after, last_line, err", MAIN_RUNS)
+def test_main(files, args, code, files_after, last_line, err, tmp_path, capsys):
+    make_files(tmp_path, files)
+    assert main([a.replace("{dir}", str(tmp_path)) for a in args]) == code
+    out, stderr = capsys.readouterr()
+    assert (out.splitlines() or [""])[-1] == last_line
+    assert stderr == err.replace("{dir}", str(tmp_path))
+    assert tree(tmp_path) == files_after
+
+
+def test_main_reads_sys_argv_when_called_without_arguments(tmp_path, monkeypatch):
+    make_files(tmp_path, {"x.png": DATA})
+    argv = ["bulk-change-extension", str(tmp_path), "--from", "png", "--to", "gif"]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert main() == 0
+    assert tree(tmp_path) == {"x.gif": DATA}
+
+
+def test_main_requires_both_extensions(tmp_path: Path, capsys):
+    with pytest.raises(SystemExit) as ex:
+        main([str(tmp_path), "--from", "png"])
+    assert ex.value.code == 2
+    assert "the following arguments are required: --to" in capsys.readouterr().err
