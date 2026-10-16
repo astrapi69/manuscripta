@@ -71,9 +71,18 @@ def _run_pdf(project: Path, out: Path, *, strict_images: bool = True):
 # 10–13 ManuscriptaImageError behavior (real build) ------------------------
 
 
+# Each row: a surface of the ManuscriptaImageError raised for the
+# two-missing-images project; it must name both images
+IMAGE_ERROR_SURFACES = [
+    pytest.param(lambda err: err.unresolved, id="unresolved-attribute-populated"),
+    pytest.param(lambda err: str(err), id="message-lists-all-unresolved"),
+]
+
+
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
-def test_image_error_unresolved_attribute_populated(tmp_path):
+@pytest.mark.parametrize("surface", IMAGE_ERROR_SURFACES)
+def test_image_error_names_every_unresolved_image(surface, tmp_path):
     project = _two_missing_images_fixture(tmp_path)
     out = tmp_path / "out.pdf"
     with pytest.raises(ManuscriptaImageError) as excinfo:
@@ -81,20 +90,9 @@ def test_image_error_unresolved_attribute_populated(tmp_path):
     err = excinfo.value
     assert isinstance(err.unresolved, list)
     assert len(err.unresolved) == 2
-    assert "one.png" in err.unresolved
-    assert "two.png" in err.unresolved
-
-
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_image_error_message_lists_all_unresolved(tmp_path):
-    project = _two_missing_images_fixture(tmp_path)
-    out = tmp_path / "out.pdf"
-    with pytest.raises(ManuscriptaImageError) as excinfo:
-        _run_pdf(project, out)
-    msg = str(excinfo.value)
-    assert "one.png" in msg
-    assert "two.png" in msg
+    named = surface(err)
+    assert "one.png" in named
+    assert "two.png" in named
 
 
 @pytest.mark.requires_pandoc
@@ -130,18 +128,24 @@ def test_image_error_not_raised_when_all_images_resolve(tmp_path, caplog):
 # 15 Consumer-facing catch patterns ----------------------------------------
 
 
+# Each row: a builder that lays the project out under tmp_path and returns
+# the directory to export, the specific error the build raises
+CATCH_CASES = [
+    # missing config, assets
+    pytest.param(
+        lambda root: _scaffold(root, include=("manuscript",)),
+        ManuscriptaLayoutError,
+        id="layout",
+    ),
+    pytest.param(_two_missing_images_fixture, ManuscriptaImageError, id="image"),
+]
+
+
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
-@pytest.mark.parametrize("kind", ["layout", "image"])
-def test_consumer_can_catch_either_specific_or_base(tmp_path, kind):
-    if kind == "layout":
-        target = tmp_path
-        _scaffold(tmp_path, include=("manuscript",))  # missing config, assets
-        specific_cls = ManuscriptaLayoutError
-    else:
-        target = _two_missing_images_fixture(tmp_path)
-        specific_cls = ManuscriptaImageError
-
+@pytest.mark.parametrize("build, specific_cls", CATCH_CASES)
+def test_consumer_can_catch_either_specific_or_base(build, specific_cls, tmp_path):
+    target = build(tmp_path)
     out = tmp_path / "out.pdf"
 
     with pytest.raises(specific_cls):
