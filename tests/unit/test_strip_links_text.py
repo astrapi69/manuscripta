@@ -31,12 +31,38 @@ STRIP_LINKS_CASES = [
         1,
         id="skips-inline-code",
     ),
-    # unchanged inside ~~~
+    # Fenced blocks come back verbatim, fence lines included (#21)
+    pytest.param(
+        "top [x](y)\n\n```python\nprint('[x](y)')\n```\nend [a](b)",
+        "top x\n\n```python\nprint('[x](y)')\n```\nend a",
+        2,
+        id="skips-fenced-code-blocks-backticks-info-string",
+    ),
+    pytest.param(
+        "pre [m](n)\n\n```\n[x](y)\n```\npost [o](p)",
+        "pre m\n\n```\n[x](y)\n```\npost o",
+        2,
+        id="skips-fenced-code-blocks-backticks",
+    ),
     pytest.param(
         "pre [m](n)\n\n~~~\n[x](y)\n~~~\npost [o](p)",
         "pre m\n\n~~~\n[x](y)\n~~~\npost o",
         2,
         id="skips-fenced-code-blocks-tildes",
+    ),
+    pytest.param(
+        "pre [m](n)\n\n~~~python\n[x](y)\n~~~\npost [o](p)",
+        "pre m\n\n~~~python\n[x](y)\n~~~\npost o",
+        2,
+        id="skips-fenced-code-blocks-tildes-info-string",
+    ),
+    # An opening fence that is never closed is no fence: the lines after it
+    # are prose and their links are stripped.
+    pytest.param(
+        "pre [m](n)\n\n```\n[x](y)\nnever closed [q](r)",
+        "pre m\n\n```\nx\nnever closed q",
+        3,
+        id="unclosed-fence-is-not-a-fence",
     ),
 ]
 
@@ -44,15 +70,3 @@ STRIP_LINKS_CASES = [
 @pytest.mark.parametrize("src, expected, count", STRIP_LINKS_CASES)
 def test_strip_links_in_text(src, expected, count):
     assert strip_links_in_text(src) == (expected, count)
-
-
-# Not a STRIP_LINKS_CASES row: the fence lines of a ```python block do not come
-# back verbatim, so only the content and both ends of the text are pinned.
-def test_skips_fenced_code_blocks_triple_backticks():
-    src = "top [x](y)\n\n```python\nprint('[x](y)')\n```\nend [a](b)"
-    out, n = strip_links_in_text(src)
-    # Only top and end should be stripped, not inside the fence
-    assert out.startswith("top x")
-    assert "print('[x](y)')" in out
-    assert out.rstrip().endswith("end a")
-    assert n == 2

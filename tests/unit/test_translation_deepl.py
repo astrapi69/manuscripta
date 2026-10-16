@@ -4,13 +4,12 @@ Every HTTP call is stubbed in the module namespace (``mod.requests.post``),
 the per-block delay ``mod.sleep`` is recorded instead of slept, and the
 cwd-relative constants (``project_root``, ``SKIPLIST_PATH``,
 ``SKIPPED_LOG_PATH``) are anchored on ``tmp_path`` by the ``sandbox``
-fixture. The module reads ``DEEPL_AUTH_KEY`` once, at import; tests set the
-module global directly. No test touches the network.
+fixture. The module reads ``DEEPL_AUTH_KEY`` from the environment on every
+translation; the fixture sets it there. No test touches the network.
 """
 
 from __future__ import annotations
 
-import importlib
 import sys
 from pathlib import Path
 
@@ -125,7 +124,7 @@ def sandbox(tmp_path, monkeypatch, sleeps):
     monkeypatch.setattr(mod, "project_root", str(tmp_path))
     monkeypatch.setattr(mod, "SKIPLIST_PATH", str(tmp_path / ".skiplist"))
     monkeypatch.setattr(mod, "SKIPPED_LOG_PATH", str(tmp_path / "logs" / "skipped.log"))
-    monkeypatch.setattr(mod, "DEEPL_AUTH_KEY", KEY)
+    monkeypatch.setenv("DEEPL_AUTH_KEY", KEY)
     monkeypatch.setattr(mod.requests, "post", _refuse)
     return tmp_path
 
@@ -140,30 +139,29 @@ def post(sandbox, monkeypatch):
 
 # --- the key ---------------------------------------------------------------
 
-# Each row: DEEPL_AUTH_KEY in the environment (None: unset) and the key the
-# module holds after (re)import
-IMPORT_KEY_CASES = [
-    pytest.param("from-env", "from-env", id="read-from-environment"),
-    pytest.param(None, None, id="absent-stays-none"),
+# Each row: DEEPL_AUTH_KEY in the environment before each of a series of
+# translations (None: unset, which raises instead of posting) and the
+# auth_key the requests carry in order
+KEY_CASES = [
+    pytest.param(["from-env"], ["from-env"], id="read-from-environment"),
+    pytest.param(["first", "second"], ["first", "second"], id="re-read-per-call"),
+    pytest.param(["first", None], ["first"], id="absent-is-an-error-not-a-stale-key"),
 ]
 
 
-@pytest.mark.parametrize("env_key, held", IMPORT_KEY_CASES)
-def test_key_is_read_from_the_environment_at_import(
-    env_key, held, tmp_path, monkeypatch
+@pytest.mark.parametrize("env_keys, sent", KEY_CASES)
+def test_key_is_read_from_the_environment_when_translating(
+    env_keys, sent, sandbox, post, monkeypatch
 ):
-    if env_key is None:
-        monkeypatch.delenv("DEEPL_AUTH_KEY", raising=False)
-    else:
-        monkeypatch.setenv("DEEPL_AUTH_KEY", env_key)
-    monkeypatch.chdir(tmp_path)
-    saved = {name: getattr(mod, name) for name in ("DEEPL_AUTH_KEY", "project_root")}
-    try:
-        importlib.reload(mod)
-        assert mod.DEEPL_AUTH_KEY == held
-    finally:
-        for name, value in saved.items():
-            setattr(mod, name, value)
+    for env_key in env_keys:
+        if env_key is None:
+            monkeypatch.delenv("DEEPL_AUTH_KEY", raising=False)
+            with pytest.raises(EnvironmentError):
+                mod.translate_text("Hello", "EN", "DE")
+        else:
+            monkeypatch.setenv("DEEPL_AUTH_KEY", env_key)
+            mod.translate_text("Hello", "EN", "DE")
+    assert [c["data"]["auth_key"] for c in post.calls] == sent
 
 
 # --- normalize_path / load_skiplist / log_skipped -------------------------
@@ -219,8 +217,7 @@ def test_load_skiplist(content, expected, sandbox):
         (sandbox / ".skiplist").write_text(
             content.format(root=sandbox), encoding="utf-8"
         )
-    # The default path is the def-time ".skiplist", relative to the cwd.
-    assert mod.load_skiplist() == expected
+    assert mod.load_skiplist(str(sandbox / ".skiplist")) == expected
 
 
 def test_log_skipped_appends_one_line_per_event(sandbox):
@@ -324,7 +321,10 @@ TRANSLATE_ERROR_CASES = [
 def test_translate_text_errors(
     key, response, exception, fragment, posted, sandbox, monkeypatch
 ):
-    monkeypatch.setattr(mod, "DEEPL_AUTH_KEY", key)
+    if key is None:
+        monkeypatch.delenv("DEEPL_AUTH_KEY")
+    else:
+        monkeypatch.setenv("DEEPL_AUTH_KEY", key)
     post = Recorder(sequence(response))
     monkeypatch.setattr(mod.requests, "post", post)
     with pytest.raises(exception) as exc:
@@ -336,9 +336,9 @@ def test_translate_text_errors(
 # --- translate_markdown_file -----------------------------------------------
 
 MD = "# Title\n\nFirst paragraph.\n\n\n\nLast paragraph.\n"
-# Blocks are stripped before they are sent, so the file's final newline is
-# gone after translation; the empty block between the double blank line stays.
-TRANSLATED_MD = "<<# Title>>\n\n<<First paragraph.>>\n\n\n\n<<Last paragraph.>>"
+# Blocks are stripped before they are sent; the file's final newline and the
+# empty block between the double blank line survive the translation.
+TRANSLATED_MD = "<<# Title>>\n\n<<First paragraph.>>\n\n\n\n<<Last paragraph.>>\n"
 
 # Each row: the file content (None: no file), the skiplist, dry_run, the
 # requests.post script, the file content afterwards (None: still no file), the
@@ -370,11 +370,11 @@ FILE_CASES = [
         (echo,),
         MD,
         [],
-        3,
+        0,
         {PATH},
         None,
         [f"🧪 Dry-run complete: {PATH} not written."],
-        id="dry-run-posts-and-writes-nothing-but-still-sleeps",
+        id="dry-run-posts-writes-and-sleeps-nothing",
     ),
     pytest.param(
         MD,

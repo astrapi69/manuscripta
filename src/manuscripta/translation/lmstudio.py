@@ -186,18 +186,14 @@ def log_skipped(reason: str, file_path: str) -> None:
 # ---- LLM response cleanup ----
 def strip_reasoning(text: str) -> str:
     """
-    Remove common reasoning markup and keep only the final translated content.
+    Remove the reasoning block (`<think>...</think>`) and an accidental leading
+    label; every paragraph of the answer itself is kept.
     This is defensive: models may still output extra sections.
     """
     if not text:
         return text
 
     cleaned = _THINK_BLOCK_RE.sub("", text).strip()
-
-    # If the model prints multiple "sections", last block is usually the actual translation.
-    parts = [p.strip() for p in cleaned.split("\n\n") if p.strip()]
-    if len(parts) >= 2:
-        cleaned = parts[-1]
 
     # Remove accidental leading labels
     cleaned = re.sub(
@@ -333,7 +329,11 @@ def translate_markdown_file(
     print(f"🌍 Translating: {norm_path} [{source_lang} → {target_lang}]")
 
     # Block splitting by blank lines. This keeps Markdown intact in most cases.
-    blocks = original_text.split("\n\n")
+    # Blocks are stripped before they are sent, so the file's own terminator
+    # is set aside and written back after the translated body.
+    body = original_text.rstrip("\n")
+    terminator = original_text[len(body) :]
+    blocks = body.split("\n\n")
     translated_blocks: list[str] = []
 
     for block in blocks:
@@ -370,7 +370,7 @@ def translate_markdown_file(
 
         translated_blocks.append(translated)
 
-    translated_text = "\n\n".join(translated_blocks)
+    translated_text = "\n\n".join(translated_blocks) + terminator
 
     if dry_run:
         print(f"🧪 Dry-run complete: {norm_path} not written.")

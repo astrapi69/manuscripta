@@ -19,11 +19,11 @@ SUPPORTED_LANGS = {
 
 def translate():
     """
-    CLI command to translate a manuscript using DeepL
-    Usage: poetry run translate --from EN --to DE --dir manuscript
+    CLI command to translate a manuscript using LM Studio
+    Usage: translate --from EN --to DE --dir manuscript
     """
     parser = argparse.ArgumentParser(
-        description="Translate a manuscript from one language to another using DeepL"
+        description="Translate a manuscript from one language to another using LM Studio"
     )
     parser.add_argument(
         "--from",
@@ -58,7 +58,7 @@ def translate():
     print(f"📂 Folder: {args.base_dir}\n")
 
     sys.argv = [
-        "translate-book-deepl",
+        "translate-book-lmstudio",
         "--base-dir",
         args.base_dir,
         "--source-lang",
@@ -78,7 +78,7 @@ def translate_manuscript(source: str, target: str, base_dir: str):
     :param base_dir: Directory containing Markdown files to translate
     """
     sys.argv = [
-        "translate-book-deepl",
+        "translate-book-lmstudio",
         "--base-dir",
         base_dir,
         "--source-lang",

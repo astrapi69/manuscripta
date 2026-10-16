@@ -24,15 +24,17 @@ MAIN_OF = {
     deepl_sc: "export_translate_book_deepl_main",
     lms_sc: "export_translate_book_lmstudio_main",
 }
+# The program name each module puts in argv[0], and the engine its help names
+PROG_OF = {deepl_sc: "translate-book-deepl", lms_sc: "translate-book-lmstudio"}
+ENGINE_OF = {deepl_sc: "DeepL", lms_sc: "LM Studio"}
 MODULES = [pytest.param(deepl_sc, id="deepl"), pytest.param(lms_sc, id="lmstudio")]
 PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
 
-def argv_for(source: str, target: str, base_dir: str) -> list[str]:
-    """The argv both shortcut modules hand to their translator main. The LM
-    Studio shortcuts name the DeepL program too; argparse ignores argv[0]."""
+def argv_for(module, source: str, target: str, base_dir: str) -> list[str]:
+    """The argv a shortcut module hands to its translator main."""
     return [
-        "translate-book-deepl",
+        PROG_OF[module],
         "--base-dir",
         base_dir,
         "--source-lang",
@@ -64,70 +66,70 @@ WRAPPER_CASES = [
         deepl_sc,
         deepl_sc.translate_manuscript_to_german,
         (),
-        argv_for("EN", "DE", "manuscript"),
+        argv_for(deepl_sc, "EN", "DE", "manuscript"),
         id="deepl-en-de",
     ),
     pytest.param(
         deepl_sc,
         deepl_sc.translate_manuscript_from_german_to_english,
         (),
-        argv_for("DE", "EN", "manuscript"),
+        argv_for(deepl_sc, "DE", "EN", "manuscript"),
         id="deepl-de-en",
     ),
     pytest.param(
         deepl_sc,
         deepl_sc.translate_manuscript_from_english_to_spanish,
         (),
-        argv_for("EN", "ES", "manuscript"),
+        argv_for(deepl_sc, "EN", "ES", "manuscript"),
         id="deepl-en-es",
     ),
     pytest.param(
         deepl_sc,
         deepl_sc.translate_manuscript_from_german_to_spanish,
         (),
-        argv_for("DE", "ES", "manuscript"),
+        argv_for(deepl_sc, "DE", "ES", "manuscript"),
         id="deepl-de-es",
     ),
     pytest.param(
         deepl_sc,
         deepl_sc.translate_manuscript,
         ("FR", "IT", "docs/book"),
-        argv_for("FR", "IT", "docs/book"),
+        argv_for(deepl_sc, "FR", "IT", "docs/book"),
         id="deepl-custom-folder",
     ),
     pytest.param(
         lms_sc,
         lms_sc.translate_manuscript_from_english_to_german,
         (),
-        argv_for("EN", "DE", "manuscript"),
+        argv_for(lms_sc, "EN", "DE", "manuscript"),
         id="lmstudio-en-de",
     ),
     pytest.param(
         lms_sc,
         lms_sc.translate_manuscript_from_german_to_english,
         (),
-        argv_for("DE", "EN", "manuscript"),
+        argv_for(lms_sc, "DE", "EN", "manuscript"),
         id="lmstudio-de-en",
     ),
     pytest.param(
         lms_sc,
         lms_sc.translate_manuscript_from_english_to_spanish,
         (),
-        argv_for("EN", "ES", "manuscript"),
+        argv_for(lms_sc, "EN", "ES", "manuscript"),
         id="lmstudio-en-es",
     ),
     pytest.param(
         lms_sc,
         lms_sc.translate_manuscript_from_english_to_french,
         (),
-        argv_for("EN", "FR", "manuscript"),
+        argv_for(lms_sc, "EN", "FR", "manuscript"),
         id="lmstudio-en-fr",
     ),
     pytest.param(
         lms_sc,
         lms_sc.translate_manuscript,
         ("FR", "IT", "docs/book"),
-        argv_for("FR", "IT", "docs/book"),
+        argv_for(lms_sc, "FR", "IT", "docs/book"),
         id="lmstudio-custom-folder",
     ),
 ]
@@ -196,13 +198,14 @@ def test_console_scripts_point_at_the_wrappers(script, wrapper):
 # --- the translate CLI -----------------------------------------------------
 
 # Each row: the command line after the program name, the exit status (None:
-# returns normally), the argv the translator main receives (None: not
-# called), the lines stdout must carry and the stderr fragment (None: nothing)
+# returns normally), the (source, target, base_dir) the translator main
+# receives as its argv (None: not called), the lines stdout must carry and
+# the stderr fragment (None: nothing)
 CLI_CASES = [
     pytest.param(
         ["--from", "EN", "--to", "DE"],
         None,
-        argv_for("EN", "DE", "manuscript"),
+        ("EN", "DE", "manuscript"),
         ["🌍 Translating from English → German", "📂 Folder: manuscript"],
         None,
         id="default-folder",
@@ -210,7 +213,7 @@ CLI_CASES = [
     pytest.param(
         ["--from", "DE", "--to", "ES", "--dir", "book/src"],
         None,
-        argv_for("DE", "ES", "book/src"),
+        ("DE", "ES", "book/src"),
         ["🌍 Translating from German → Spanish", "📂 Folder: book/src"],
         None,
         id="custom-folder",
@@ -265,10 +268,22 @@ def test_translate_cli(
         with pytest.raises(SystemExit) as exc:
             module.translate()
         assert exc.value.code == exit_code
-    assert mains.pop(module) == ([forwarded] if forwarded else [])
+    assert mains.pop(module) == ([argv_for(module, *forwarded)] if forwarded else [])
     assert list(mains.values()) == [[]]
     captured = capsys.readouterr()
     for line in out_lines:
         assert line in captured.out
     if err:
         assert err in captured.err
+
+
+@pytest.mark.parametrize("module", MODULES)
+def test_translate_help_names_its_own_engine(module, mains, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["translate", "--help"])
+    with pytest.raises(SystemExit):
+        module.translate()
+    out = capsys.readouterr().out
+    assert f"using {ENGINE_OF[module]}" in out
+    for other, engine in ENGINE_OF.items():
+        if other is not module:
+            assert engine not in out
