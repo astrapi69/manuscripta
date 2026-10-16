@@ -23,7 +23,9 @@ from textwrap import dedent
 
 import pytest
 
-pytestmark = pytest.mark.e2e_wheel
+# Building the wheel, creating the venv and installing take well over the
+# unit layer's 10 s; 300 s still catches a hanging pip.
+pytestmark = [pytest.mark.e2e_wheel, pytest.mark.timeout(300)]
 
 from helpers.wheel_venv import WheelVenv, built_wheel, wheel_venv  # noqa: F401
 
