@@ -774,8 +774,8 @@ ratchet rule (§3) — current coverage may not drop below the baseline in
 The table is empty since 2026-10-16: the last five entries graduated in
 round 2 (`project.chapters` 98 %, `markdown.bullet_points` 100 %,
 `markdown.emojis` 99 %, `utils.git_cache` 100 %, `config.loader` 100 %).
-They are eligible for the mutation scope by category and wait for a
-measured score and a survivor triage (ADR-0002's exclusion table).
+They entered the mutation scope in round 3 after a measured score and
+a survivor triage (§14.1).
 
 Graduated on 2026-10-16 with #26 (line coverage of the package 70 % →
 94 %): `project.init` (100 %), `project.reorder` (98 %),
@@ -934,10 +934,10 @@ this section is the consumer-facing how-to.
 Mutation runs over **CORE pure-logic modules only**, and only over
 modules that are **not currently tracked as coverage debt** in §12.
 
-The fourteen modules currently in scope (seven at the start of Phase 4b;
+The nineteen modules currently in scope (seven at the start of Phase 4b;
 `audiobook/tts/retry.py` was removed during Pass 2 — see §14.8.3; five
-debt graduates joined on 2026-10-16 and three more after their survivor
-triage the same day):
+debt graduates joined on 2026-10-16, three more after their survivor
+triage the same day, and the last five debt modules in round 3):
 
 | Module | Threshold | Why qualifies |
 |---|---:|---|
@@ -948,15 +948,20 @@ triage the same day):
 | `src/manuscripta/markdown/normalize_toc.py` | 85 % | pure text transform |
 | `src/manuscripta/audiobook/tts/text_chunking.py` | 80 % | pure string-splitting |
 | `src/manuscripta/markdown/german_quotes.py` | 85 % | pure text transform; graduated from §12 (entered at 90 %) |
-| `src/manuscripta/markdown/unbold_headers.py` | 75 % | pure text transform; graduated (entered at 80 %, raise to 85 after survivor triage) |
+| `src/manuscripta/markdown/unbold_headers.py` | 85 % | pure text transform; graduated (measured 80 % on entry, 100 % after survivor triage) |
 | `src/manuscripta/paths/img_tags.py` | 85 % | pure path/text transform; graduated (measured 79 % on entry, 99 % after survivor triage) |
 | `src/manuscripta/utils/bulk_extension.py` | 85 % | file renaming logic; graduated (measured 74 % on entry, 100 % after survivor triage) |
-| `src/manuscripta/project/reorder.py` | 75 % | chapter renaming logic; graduated (entered at 79 %, raise to 85 after survivor triage) |
+| `src/manuscripta/project/reorder.py` | 85 % | chapter renaming logic; graduated (measured 79 % on entry, 99 % after survivor triage; five C-class survivors on unspecified literals, see the round-3 audit) |
 | `src/manuscripta/project/init.py` | 85 % | project scaffolding and settings; graduated (measured 65 % on entry, 93 % after survivor triage) |
 | `src/manuscripta/project/metadata.py` | 85 % | metadata fill from JSON; graduated (66 % on entry, 100 % after triage) |
 | `src/manuscripta/utils/pandoc_batch.py` | 85 % | pandoc batch runner; graduated (66 % on entry, 98 % after triage; the nine remaining survivors are the stubbed subprocess call's keyword arguments and unspecified defaults, see the specification gaps below) |
+| `src/manuscripta/project/chapters.py` | 85 % | chapter file creation; graduated in round 2 (measured 80 % on entry, 100 % after triage) |
+| `src/manuscripta/markdown/bullet_points.py` | 85 % | pure text transform; graduated in round 2 (83 % on entry, 100 % after triage) |
+| `src/manuscripta/markdown/emojis.py` | 85 % | pure text transform; graduated in round 2 (69 % on entry, 100 % after triage) |
+| `src/manuscripta/config/loader.py` | 85 % | YAML settings loader; graduated in round 2 (83 % on entry, 100 % after triage) |
+| `src/manuscripta/utils/git_cache.py` | 85 % | git cache clean-up; graduated in round 2 (90 % on entry, 100 % after triage; 15 of 72 mutants sit on the stubbed `subprocess.run` call, the rest is command assembly, output forwarding and the exit code) |
 
-The whole scope is about 4700 mutants and ran in a few minutes locally
+The whole scope is about 5400 mutants and ran in a few minutes locally
 on 2026-10-16 (mutmut 3.5.0, 22 to 72 mutants/s depending on load), well
 inside the 45-minute nightly budget.
 
