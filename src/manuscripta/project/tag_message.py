@@ -81,6 +81,7 @@ def get_template_prompt(
     """Generate prompt using specified template."""
     template = TEMPLATES.get(template_name, TEMPLATES["de"])
 
+    title_line = str(template["title_template"]).format(version_label=version_label)
     sections_text = "\n   - ".join(template["sections"])
 
     return f"""**Role:** You are a release notes editor.
@@ -92,7 +93,7 @@ def get_template_prompt(
 **Audience:** {template["audience"]}.
 
 **Requirements:**
-1. Title line: `{template["title_template"]}`
+1. Title line: `{title_line}`
 2. Four sections with bullets:
    - {sections_text}
 3. Group related commits; avoid duplicates; no internal refs or ticket IDs.
@@ -195,6 +196,23 @@ class GitOperations:
             return int(result)
         except (RuntimeError, ValueError):
             return 0
+
+
+# Subject keywords that put a commit into a category of the JSON summary;
+# matched as whole words regardless of case, the first category wins
+COMMIT_CATEGORIES: Dict[str, List[str]] = {
+    "content_style": ["content", "text", "style", "css"],
+    "imagery_accessibility": ["image", "img", "accessibility", "a11y", "alt"],
+    "structure_typography": ["structure", "layout", "typography", "font"],
+    "metadata_build": ["build", "ci", "deploy", "config", "meta"],
+}
+
+
+def _mentions_word(subject: str, words: List[str]) -> bool:
+    """Does the subject contain one of the words as a whole word, in any case?"""
+    return any(
+        re.search(rf"\b{re.escape(word)}\b", subject, re.IGNORECASE) for word in words
+    )
 
 
 class LogProcessor:
@@ -308,36 +326,15 @@ class LogProcessor:
         if current_commit:
             commits.append(current_commit)
 
-        # Simple categorization based on subject keywords
-        categories: Dict[str, Any] = {
-            "content_style": [],
-            "imagery_accessibility": [],
-            "structure_typography": [],
-            "metadata_build": [],
-            "other": [],
-        }
+        # Categorization by whole-word subject keywords; the first category wins
+        categories: Dict[str, Any] = {name: [] for name in COMMIT_CATEGORIES}
+        categories["other"] = []
 
         for commit in commits:
-            subject_lower = commit["subject"].lower()
-            if any(
-                word in subject_lower for word in ["content", "text", "style", "css"]
-            ):
-                categories["content_style"].append(commit)
-            elif any(
-                word in subject_lower
-                for word in ["image", "img", "accessibility", "a11y", "alt"]
-            ):
-                categories["imagery_accessibility"].append(commit)
-            elif any(
-                word in subject_lower
-                for word in ["structure", "layout", "typography", "font"]
-            ):
-                categories["structure_typography"].append(commit)
-            elif any(
-                word in subject_lower
-                for word in ["build", "ci", "deploy", "config", "meta"]
-            ):
-                categories["metadata_build"].append(commit)
+            for name, words in COMMIT_CATEGORIES.items():
+                if _mentions_word(commit["subject"], words):
+                    categories[name].append(commit)
+                    break
             else:
                 categories["other"].append(commit)
 
@@ -711,7 +708,6 @@ def main() -> None:
 
     # Setup paths
     out_dir = Path(args.output_dir)
-    _ = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     def _sanitize_filename(name: str) -> str:
         """Sanitize filename component to avoid filesystem issues."""
@@ -841,13 +837,8 @@ def main() -> None:
 
     # Tag creation flow
     if args.create_tag:
+        # A missing message file was already rejected by preflight_checks
         message_file = Path(args.message_file or tagmsg_path)
-        if not message_file.exists():
-            raise SystemExit(
-                f"--create-tag specified, but message file not found:\n  {message_file}\n"
-                f"➡️ Tip: Save the AI output to this path first"
-            )
-
         if message_file.stat().st_size < 10:  # Basic non-empty check
             raise SystemExit(
                 f"Message file appears to be empty or too small: {message_file}"

@@ -59,8 +59,18 @@ class FakeTTS(TTSAdapter):
         output_path = Path(output_path)
         self.calls.append((text, output_path))
         output_path.write_bytes(MP3_BYTES)
-        if output_path.stem in self.fail_on:
-            raise RuntimeError(f"engine down for {output_path.stem}")
+        chapter = self._chapter(output_path)
+        if chapter in self.fail_on:
+            raise RuntimeError(f"engine down for {chapter}")
+
+    @staticmethod
+    def _chapter(output_path: Path) -> str:
+        """The chapter name of a target MP3 or of the partial file the
+        generator synthesizes into first (".<chapter>.part.mp3")."""
+        name = output_path.name
+        if name.startswith(".") and name.endswith(".part.mp3"):
+            return name[1 : -len(".part.mp3")]
+        return output_path.stem
 
     def list_voices(self, language_code=None):
         return []
@@ -431,9 +441,9 @@ SPEAK_DECISIONS = [
         True,
         False,
         ["Hello world"],
-        None,
+        b"old",
         ["FAILED: engine down for 01_a"],
-        id="failure-while-overwriting-leaves-no-file",
+        id="failure-while-overwriting-keeps-the-previous-file",
     ),
 ]
 
@@ -457,6 +467,8 @@ def test_clean_and_speak(
 
     assert tts.texts == texts
     assert (mp3.read_bytes() if mp3.exists() else None) == afterwards
+    # no partial file stays behind, whichever way the engine went
+    assert [p.name for p in tmp_path.iterdir() if p != mp3] == []
     out = capsys.readouterr().out
     for fragment in fragments:
         assert fragment in out
@@ -691,34 +703,42 @@ def test_derive_voice_short_name(voice, short):
     assert _derive_voice_short_name(voice) == short
 
 
-# Each row: the name of the working directory ("" for the file system root),
-# the input below tmp_path, is it a directory?, the title derived
+# Each row: the project directory below tmp_path holding the input ("": the
+# input sits directly under the file system root and is not created), the
+# input name, is it a directory?, the title derived. The working directory is
+# a decoy project throughout: the title comes from the input, not from cwd.
 BOOK_TITLES = [
     pytest.param(
         "eternity-ebook", "manuscript", True, "eternity-audiobook", id="ebook-suffix"
     ),
     pytest.param("my_ebook", "book.epub", False, "my_audiobook", id="_ebook-suffix"),
     pytest.param("novel", "book.epub", False, "novel", id="other-names-unchanged"),
-    pytest.param("", "book.epub", False, "book", id="at-root-the-file-stem"),
-    pytest.param("", "manuscript", True, "manuscript", id="at-root-the-directory"),
+    pytest.param("", "book.epub", False, "book", id="under-root-the-file-stem"),
+    pytest.param("", "manuscript", True, "manuscript", id="under-root-the-directory"),
 ]
 
 
-@pytest.mark.parametrize("cwd_name, input_name, is_dir, title", BOOK_TITLES)
-def test_derive_book_title(cwd_name, input_name, is_dir, title, tmp_path, monkeypatch):
-    if cwd_name:
-        (tmp_path / cwd_name).mkdir()
-    monkeypatch.chdir(tmp_path / cwd_name if cwd_name else "/")
-    input_path = tmp_path / input_name
+@pytest.mark.parametrize("project_name, input_name, is_dir, title", BOOK_TITLES)
+def test_derive_book_title(
+    project_name, input_name, is_dir, title, tmp_path, monkeypatch
+):
+    decoy = tmp_path / "other-ebook"
+    decoy.mkdir()
+    monkeypatch.chdir(decoy)
+    if not project_name:
+        assert _derive_book_title(Path("/") / input_name) == title
+        return
+    input_path = tmp_path / project_name / input_name
     if is_dir:
-        input_path.mkdir()
+        input_path.mkdir(parents=True)
     else:
+        input_path.parent.mkdir()
         input_path.write_bytes(b"")
     assert _derive_book_title(input_path) == title
 
 
-# Each row: voice, title (None: derived), is the project directory
-# "eternity-ebook" given as input path?, the merged file name previewed
+# Each row: voice, title (None: derived), is the manuscript folder of the
+# project "eternity-ebook" given as input path?, the merged file name previewed
 MERGED_NAMES = [
     pytest.param(
         "de-DE-ConradNeural",
@@ -749,10 +769,8 @@ MERGED_NAMES = [
 
 @pytest.mark.parametrize("voice, title, with_input, name", MERGED_NAMES)
 def test_preview_merged_name(voice, title, with_input, name, tmp_path, monkeypatch):
-    project = tmp_path / "eternity-ebook"
-    project.mkdir()
-    monkeypatch.chdir(project)
-    input_path = project if with_input else None
+    monkeypatch.chdir(tmp_path)
+    input_path = tmp_path / "eternity-ebook" / "manuscript" if with_input else None
     assert _preview_merged_name(voice, title=title, input_path=input_path) == name
 
 
@@ -863,7 +881,7 @@ def test_merge_audiobook_runs_ffmpeg_concat(
         "copy",
         merged_name,
     ]
-    assert kwargs == {"capture_output": True, "text": True, "cwd": str(out)}
+    assert kwargs == {"capture_output": True, "text": True, "cwd": str(out.resolve())}
     assert listed == "".join(f"file '{name}'\n" for name in listed_files)
     assert not (out / ".filelist.txt").exists()
     out_text = capsys.readouterr().out
@@ -1079,21 +1097,32 @@ def test_main_generates(
 
 
 # Each row: the extra command line, the voice settings (None: none), the
-# "Merge to:" line of the summary (None: none) and the merged file ffmpeg
-# writes (None: no merge)
+# "Merge to:" line of the summary (None: none), the merged file ffmpeg
+# writes (None: no merge) and is main run from outside the project, with
+# absolute --input and --output, instead of from the project with relative ones?
 MAIN_MERGES = [
     pytest.param(
         ["--merge"],
         None,
         "  Merge to: Jenny_eternity-audiobook.mp3",
         "Jenny_eternity-audiobook.mp3",
+        False,
         id="auto-name-from-voice-and-project",
+    ),
+    pytest.param(
+        ["--merge"],
+        None,
+        "  Merge to: Jenny_eternity-audiobook.mp3",
+        "Jenny_eternity-audiobook.mp3",
+        True,
+        id="auto-name-from-the-input-not-the-cwd",
     ),
     pytest.param(
         ["--merge", "--voice", "de-DE-ConradNeural", "--title", "Die Ewigkeit"],
         None,
         "  Merge to: Conrad_Die_Ewigkeit.mp3",
         "Conrad_Die_Ewigkeit.mp3",
+        False,
         id="voice-and-title",
     ),
     pytest.param(
@@ -1101,6 +1130,7 @@ MAIN_MERGES = [
         None,
         "  Merge to: final.mp3",
         "final.mp3",
+        False,
         id="merge-filename-gets-extension",
     ),
     pytest.param(
@@ -1108,6 +1138,7 @@ MAIN_MERGES = [
         {"merge": True, "merge_filename": "book.mp3"},
         "  Merge to: book.mp3",
         "book.mp3",
+        False,
         id="merge-from-settings",
     ),
     pytest.param(
@@ -1115,19 +1146,29 @@ MAIN_MERGES = [
         {"merge": True, "title": "Config Title"},
         "  Merge to: Jenny_Config_Title.mp3",
         "Jenny_Config_Title.mp3",
+        False,
         id="title-from-settings",
     ),
-    pytest.param([], None, None, None, id="no-merge"),
+    pytest.param([], None, None, None, False, id="no-merge"),
 ]
 
 
-@pytest.mark.parametrize("argv, settings, merge_line, merged", MAIN_MERGES)
-def test_main_merges(argv, settings, merge_line, merged, tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("argv, settings, merge_line, merged, outside", MAIN_MERGES)
+def test_main_merges(
+    argv, settings, merge_line, merged, outside, tmp_path, monkeypatch, capsys
+):
     root = _project(tmp_path, monkeypatch)
     if settings:
         _settings(root, settings)
+    if outside:
+        elsewhere = tmp_path / "other-ebook"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        paths = ["--input", str(root / "manuscript"), "--output", str(root / "out")]
+    else:
+        paths = ["--input", "manuscript", "--output", "out"]
     ffmpeg = _stub_ffmpeg(monkeypatch)
-    _prepare_main(monkeypatch, ["--input", "manuscript", "--output", "out", *argv])
+    _prepare_main(monkeypatch, [*paths, *argv])
 
     main()
 
@@ -1139,8 +1180,8 @@ def test_main_merges(argv, settings, merge_line, merged, tmp_path, monkeypatch, 
         return
     assert merge_line in out_text
     [(cmd, kwargs, listed)] = ffmpeg.calls
-    # ffmpeg runs inside the output directory, exactly as given on the command line
-    assert cmd[-1] == merged and kwargs["cwd"] == "out"
+    # ffmpeg runs inside the output directory, resolved to an absolute path
+    assert cmd[-1] == merged and kwargs["cwd"] == str((root / "out").resolve())
     assert listed == "".join(f"file '{name}'\n" for name in chapters)
     assert (root / "out" / merged).read_bytes() == b"merged"
 

@@ -196,13 +196,12 @@ def cli(monkeypatch, tmp_path, git):
 # ===========================================================================
 
 # Each row: the template name, fragments only that template's prompt carries
-# (the built-in title templates keep {version_label} as a literal placeholder;
-# only a --template-file renders the label)
+# (the version label is rendered into the built-in title templates)
 TEMPLATE_PROMPTS = [
     pytest.param(
         "de",
         [
-            "Title line: `Version {version_label} — <short theme>`",
+            "Title line: `Version 1.6.1-de — <short theme>`",
             "   - **Content & Style**\n   - **Imagery & Accessibility**",
             "Readers of the German edition",
         ],
@@ -211,7 +210,7 @@ TEMPLATE_PROMPTS = [
     pytest.param(
         "en",
         [
-            "Title line: `Version {version_label} — <brief summary>`",
+            "Title line: `Version 1.6.1-de — <brief summary>`",
             "   - **Features & Content**\n   - **User Experience**",
             "End users and technical stakeholders",
             "main value proposition",
@@ -220,7 +219,7 @@ TEMPLATE_PROMPTS = [
     ),
     pytest.param(
         "fr",
-        ["Version {version_label} — <short theme>", "Readers of the German edition"],
+        ["Version 1.6.1-de — <short theme>", "Readers of the German edition"],
         id="unknown-falls-back-to-de",
     ),
 ]
@@ -497,7 +496,8 @@ def test_filter_log(blocks, patterns, kept):
 # LogProcessor.categorize_commits
 # ===========================================================================
 
-# Each row: a commit subject and the category it lands in
+# Each row: a commit subject and the category it lands in (a keyword counts
+# as a whole word only, in any case)
 CATEGORY_KEYWORDS = [
     pytest.param("Update content wording", "content_style", id="content"),
     pytest.param("Tweak CSS spacing", "content_style", id="css-lowercased"),
@@ -509,6 +509,11 @@ CATEGORY_KEYWORDS = [
     pytest.param("Deploy to staging", "metadata_build", id="deploy"),
     pytest.param("Rework parser", "other", id="other"),
     pytest.param("Style the image", "content_style", id="first-category-wins"),
+    pytest.param("Edit texts", "other", id="texts-is-not-the-word-text"),
+    pytest.param("Restore default theme", "other", id="default-is-not-the-word-alt"),
+    pytest.param(
+        "feat(content): tidy", "content_style", id="punctuation-bounds-a-word"
+    ),
 ]
 
 
@@ -1469,7 +1474,7 @@ PROMPT_CONTENTS = [
             "**Role:** You are a release notes editor.",
             f"from branch **{BRANCH}**",
             f"release tag named **{TAG}**",
-            "Title line: `Version {version_label} — <short theme>`",
+            "Title line: `Version 1.6.1-de — <short theme>`",
             "**Content & Style**",
             f"```\ncommit {SHA_A}\n",
             f"commit {SHA_C}\n",
@@ -1478,7 +1483,7 @@ PROMPT_CONTENTS = [
     ),
     pytest.param(
         ["--template", "en"],
-        ["Version {version_label} — <brief summary>", "**Features & Content**"],
+        ["Version 1.6.1-de — <brief summary>", "**Features & Content**"],
         id="en",
     ),
     pytest.param(
@@ -1733,14 +1738,13 @@ def test_main_confirms_creation_with_the_message_path_and_default_yes(cli):
     ]
 
 
-def test_main_aborts_when_the_message_file_vanishes_after_preflight(cli):
+def test_main_leaves_the_missing_message_file_check_to_preflight(cli):
+    """main has no existence guard of its own: with preflight stubbed out, a
+    message file missing at tag creation surfaces from the size check, and no
+    tag is created."""
     cli.monkeypatch.setattr(mtm, "preflight_checks", lambda args: [])
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(FileNotFoundError):
         cli.run("--create-tag")
-    assert exc.value.code == (
-        f"--create-tag specified, but message file not found:\n  {cli.stub_path()}\n"
-        "➡️ Tip: Save the AI output to this path first"
-    )
     assert cli.git.commands("tag") == []
 
 
