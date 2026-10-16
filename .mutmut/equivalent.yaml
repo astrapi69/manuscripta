@@ -1089,3 +1089,304 @@ src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_run_one__
 #   the first two and implies them, so the conjunction and the disjunction
 #   evaluate alike for every reachable state.
 src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_run_one__mutmut_46
+
+# ---------------------------------------------------------------------------
+# markdown/unbold_headers.py and project/reorder.py — triage 2026-10-16 (round 3)
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/markdown/unbold_headers.py — 32 equivalents across 4 clusters
+#   §14.8.3 (trampoline)                 : 4 mutants — process_file 1, 2, 3, 4
+#   §14.8.1 (description/help wording)   : 24 mutants — main 3, 4, 5 and the
+#       XX-wrap / lower / upper triple on every help= literal: 17-19, 34-36,
+#       51-53, 65-67, 78-80, 91-93, 104-106
+#   ad-hoc (CRLF absorbed by PATTERN)    : 1 mutant  — _split_eol 2
+#   ad-hoc (defaults restated/normalised): 3 mutants — main 50, 59, 103
+# Triage: tests/unit/test_unbold_md_headers.py carries the A-side
+# (LEVELS_FILTER_CASES: the docstring of levels_filter, a paragraph is no
+# header, an indented header is one and its level is counted after the
+# indentation; PROCESS_FILE_CASES indented-header row; PROCESS_FILE_ENCODINGS
+# and MAIN_ENCODING_RUNS: the encoding given decodes the file and encodes the
+# backup and the result, latin-1 proving it is not the locale's;
+# test_main_reads_and_writes_utf8_under_c_locale: the default is UTF-8, not
+# the locale; PARSE_LEVELS_CASES bounds row: level 6 is allowed;
+# OPTIONS_WITH_HELP and the description paragraph: help PRESENCE).
+# No C-class survivors.
+# ---------------------------------------------------------------------------
+
+# --- §14.8.3 — trampoline-induced equivalence ---
+# One free-function target (process_file) carries three literal defaults
+# (dry_run False, backup False, encoding "utf-8"); encoding draws two mutants
+# (XX-wrap and upper), so Σ = 4 exceeds the 2 × targets stop-rule and the
+# wrapper in mutants/src was read: it binds `args = [path, allowed_levels,
+# dry_run, backup, encoding]` from the original signature and forwards them
+# to every mutant, so none of the mutated defaults is ever consulted.
+#
+# process_file mutant 1: dry_run default False -> True — unreachable
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_process_file__mutmut_1
+# process_file mutant 2: backup default False -> True — unreachable
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_process_file__mutmut_2
+# process_file mutant 3: encoding default "utf-8" -> "XXutf-8XX" — unreachable
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_process_file__mutmut_3
+# process_file mutant 4: encoding default "utf-8" -> "UTF-8" — unreachable
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_process_file__mutmut_4
+
+# --- §14.8.1 — CLI help-text wording is incidental ---
+# The help=None / help-dropped siblings (main 2, 9, 13, 23, 27, 40, 44, 56,
+# 60, 70, 73, 83, 86, 96, 99) are A: OPTIONS_WITH_HELP and
+# test_help_has_a_description_paragraph pin PRESENCE.
+#
+# main mutants 3/4/5: parser description XX-wrap / lower / upper.
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_3
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_4
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_5
+# main mutants 17/18/19: paths help wording XX-wrap / lower / upper.
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_17
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_18
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_19
+# main mutants 34/35/36: -r/--recursive help wording XX-wrap / lower / upper.
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_34
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_35
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_36
+# main mutants 51/52/53: -e/--ext help wording XX-wrap / lower / upper.
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_51
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_52
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_53
+# main mutants 65/66/67: -L/--levels help wording XX-wrap / lower / upper.
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_65
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_66
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_67
+# main mutants 78/79/80: --dry-run help wording XX-wrap / lower / upper.
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_78
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_79
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_80
+# main mutants 91/92/93: --no-backup help wording XX-wrap / lower / upper.
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_91
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_92
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_93
+# main mutants 104/105/106: --encoding help wording XX-wrap / lower / upper.
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_104
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_105
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_106
+
+# --- Ad-hoc — the CR left in the body is re-emitted by PATTERN's tail ---
+# _split_eol mutant 2: endswith("\r\n") -> endswith("XX\r\nXX"), so a CRLF
+#   line is split on the LF alone and the CR stays in the body. PATTERN ends
+#   in `(\s*.*)$`: `\s*` (or `.`) takes the CR into the suffix group and
+#   transform_line rebuilds prefix + bold + suffix + "\n", i.e. the CR sits
+#   again right before the LF. A CRLF line PATTERN does not match is returned
+#   whole by both. Checked on "### **Title**\r\n", "### **Title** tail\r\n",
+#   "  ## **A** b\r\n" and the plain "### Title\r\n": byte-identical output
+#   (the crlf-kept row of TRANSFORM_LINE_CASES is the pinned contract; a
+#   direct test of the private helper would pin the split, not the output).
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x__split_eol__mutmut_2
+
+# --- Ad-hoc — the default is restated or normalised away ---
+# main mutant 50: --ext default ".md,.markdown" -> ".MD,.MARKDOWN". The
+#   default passes through the same `p.strip().lower()` as a user-given
+#   value (raw_parts), so both spellings yield (".md", ".markdown"); the
+#   XX-wrap and lower siblings are killed (wrong suffixes / identical text).
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_50
+# main mutant 59: --levels `default=None` dropped. None is argparse's own
+#   default for an optional without one; args.levels is None either way and
+#   parse_levels(None) returns None.
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_59
+# main mutant 103: --encoding default "utf-8" -> "UTF-8". Same reasoning as
+#   the convert.py / to_absolute.py / img_tags.py / metadata.py clusters:
+#   codecs.lookup canonicalises case, both names are the identical codec.
+#   (The default=None / default-dropped siblings 95 and 98 are A: killed under
+#   LC_ALL=C by test_main_reads_and_writes_utf8_under_c_locale.)
+src/manuscripta/markdown/unbold_headers.py:manuscripta.markdown.unbold_headers.x_main__mutmut_103
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/project/reorder.py — 47 equivalents across 8 clusters
+#   §14.8.1 (description/help wording)   : 18 mutants — main 3, 4, 5 and the
+#       XX-wrap / lower / upper triple on every help= literal: 19-21, 30-32,
+#       45-47, 57-59, 70-72
+#   §14.8.1 (raised-message wording)     : 8 mutants — load_mapping_file 28,
+#       35, 85, 94, 105, 120, 143, 150
+#   ad-hoc (codec registry normalizes)   : 5 mutants — load_mapping_file 12,
+#       47, 127; update_header_and_anchor 4, 73
+#   ad-hoc (IGNORECASE makes case moot)  : 6 mutants — autodetect_lang_by_header
+#       12, 13, 23, 24, 34, 35
+#   ad-hoc (joiner never inside a match) : 1 mutant  — autodetect_lang_by_header 3
+#   ad-hoc (dead belt-and-braces)        : 5 mutants — update_header_and_anchor
+#       23, 30, 31, 32, 34
+#   ad-hoc (anchored pattern, one line)  : 2 mutants — update_header_and_anchor
+#       46, 47
+#   ad-hoc (falsy default either way)    : 2 mutants — main 35, 39
+# Triage: tests/unit/test_reorder_and_rename_chapters.py carries the A-side
+# (PARSE_INLINE_MAP_CASES: the first colon splits; AUTODETECT_LANG_CASES and
+# UPDATE_HEADER_WRITES: the language word in any case, rewritten canonically;
+# UPDATE_HEADER_CASES: the anchor-only fallback without --lang;
+# UTF8_MAPPING_FILES and test_update_header_reads_and_writes_utf8_under_
+# c_locale: UTF-8 whatever the locale; MAIN_RUNS: the default base dir, the
+# collision as a configuration error, target directories created, a
+# number-less target skipping only its chapter, --lang forcing the pattern;
+# MAIN_USAGE_ERRORS: an unknown --lang rejected by the parser;
+# OPTIONS_WITH_HELP and the description paragraph: help PRESENCE).
+#
+# C — specification gaps (5 survivors, NOT entries; counted against the
+# score). Per TESTING.md §14.5 they belong in the audit's "Specification
+# gaps surfaced by mutation testing" list:
+#   load_mapping_file 43, 45: path.open(encoding="utf-8", newline="") ->
+#       newline=None / newline dropped. The csv module asks for newline=""
+#       so that a line break inside a quoted field survives verbatim; the two
+#       forms differ only for a mapping entry carrying a line break. Whether
+#       a chapter file name may contain one is nowhere specified; pinning
+#       either reading would pin an accident.
+#   autodetect_lang_by_header 4: splitlines()[:5] -> [:6] — how far down the
+#       H1 may sit for auto-detection ("auto-detect by H1 prefix") is
+#       unspecified; 5 is a literal, pinning it would be a hash check.
+#   update_header_and_anchor 56, 62: ANCHOR_ONLY_REGEX.sub(..., count=1) ->
+#       count dropped / count=2 — an H1 carrying several {#-chapter-N}
+#       anchors has only its first renumbered today; a specification would
+#       need to say whether all are renumbered, the first only, or the line
+#       rejected.
+# ---------------------------------------------------------------------------
+
+# --- §14.8.1 — CLI help-text wording is incidental ---
+# The help=None / help-dropped siblings (main 2, 9, 13, 24, 27, 36, 40, 50,
+# 53, 62, 65) are A: OPTIONS_WITH_HELP and
+# test_help_has_a_description_paragraph pin PRESENCE.
+#
+# main mutants 3/4/5: parser description XX-wrap / lower / upper.
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_3
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_4
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_5
+# main mutants 19/20/21: --base-dir help wording XX-wrap / lower / upper.
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_19
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_20
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_21
+# main mutants 30/31/32: --map-file help wording XX-wrap / lower / upper.
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_30
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_31
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_32
+# main mutants 45/46/47: --map help wording XX-wrap / lower / upper.
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_45
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_46
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_47
+# main mutants 57/58/59: --lang help wording XX-wrap / lower / upper.
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_57
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_58
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_59
+# main mutants 70/71/72: --dry-run help wording XX-wrap / lower / upper.
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_70
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_71
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_72
+
+# --- §14.8.1 — raised-message wording is a diagnostic, the exit is the contract ---
+# Eight XX-wraps of the ValueError / RuntimeError text load_mapping_file
+# raises. The only surface the text reaches is main's `[ERROR] {e}` status
+# line (exit status 1 is the contract, pinned by MAIN_RUNS); the substance
+# of every message ("must have 'src' and 'tgt'", "at least 2 columns",
+# "PyYAML not installed", ...) stays inside the XX-wrap and is pinned by the
+# match= of LOAD_MAPPING_ERRORS, which is what kills the lower / upper /
+# None siblings. Same ruling as pandoc_batch parse_args 341 and the
+# reasoning of ADR-0004 for exception __str__() (these are plain
+# ValueErrors, so the ADR is cited for its argument, not as the policy).
+#
+# load_mapping_file mutant 28: "JSON list items must have 'src' and 'tgt'" XX-wrapped
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_load_mapping_file__mutmut_28
+# load_mapping_file mutant 35: "JSON mapping must be dict or list of {src,tgt}" XX-wrapped
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_load_mapping_file__mutmut_35
+# load_mapping_file mutant 85: "CSV with header must have columns 'src' and 'tgt'" XX-wrapped
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_load_mapping_file__mutmut_85
+# load_mapping_file mutants 94/105: "CSV rows must have at least 2 columns: src,tgt"
+#   XX-wrapped (first row / later rows)
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_load_mapping_file__mutmut_94
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_load_mapping_file__mutmut_105
+# load_mapping_file mutant 120: "PyYAML not installed. ..." XX-wrapped
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_load_mapping_file__mutmut_120
+# load_mapping_file mutant 143: "YAML list items must have 'src' and 'tgt'" XX-wrapped
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_load_mapping_file__mutmut_143
+# load_mapping_file mutant 150: "YAML mapping must be dict or list of {src,tgt}" XX-wrapped
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_load_mapping_file__mutmut_150
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# Same reasoning as the convert.py / to_absolute.py / to_relative.py /
+# img_tags.py / metadata.py / pandoc_batch.py clusters: "utf-8" and "UTF-8"
+# name the identical codec. (The encoding=None / encoding-dropped siblings
+# load_mapping_file 10, 42, 44, 125 and update_header_and_anchor 2, 69, 71
+# are A: killed under LC_ALL=C by UTF8_MAPPING_FILES and
+# test_update_header_reads_and_writes_utf8_under_c_locale.)
+#
+# load_mapping_file mutant 12: JSON read_text(encoding="utf-8") -> "UTF-8"
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_load_mapping_file__mutmut_12
+# load_mapping_file mutant 47: CSV open(encoding="utf-8", ...) -> "UTF-8"
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_load_mapping_file__mutmut_47
+# load_mapping_file mutant 127: YAML read_text(encoding="utf-8") -> "UTF-8"
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_load_mapping_file__mutmut_127
+# update_header_and_anchor mutant 4: read_text(encoding="utf-8") -> "UTF-8"
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_update_header_and_anchor__mutmut_4
+# update_header_and_anchor mutant 73: write_text(new_text, encoding="utf-8") -> "UTF-8"
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_update_header_and_anchor__mutmut_73
+
+# --- Ad-hoc — re.IGNORECASE makes the letter case of the pattern moot ---
+# Each search in autodetect_lang_by_header is compiled with re.IGNORECASE,
+# so lower-casing or upper-casing the language word inside the pattern
+# ("cap[ií]tulo" / "CAP[IÍ]TULO", "kapitel" / "KAPITEL", "chapter" /
+# "CHAPTER") matches exactly the headers the original matches; "Í" folds to
+# "í" under the flag (checked). `\s` and `\d` carry no case and are not
+# touched by these mutants. (The IGNORECASE-dropped siblings 10, 21, 32 are
+# A: killed by the upper-/lower-case rows of AUTODETECT_LANG_CASES.)
+#
+# autodetect_lang_by_header mutants 12/13: Cap[ií]tulo pattern lower / upper
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_autodetect_lang_by_header__mutmut_12
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_autodetect_lang_by_header__mutmut_13
+# autodetect_lang_by_header mutants 23/24: Kapitel pattern lower / upper
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_autodetect_lang_by_header__mutmut_23
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_autodetect_lang_by_header__mutmut_24
+# autodetect_lang_by_header mutants 34/35: Chapter pattern lower / upper
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_autodetect_lang_by_header__mutmut_34
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_autodetect_lang_by_header__mutmut_35
+
+# --- Ad-hoc — the joiner is never inside a match ---
+# autodetect_lang_by_header mutant 3: "\n".join(lines[:5]) -> "XX\nXX".join.
+#   The three searches are unanchored and every pattern (`#\s+✦\s+<word>\s+
+#   \d+`) is matched inside one line of head, so the text between lines
+#   never takes part in a match. The only input telling the two apart is an
+#   H1 broken across two lines ("# ✦" / "Kapitel 3"), where the original's
+#   `\s+` spans the newline; Markdown has no multi-line heading and that
+#   detection is an accident, not a contract to pin.
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_autodetect_lang_by_header__mutmut_3
+
+# --- Ad-hoc — dead belt-and-braces inside _repl_h1 ---
+# Reasoning (shared for mutants 23, 30, 31, 32, 34): `rest` is group 3 of
+# the H1 pattern, `(:.*?)` — lazy, followed by the optional anchor group
+# `(\s*\{#-chapter-\d+\}\s*)?`, then `\s*(?:\n|$)`. The lazy group stops at
+# the first position from which the remainder matches, which is right
+# before the anchor (the anchor group takes it, leading whitespace included)
+# or right before trailing whitespace; so `rest` never ends in an anchor or
+# in whitespace, always starts with ":" (truthy, not whitespace), and when an
+# anchor sits mid-line the inner `...$` pattern does not match either.
+# re.sub(...) and .rstrip() therefore return `rest` unchanged on every match
+# (checked on eight shapes, anchors upper-cased, mid-line and absent, titles
+# empty and with inner runs of spaces). Source seam: the two calls can go.
+#
+# update_header_and_anchor mutant 23: .rstrip() -> .lstrip()
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_update_header_and_anchor__mutmut_23
+# update_header_and_anchor mutant 30: the anchor-stripping pattern XX-wrapped (never matches)
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_update_header_and_anchor__mutmut_30
+# update_header_and_anchor mutant 31: the anchor-stripping pattern upper-cased (never matches)
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_update_header_and_anchor__mutmut_31
+# update_header_and_anchor mutant 32: its replacement "" -> "XXXX" (never applied)
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_update_header_and_anchor__mutmut_32
+# update_header_and_anchor mutant 34: `rest or ""` -> `rest or "XXXX"` (rest is truthy)
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_update_header_and_anchor__mutmut_34
+
+# --- Ad-hoc — an anchored pattern over one line matches at most once ---
+# update_header_and_anchor mutants 46/47: h1_regex.subn(_repl_h1, first_line,
+#   count=1) -> count dropped (unlimited) / count=2. Every LANG_PATTERNS
+#   regex starts with `^` and is compiled without MULTILINE; first_line is
+#   the text before its first "\n" (partition), so a second match cannot
+#   start anywhere and n1 is 0 or 1 under all three forms.
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_update_header_and_anchor__mutmut_46
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_update_header_and_anchor__mutmut_47
+
+# --- Ad-hoc — a falsy default either way ---
+# main mutants 35/39: --map `default=[]` -> default=None / dropped (argparse's
+#   None). args.map reaches _resolve_mapping only, whose `if inline_map:`
+#   treats [] and None alike; no code iterates or indexes it before that.
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_35
+src/manuscripta/project/reorder.py:manuscripta.project.reorder.x_main__mutmut_39

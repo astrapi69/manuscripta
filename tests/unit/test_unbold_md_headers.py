@@ -1,6 +1,9 @@
 # tests/test_unbold_md_headers.py
 import argparse
+import locale
+import re
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -18,6 +21,21 @@ def write(p: Path, text: str, enc: str = "utf-8"):
 
 def read(p: Path) -> str:
     return p.read_text(encoding="utf-8")
+
+
+@contextmanager
+def c_locale(monkeypatch):
+    """The C locale for the block: its codec is ASCII, so a file read or
+    written with the locale default instead of the encoding given cannot
+    carry an umlaut."""
+    saved = locale.setlocale(locale.LC_ALL)
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("LANG", "C")
+    locale.setlocale(locale.LC_ALL, "C")
+    try:
+        yield
+    finally:
+        locale.setlocale(locale.LC_ALL, saved)
 
 
 MIXED_SRC = """# **Main Title**
@@ -142,6 +160,19 @@ PROCESS_FILE_CASES = [
         False,
         id="levels-none-allows-h6",
     ),
+    # An indented header (CommonMark allows up to three spaces) is still a
+    # header; the indentation is kept
+    pytest.param(
+        "  ### **A**\n",
+        None,
+        False,
+        False,
+        1,
+        True,
+        "  ### A\n",
+        False,
+        id="indented-header-unbolded-indentation-kept",
+    ),
 ]
 
 
@@ -185,6 +216,77 @@ def test_recursive_and_extensions(tmp_path: Path):
     assert total_changes == 2
     assert read(mdx) == "### MDX Title\n"
     assert read(md) == "### MD Title\n"
+
+
+UMLAUT_SRC = "### **Über**\n"
+UMLAUT_EXPECTED = "### Über\n"
+
+# Each row: the encoding given, the bytes of doc.md, the (changes, written)
+# returned, the bytes of doc.md afterwards, the bytes of doc.md.bak (None: no
+# backup file). The encoding given, not the locale's, decodes the file and
+# encodes the backup and the result
+PROCESS_FILE_ENCODINGS = [
+    pytest.param(
+        "utf-8",
+        UMLAUT_SRC.encode("utf-8"),
+        (1, True),
+        UMLAUT_EXPECTED.encode("utf-8"),
+        UMLAUT_SRC.encode("utf-8"),
+        id="utf-8-read-backup-and-write",
+    ),
+    pytest.param(
+        "latin-1",
+        UMLAUT_SRC.encode("latin-1"),
+        (1, True),
+        UMLAUT_EXPECTED.encode("latin-1"),
+        UMLAUT_SRC.encode("latin-1"),
+        id="latin-1-read-backup-and-write",
+    ),
+    pytest.param(
+        "utf-8",
+        UMLAUT_SRC.encode("latin-1"),
+        (0, False),
+        UMLAUT_SRC.encode("latin-1"),
+        None,
+        id="file-not-in-the-given-encoding-is-reported-and-left-alone",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "encoding, src, result, doc_after, bak_after", PROCESS_FILE_ENCODINGS
+)
+def test_process_file_honours_the_encoding(
+    encoding, src, result, doc_after, bak_after, tmp_path
+):
+    doc = tmp_path / "doc.md"
+    doc.write_bytes(src)
+    assert (
+        m.process_file(doc, allowed_levels=None, backup=True, encoding=encoding)
+        == result
+    )
+    assert doc.read_bytes() == doc_after
+    bak = tmp_path / "doc.md.bak"
+    assert (bak.read_bytes() if bak.exists() else None) == bak_after
+
+
+# Each row: a line as read from the file, the levels allowed (None: all),
+# whether the line is a header within the allowed levels (the docstring of
+# levels_filter)
+LEVELS_FILTER_CASES = [
+    pytest.param("### A\n", None, True, id="header-any-level"),
+    pytest.param("### A\n", {3}, True, id="header-level-allowed"),
+    pytest.param("### A\n", {2, 4}, False, id="header-level-not-allowed"),
+    pytest.param("Paragraph\n", None, False, id="paragraph-is-no-header"),
+    pytest.param("**Bold** text\n", {1}, False, id="bold-paragraph-is-no-header"),
+    pytest.param("  ### A\n", None, True, id="indented-header-any-level"),
+    pytest.param("  ## A\n", {2}, True, id="indented-header-level-counted"),
+]
+
+
+@pytest.mark.parametrize("line, levels, is_header", LEVELS_FILTER_CASES)
+def test_levels_filter(line, levels, is_header):
+    assert m.levels_filter(line, levels) is is_header
 
 
 # Each row: a line as read from the file, the line transformed, changed?
@@ -318,6 +420,8 @@ PARSE_LEVELS_CASES = [
     pytest.param("2,,3,", {2, 3}, id="empty-parts-skipped"),
     pytest.param("1,9", {1}, id="out-of-range-dropped"),
     pytest.param("0,7", None, id="only-out-of-range-means-all"),
+    # Markdown has six levels; both ends of 1-6 are allowed
+    pytest.param("1,6", {1, 6}, id="bounds-one-and-six-kept"),
 ]
 
 
@@ -498,3 +602,117 @@ def test_main(
     assert lines[-1] == summary
     assert stderr == err
     assert snapshot(tmp_path) == BOOK | changed | backups
+
+
+# Each row: the arguments after the program name (run inside a tree holding
+# umlaut.md only), the bytes of umlaut.md, its bytes afterwards, the "[OK]"
+# lines printed, the start of the stderr
+MAIN_ENCODING_RUNS = [
+    pytest.param(
+        ["--no-backup", "umlaut.md"],
+        UMLAUT_SRC.encode("utf-8"),
+        UMLAUT_EXPECTED.encode("utf-8"),
+        {"[OK] umlaut.md: 1 change(s)"},
+        "",
+        id="utf-8-by-default",
+    ),
+    pytest.param(
+        ["--encoding", "latin-1", "--no-backup", "umlaut.md"],
+        UMLAUT_SRC.encode("latin-1"),
+        UMLAUT_EXPECTED.encode("latin-1"),
+        {"[OK] umlaut.md: 1 change(s)"},
+        "",
+        id="encoding-option-reaches-the-file",
+    ),
+    pytest.param(
+        ["--no-backup", "umlaut.md"],
+        UMLAUT_SRC.encode("latin-1"),
+        UMLAUT_SRC.encode("latin-1"),
+        set(),
+        "[ERROR] Failed to read umlaut.md: ",
+        id="file-not-in-the-encoding-is-reported-and-left-alone",
+    ),
+]
+
+
+@pytest.mark.parametrize("args, src, after, ok_lines, err", MAIN_ENCODING_RUNS)
+def test_main_encoding(args, src, after, ok_lines, err, tmp_path, monkeypatch, capsys):
+    doc = tmp_path / "umlaut.md"
+    doc.write_bytes(src)
+    monkeypatch.chdir(tmp_path)
+    assert m.main(args) == 0
+    out, stderr = capsys.readouterr()
+    assert {line for line in out.splitlines() if line.startswith("[OK]")} == ok_lines
+    assert stderr.startswith(err)
+    assert doc.read_bytes() == after
+
+
+def test_main_reads_and_writes_utf8_under_c_locale(tmp_path, monkeypatch):
+    """Without --encoding the file and its backup are UTF-8 whatever the
+    locale: under LC_ALL=C the locale codec is ASCII and cannot carry the
+    umlaut."""
+    doc = tmp_path / "umlaut.md"
+    doc.write_bytes(UMLAUT_SRC.encode("utf-8"))
+    monkeypatch.chdir(tmp_path)
+    with c_locale(monkeypatch):
+        assert m.main(["umlaut.md"]) == 0
+    assert doc.read_bytes() == UMLAUT_EXPECTED.encode("utf-8")
+    assert (tmp_path / "umlaut.md.bak").read_bytes() == UMLAUT_SRC.encode("utf-8")
+
+
+def help_output(monkeypatch, capsys) -> str:
+    """The --help page, rendered wide enough that no entry wraps."""
+    monkeypatch.setenv("COLUMNS", "200")
+    with pytest.raises(SystemExit) as exit_info:
+        m.main(["--help"])
+    assert exit_info.value.code == 0
+    return capsys.readouterr().out
+
+
+def option_help_text(help_out: str, flag: str) -> str:
+    """The help text argparse attached to the listing entry of ``flag`` (""
+    when the entry carries none)."""
+    sections = re.split(
+        r"^(?:positional arguments|options):$", help_out, maxsplit=1, flags=re.M
+    )
+    lines = sections[1].splitlines()
+    for i, line in enumerate(lines):
+        entry = line.strip()
+        if re.match(re.escape(flag) + r"(?=[\s,]|$)", entry):
+            parts = re.split(r"\s{2,}", entry, maxsplit=1)
+            if len(parts) > 1:
+                return parts[1]
+            # a wide invocation pushes its text onto a deeper-indented line;
+            # without text the next line is the next entry, indented alike
+            following = lines[i + 1] if i + 1 < len(lines) else ""
+            deeper = indentation(following) > indentation(line)
+            return following.strip() if deeper else ""
+    raise AssertionError(f"{flag} is not listed")
+
+
+def indentation(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+# Each row: an argument whose --help entry must carry some help text; what the
+# text says is not asserted (TESTING.md §14.8.1)
+OPTIONS_WITH_HELP = [
+    pytest.param("paths", id="paths"),
+    pytest.param("-r", id="recursive"),
+    pytest.param("-e", id="ext"),
+    pytest.param("-L", id="levels"),
+    pytest.param("--dry-run", id="dry-run"),
+    pytest.param("--no-backup", id="no-backup"),
+    pytest.param("--encoding", id="encoding"),
+]
+
+
+@pytest.mark.parametrize("flag", OPTIONS_WITH_HELP)
+def test_every_option_has_help_text(flag, monkeypatch, capsys):
+    assert option_help_text(help_output(monkeypatch, capsys), flag) != ""
+
+
+def test_help_has_a_description_paragraph(monkeypatch, capsys):
+    out = help_output(monkeypatch, capsys)
+    paragraphs = [p.strip() for p in out.split("\n\n") if p.strip()]
+    assert not paragraphs[1].startswith(("positional arguments:", "options:"))
