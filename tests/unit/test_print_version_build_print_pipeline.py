@@ -1,8 +1,6 @@
 # tests/test_print_version_build_print_pipeline.py
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 pytestmark = pytest.mark.unit
@@ -22,56 +20,84 @@ def _is_python_module_invocation(cmd: list[str]) -> bool:
     return "python" in cmd[0] and cmd[1] == "-m"
 
 
-def test_pipeline_order_and_success(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+EXPORT_ARGS = ["--format=epub", "--book-type=paperback", "--skip-images"]
+
+# Each row: the arguments, the exit status of the export step, the exit status
+# of main(), the arguments the export is run with, the commands run after it
+# (git restore is opt-in), a text the output carries
+PIPELINE_CASES = [
+    pytest.param(
+        ["--restore"],
+        0,
+        0,
+        EXPORT_ARGS,
+        [["git", "restore", "."]],
+        "Print version EPUB successfully generated",
+        id="order-and-success",
+    ),
+    # Pipeline should abort with exit code 1 on step failure
+    pytest.param(
+        [],
+        1,
+        1,
+        EXPORT_ARGS,
+        [],
+        "Build process aborted.",
+        id="aborts-on-failure",
+    ),
+    pytest.param(
+        [],
+        0,
+        0,
+        EXPORT_ARGS,
+        [],
+        "Print version EPUB successfully generated",
+        id="restore-is-opt-in",
+    ),
+    pytest.param(
+        ["--export-format", "pdf", "--book-type", "hardcover", "--lang=de"],
+        0,
+        0,
+        ["--format=pdf", "--book-type=hardcover", "--skip-images", "--lang=de"],
+        [],
+        "Print version PDF successfully generated",
+        id="pdf-hardcover-forwards-the-rest",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "argv, export_rc, code, export_args, after, text", PIPELINE_CASES
+)
+def test_pipeline(
+    argv,
+    export_rc,
+    code,
+    export_args,
+    after,
+    text,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     calls: list[list[str]] = []
 
     def fake_run(cmd, check=True):
         calls.append(cmd)
+        if _is_python_module_invocation(cmd) and export_rc:
+            raise bp.subprocess.CalledProcessError(returncode=export_rc, cmd=cmd)
         return DummyProc(0)
 
     monkeypatch.setattr(bp.subprocess, "run", fake_run)
 
-    # git restore is opt-in now
-    argv = ["--restore"]
     with pytest.raises(SystemExit) as ex:
         bp.main(argv)
-    assert ex.value.code == 0
+    assert ex.value.code == code
 
-    # Verify order: one python -m invocation (manuscripta.export.book) and a git restore
-    py = [c for c in calls if _is_python_module_invocation(c)]
-    assert len(py) == 1, f"Expected exactly one python -m call, got {len(py)}: {calls}"
-    assert (
-        py[0][2] == "manuscripta.export.book"
-    ), f"Expected manuscripta.export.book, got: {py[0]}"
-
-    git = [c for c in calls if c and c[0] == "git"]
-    assert git, "Expected a git call to restore working tree"
-    assert git[-1][1:] == [
-        "restore",
-        ".",
-    ], f"Expected final git call to be 'restore .', got: {git[-1]}"
+    # The export runs first, as python -m manuscripta.export.book; the commands
+    # after it are exactly the ones expected (so no second export either)
+    assert _is_python_module_invocation(calls[0]), calls
+    assert calls[0][2:] == ["manuscripta.export.book", *export_args]
+    assert calls[1:] == after
 
     out, _ = capsys.readouterr()
-    assert "Print version EPUB successfully generated" in out
-
-
-def test_pipeline_aborts_on_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    def fake_run(cmd, check=True):
-        # Fail on the module invocation
-        if len(cmd) >= 3 and cmd[2] == "manuscripta.export.book":
-            raise bp.subprocess.CalledProcessError(returncode=1, cmd=cmd)
-        return DummyProc(0)
-
-    monkeypatch.setattr(bp.subprocess, "run", fake_run)
-
-    with pytest.raises(SystemExit) as ex:
-        bp.main([])
-
-    assert ex.value.code == 1, "Pipeline should abort with exit code 1 on step failure"
-
-    out, _ = capsys.readouterr()
-    assert "Build process aborted." in out
+    assert text in out

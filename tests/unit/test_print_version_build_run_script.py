@@ -13,38 +13,54 @@ class DummyProc:
         self.returncode = rc
 
 
-def test_run_script_success(monkeypatch):
+MODULE = "manuscripta.export.book"
+CMD = f"{sys.executable} -m {MODULE}"
+
+# Each row: the script arguments, dry run?, the exit status of the command
+# (None: it is never run), the result, a line the output carries (None:
+# nothing is printed)
+RUN_SCRIPT_CASES = [
+    pytest.param((), False, 0, True, None, id="success"),
+    pytest.param(
+        (), False, 1, False, f"Command failed with exit code 1: {CMD}", id="failure"
+    ),
+    pytest.param(
+        (),
+        False,
+        2,
+        False,
+        f"Command failed with exit code 2: {CMD}",
+        id="failure-reports-the-exit-code",
+    ),
+    pytest.param(
+        ("--foo=1",),
+        True,
+        None,
+        True,
+        f"[dry-run] Would run: {CMD} --foo=1",
+        id="dry-run",
+    ),
+]
+
+
+@pytest.mark.parametrize("script_args, dry_run, rc, result, printed", RUN_SCRIPT_CASES)
+def test_run_script(script_args, dry_run, rc, result, printed, monkeypatch, capsys):
+    calls: list[list[str]] = []
+
     def fake_run(cmd, check=True):
-        assert cmd[0] == sys.executable
-        assert "-m" in cmd
-        assert "manuscripta.export.book" in cmd
+        calls.append(cmd)
+        if rc:
+            raise bp.subprocess.CalledProcessError(returncode=rc, cmd=cmd)
         return DummyProc(0)
 
     monkeypatch.setattr(bp.subprocess, "run", fake_run)
 
-    assert bp.run_script("manuscripta.export.book") is True
-
-
-def test_run_script_failure(monkeypatch, capsys):
-    def fake_run(cmd, check=True):
-        raise bp.subprocess.CalledProcessError(returncode=1, cmd=cmd)
-
-    monkeypatch.setattr(bp.subprocess, "run", fake_run)
-
-    assert bp.run_script("manuscripta.export.book") is False
+    assert bp.run_script(MODULE, *script_args, dry_run=dry_run) is result
+    assert calls == (
+        [] if rc is None else [[sys.executable, "-m", MODULE, *script_args]]
+    )
     out, _ = capsys.readouterr()
-    assert "Command failed with exit code" in out
-
-
-def test_run_script_dry_run(monkeypatch, capsys):
-    called = {"run": False}
-
-    def fake_run(*a, **k):
-        called["run"] = True
-        return DummyProc(0)
-
-    monkeypatch.setattr(bp.subprocess, "run", fake_run)
-    assert bp.run_script("manuscripta.export.book", "--foo=1", dry_run=True) is True
-    assert called["run"] is False
-    out, _ = capsys.readouterr()
-    assert "[dry-run] Would run:" in out
+    if printed is None:
+        assert out == ""
+    else:
+        assert printed in out
