@@ -344,161 +344,270 @@ def en(text: str) -> str:
     return f"{EN_OPEN_DOUBLE}{text}{EN_CLOSE_DOUBLE}"
 
 
+# Each row: style, text, expected result, the stats that must change. Every
+# row also asserts no warning. Add a row to pin a new case.
+ENGLISH_PAIR_CASES = [
+    pytest.param(
+        SPANISH,
+        f"aquello que percibimos como {en('realidad')} es real en absoluto.",
+        f"aquello que percibimos como {es('realidad')} es real en absoluto.",
+        {"english_double": 1},
+        id="spanish-top-level-pair",
+    ),
+    pytest.param(
+        FRENCH,
+        f"ce que nous appelons {en('réalité')}.",
+        f"ce que nous appelons {fr('réalité')}.",
+        {"english_double": 1, "guillemet_space": 2},
+        id="french-top-level-pair-gets-spaces",
+    ),
+    pytest.param(
+        SPANISH,
+        f"¿existe acaso algún {en('sentido verdadero')} o {en('fin')}?",
+        f"¿existe acaso algún {es('sentido verdadero')} o {es('fin')}?",
+        {"english_double": 1},
+        id="several-pairs-in-one-block",
+    ),
+    pytest.param(
+        SPANISH,
+        f"{GO}Dijo {en('no')} y se fue{GC}",
+        f"{GO}Dijo {en('no')} y se fue{GC}",
+        {"english_double": 0},
+        id="spanish-pair-inside-guillemets-stays",
+    ),
+    pytest.param(
+        FRENCH,
+        f"{GO}Dijo {en('no')} y se fue{GC}",
+        fr(f"Dijo {en('no')} y se fue"),
+        {"english_double": 0, "guillemet_space": 2},
+        id="french-pair-inside-guillemets-stays",
+    ),
+    # The straight pair becomes guillemets first; the pair inside is nested
+    pytest.param(
+        SPANISH,
+        f'"Dijo {en("no")}."',
+        es(f"Dijo {en('no')}."),
+        {"english_double": 0, "straight_double": 1},
+        id="pair-inside-a-straight-pair-stays",
+    ),
+    pytest.param(
+        SPANISH,
+        f"{en('sí')} y {GO}dijo {en('no')}{GC}",
+        f"{es('sí')} y {GO}dijo {en('no')}{GC}",
+        {"english_double": 1},
+        id="top-level-and-nested-pairs-in-one-block",
+    ),
+    pytest.param(
+        SPANISH,
+        f"{es('uno')} y {en('dos')}",
+        f"{es('uno')} y {es('dos')}",
+        {"english_double": 1},
+        id="pair-after-a-closed-guillemet-pair-converts",
+    ),
+    pytest.param(
+        SPANISH,
+        en(f"a {es('b')} c"),
+        es(f"a {es('b')} c"),
+        {"english_double": 1},
+        id="pair-wrapping-guillemets-converts",
+    ),
+    pytest.param(
+        SPANISH,
+        f"hola{EN_CLOSE_DOUBLE} y adiós",
+        f"hola{GC} y adiós",
+        {"english_double": 1},
+        id="lone-closing-quote-becomes-a-closing-guillemet",
+    ),
+    pytest.param(
+        SPANISH,
+        f"{GO}hola{EN_CLOSE_DOUBLE} y adiós{GC}",
+        f"{GO}hola{EN_CLOSE_DOUBLE} y adiós{GC}",
+        {"english_double": 0},
+        id="lone-closing-quote-inside-guillemets-stays",
+    ),
+    pytest.param(
+        SPANISH,
+        f"{EN_OPEN_DOUBLE}hola y adiós",
+        f"{EN_OPEN_DOUBLE}hola y adiós",
+        {"english_double": 0},
+        id="lone-opening-quote-stays",
+    ),
+    pytest.param(
+        SPANISH,
+        f"usa `{en('x')}` aquí",
+        f"usa `{en('x')}` aquí",
+        {"english_double": 0},
+        id="pair-in-inline-code-stays",
+    ),
+    pytest.param(
+        SPANISH,
+        f'<span title="{en("x")}">y</span>',
+        f'<span title="{en("x")}">y</span>',
+        {"english_double": 0},
+        id="pair-in-an-html-attribute-stays",
+    ),
+    pytest.param(
+        SPANISH,
+        f'"uno" y {en("dos")}',
+        f"{es('uno')} y {es('dos')}",
+        {"english_double": 1, "straight_double": 1},
+        id="straight-and-english-pairs-in-one-block",
+    ),
+    pytest.param(
+        SPANISH,
+        f"{GO}abierto y {en('dos')}",
+        f"{GO}abierto y {en('dos')}",
+        {"english_double": 0},
+        id="unclosed-guillemet-hides-the-rest-of-the-block",
+    ),
+    pytest.param(
+        SPANISH,
+        f"{OS}significado{CS}",
+        f"{OS}significado{CS}",
+        {"english_single": 0},
+        id="english-single-quotes-are-already-the-target",
+    ),
+    # “ is both the German closer and the English opener, so an open German
+    # pair cannot be tracked: every English pair converts
+    pytest.param(
+        GERMAN,
+        f"{DE_OPEN_DOUBLE}Er sagte {en('nein')}{DE_CLOSE_DOUBLE}",
+        f"{DE_OPEN_DOUBLE}Er sagte {DE_OPEN_DOUBLE}nein{DE_CLOSE_DOUBLE}"
+        f"{DE_CLOSE_DOUBLE}",
+        {"english_double": 1},
+        id="german-cannot-nest-and-converts-every-pair",
+    ),
+    pytest.param(
+        ENGLISH,
+        f"{en('fine')} and {es('inner')}",
+        f"{en('fine')} and {es('inner')}",
+        {"english_double": 0},
+        id="english-leaves-its-own-quotes-alone",
+    ),
+]
+
+# Each row: the style the stage gets (None: its German default), text,
+# expected result, english_double count. Spacing is a later stage.
+STAGE_CASES = [
+    pytest.param(
+        SPANISH,
+        f"{en('a')} {GO}{en('b')}{GC}",
+        f"{es('a')} {GO}{en('b')}{GC}",
+        1,
+        id="spanish-top-level-converts-nested-stays",
+    ),
+    pytest.param(FRENCH, en("a"), f"{GO}a{GC}", 1, id="french-without-spaces"),
+    pytest.param(
+        None, en("a"), f"{DE_OPEN_DOUBLE}a{DE_CLOSE_DOUBLE}", 1, id="defaults-to-german"
+    ),
+    pytest.param(
+        SPANISH, f"{GO}{en('b')}{GC}", f"{GO}{en('b')}{GC}", 0, id="only-nested"
+    ),
+]
+
+# Each row: style, the summary lines it prints, the ones it leaves out
+SUMMARY_ROW_CASES = [
+    pytest.param(
+        SPANISH,
+        ["  English typographic double: 2 correction(s)"],
+        ["English typographic single"],
+        id="spanish-double-row-only",
+    ),
+    pytest.param(
+        FRENCH,
+        ["  English typographic double: 2 correction(s)"],
+        ["English typographic single"],
+        id="french-double-row-only",
+    ),
+    pytest.param(
+        GERMAN,
+        [
+            "  English typographic double: 2 correction(s)",
+            "  English typographic single: 0 correction(s)",
+        ],
+        [],
+        id="german-both-rows",
+    ),
+    pytest.param(ENGLISH, [], ["English typographic"], id="english-neither-row"),
+]
+
+# Each row: entry point, file text, expected text, a summary line
+FILE_MODE_CASES = [
+    pytest.param(
+        main_spanish,
+        f"… aquello que percibimos como {en('realidad')} es real en absoluto.\n",
+        f"… aquello que percibimos como {es('realidad')} es real en absoluto.\n",
+        "English typographic double: 1 correction(s)",
+        id="spanish",
+    ),
+    pytest.param(
+        main_french,
+        f"ce que nous appelons {en('réalité')}.\n",
+        f"ce que nous appelons {fr('réalité')}.\n",
+        "English typographic double: 1 correction(s)",
+        id="french",
+    ),
+]
+
+
 class TestEnglishDoubleQuotesInGuillemetStyles:
+    # Each row: style, whether an English pair inside its own double quotes
+    # is a nested quotation that stays, whether the English single-quote
+    # stage can change anything for it
     @pytest.mark.parametrize(
-        "style, expected",
-        [(GERMAN, False), (ENGLISH, False), (FRENCH, True), (SPANISH, True)],
+        "style, nests, converts_single",
+        [
+            pytest.param(GERMAN, False, True, id="german"),
+            pytest.param(ENGLISH, False, False, id="english"),
+            pytest.param(FRENCH, True, False, id="french"),
+            pytest.param(SPANISH, True, False, id="spanish"),
+        ],
     )
-    def test_nests_english_double(self, style, expected):
-        assert _nests_english_double(style) is expected
+    def test_style_traits(self, style, nests, converts_single):
+        assert _nests_english_double(style) is nests
+        assert _converts_english_single(style) is converts_single
 
     @pytest.mark.parametrize(
-        "style, expected",
-        [(GERMAN, True), (ENGLISH, False), (FRENCH, False), (SPANISH, False)],
+        "style, text, expected, expected_stats", ENGLISH_PAIR_CASES
     )
-    def test_converts_english_single(self, style, expected):
-        assert _converts_english_single(style) is expected
-
-    def test_spanish_converts_a_top_level_pair(self):
-        text = f"aquello que percibimos como {en('realidad')} es real en absoluto."
-        result, stats, warnings = convert(text, SPANISH)
-        assert (
-            result
-            == f"aquello que percibimos como {es('realidad')} es real en absoluto."
-        )
-        assert stats["english_double"] == 1
+    def test_english_pairs(self, style, text, expected, expected_stats):
+        result, stats, warnings = convert(text, style)
+        assert result == expected
+        assert {key: stats[key] for key in expected_stats} == expected_stats
         assert warnings == []
 
-    def test_french_converts_a_top_level_pair_and_spaces_it(self):
-        text = f"ce que nous appelons {en('réalité')}."
-        result, stats, _ = convert(text, FRENCH)
-        assert result == f"ce que nous appelons {fr('réalité')}."
-        assert stats["english_double"] == 1
-        assert stats["guillemet_space"] == 2
-
-    def test_several_pairs_in_one_block(self):
-        text = f"¿existe acaso algún {en('sentido verdadero')} o {en('fin')}?"
-        assert convert(text, SPANISH)[0] == (
-            f"¿existe acaso algún {es('sentido verdadero')} o {es('fin')}?"
-        )
-
-    @pytest.mark.parametrize("style", [FRENCH, SPANISH])
-    def test_a_pair_inside_guillemets_stays_as_second_level(self, style):
-        text = f"{GO}Dijo {en('no')} y se fue{GC}"
-        result, stats, _ = convert(text, style)
-        assert en("no") in result
-        assert stats["english_double"] == 0
-
-    def test_a_pair_inside_a_straight_pair_stays_as_second_level(self):
-        # The straight pair becomes guillemets first; the pair inside is nested
-        result, stats, _ = convert(f'"Dijo {en("no")}."', SPANISH)
-        assert result == es(f"Dijo {en('no')}.")
-        assert stats["english_double"] == 0
-
-    def test_top_level_and_nested_pairs_in_one_block(self):
-        text = f"{en('sí')} y {GO}dijo {en('no')}{GC}"
-        assert convert(text, SPANISH)[0] == f"{es('sí')} y {GO}dijo {en('no')}{GC}"
-
-    def test_a_pair_after_a_closed_guillemet_pair_converts(self):
-        text = f"{es('uno')} y {en('dos')}"
-        assert convert(text, SPANISH)[0] == f"{es('uno')} y {es('dos')}"
-
-    def test_a_pair_wrapping_guillemets_converts(self):
-        text = en(f"a {es('b')} c")
-        assert convert(text, SPANISH)[0] == es(f"a {es('b')} c")
-
-    def test_a_lone_closing_quote_becomes_a_closing_guillemet(self):
-        assert convert(f"hola{EN_CLOSE_DOUBLE} y adiós", SPANISH)[0] == (
-            f"hola{GC} y adiós"
-        )
-
-    def test_a_lone_closing_quote_inside_guillemets_stays(self):
-        text = f"{GO}hola{EN_CLOSE_DOUBLE} y adiós{GC}"
-        assert convert(text, SPANISH)[0] == text
-
-    def test_a_lone_opening_quote_stays(self):
-        text = f"{EN_OPEN_DOUBLE}hola y adiós"
-        assert convert(text, SPANISH)[0] == text
-
-    def test_a_pair_in_inline_code_stays(self):
-        text = f"usa `{en('x')}` aquí"
-        assert convert(text, SPANISH)[0] == text
-
-    def test_a_pair_in_an_html_attribute_stays(self):
-        text = f'<span title="{en("x")}">y</span>'
-        assert convert(text, SPANISH)[0] == text
-
-    def test_straight_and_english_pairs_in_one_block(self):
-        assert convert(f'"uno" y {en("dos")}', SPANISH)[0] == (
-            f"{es('uno')} y {es('dos')}"
-        )
-
-    def test_an_unclosed_guillemet_hides_the_rest_of_the_block(self):
-        text = f"{GO}abierto y {en('dos')}"
-        assert convert(text, SPANISH)[0] == text
-
-    def test_english_single_quotes_are_already_the_target(self):
-        text = f"{OS}significado{CS}"
-        result, stats, _ = convert(text, SPANISH)
-        assert result == text
-        assert stats["english_single"] == 0
-
-    def test_stage_alone_with_the_spanish_style(self):
+    @pytest.mark.parametrize("style, text, expected, count", STAGE_CASES)
+    def test_stage_alone(self, style, text, expected, count):
         stats = make_stats()
-        text = f"{en('a')} {GO}{en('b')}{GC}"
+        styles = () if style is None else (style,)
         result = replace_english_double_quotes(
-            text, mask_protected_regions(text), stats, SPANISH
+            text, mask_protected_regions(text), stats, *styles
         )
-        assert result == f"{es('a')} {GO}{en('b')}{GC}"
-        assert stats["english_double"] == 1
+        assert result == expected
+        assert stats["english_double"] == count
 
-    def test_stage_defaults_to_german(self):
-        stats = make_stats()
-        text = en("a")
-        result = replace_english_double_quotes(
-            text, mask_protected_regions(text), stats
-        )
-        assert result == f"{DE_OPEN_DOUBLE}a{DE_CLOSE_DOUBLE}"
-
-    def test_german_cannot_nest_and_converts_every_pair(self):
-        # “ is both the German closer and the English opener, so an open
-        # German pair cannot be tracked: every English pair converts
-        text = f"{DE_OPEN_DOUBLE}Er sagte {en('nein')}{DE_CLOSE_DOUBLE}"
-        result, stats, _ = convert(text, GERMAN)
-        assert result == (
-            f"{DE_OPEN_DOUBLE}Er sagte {DE_OPEN_DOUBLE}nein{DE_CLOSE_DOUBLE}"
-            f"{DE_CLOSE_DOUBLE}"
-        )
-        assert stats["english_double"] == 1
-
-    def test_english_leaves_its_own_quotes_alone(self):
-        text = f"{en('fine')} and {es('inner')}"
-        result, stats, _ = convert(text, ENGLISH)
-        assert result == text
-        assert stats["english_double"] == 0
-
-    def test_spanish_summary_shows_the_double_row_only(self, capsys):
+    @pytest.mark.parametrize("style, present, absent", SUMMARY_ROW_CASES)
+    def test_summary_rows(self, style, present, absent, capsys):
         stats = make_stats()
         stats["english_double"] = 2
-        print_stats(stats, SPANISH)
+        print_stats(stats, style)
         out = capsys.readouterr().out
-        assert "  English typographic double: 2 correction(s)" in out
-        assert "English typographic single" not in out
-        assert "  Total replacements:         2" in out
+        for line in present:
+            assert line in out
+        for text in absent:
+            assert text not in out
 
-    def test_spanish_file_mode_converts_english_pairs(
-        self, tmp_path, monkeypatch, capsys
+    @pytest.mark.parametrize(
+        "entry_point, text, expected, summary_line", FILE_MODE_CASES
+    )
+    def test_file_mode_converts_english_pairs(
+        self, entry_point, text, expected, summary_line, tmp_path, monkeypatch, capsys
     ):
         f = tmp_path / "foreword.md"
-        f.write_text(
-            f"… aquello que percibimos como {en('realidad')} es real en absoluto.\n",
-            encoding="utf-8",
-        )
-        monkeypatch.setattr(sys, "argv", ["fix-spanish-quotes", str(f)])
-        main_spanish()
-        assert f.read_text(encoding="utf-8") == (
-            f"… aquello que percibimos como {es('realidad')} es real en absoluto.\n"
-        )
+        f.write_text(text, encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", ["fix-quotes", str(f)])
+        entry_point()
+        assert f.read_text(encoding="utf-8") == expected
         captured = capsys.readouterr()
-        assert "English typographic double: 1 correction(s)" in captured.out
+        assert summary_line in captured.out
         assert captured.err == ""

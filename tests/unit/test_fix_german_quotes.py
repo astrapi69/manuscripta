@@ -925,75 +925,134 @@ class TestMain:
 # ---------------------------------------------------------------------------
 # Backups: <file>.bak unless Git tracks the file, --backup / --no-backup (#17)
 # ---------------------------------------------------------------------------
-@pytest.fixture
-def git_repo(tmp_path):
-    """An empty Git repository; ``track`` stages a file in it."""
-    if shutil.which("git") is None:
-        pytest.skip("git is not installed")
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    return tmp_path
+def _make_file(
+    tmp_path, *, repo: bool, tracked: bool, subdir: bool = False, text='"Hello"'
+):
+    """A Markdown file, inside a Git repository when ``repo`` and staged there
+    when ``tracked`` (no commit needed), in a subdirectory when ``subdir``."""
+    if repo:
+        if shutil.which("git") is None:
+            pytest.skip("git is not installed")
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    folder = tmp_path / "manuscript" if subdir else tmp_path
+    folder.mkdir(exist_ok=True)
+    f = folder / "t.md"
+    f.write_text(text, encoding="utf-8")
+    if tracked:
+        subprocess.run(["git", "add", "--", f.name], cwd=f.parent, check=True)
+    return f
 
 
-def track(path):
-    """Stage ``path`` so that Git tracks it (no commit needed)."""
-    subprocess.run(["git", "add", "--", path.name], cwd=path.parent, check=True)
+# Each row: in a repository?, tracked?, the backup argument, dry run?, whether
+# t.md.bak exists afterwards, the note of the "Written:" line (None: no such
+# line, as in a dry run). {bak} is the backup path.
+BACKUP_DECISIONS = [
+    pytest.param(
+        False, False, None, False, True, "backup: {bak}", id="default-outside-repo"
+    ),
+    pytest.param(
+        True, False, None, False, True, "backup: {bak}", id="default-untracked"
+    ),
+    pytest.param(
+        True,
+        True,
+        None,
+        False,
+        False,
+        "no backup, tracked by Git",
+        id="default-tracked",
+    ),
+    pytest.param(True, True, True, False, True, "backup: {bak}", id="backup-tracked"),
+    pytest.param(
+        False, False, True, False, True, "backup: {bak}", id="backup-outside-repo"
+    ),
+    pytest.param(
+        False,
+        False,
+        False,
+        False,
+        False,
+        "no backup, --no-backup",
+        id="no-backup-outside-repo",
+    ),
+    pytest.param(
+        True,
+        False,
+        False,
+        False,
+        False,
+        "no backup, --no-backup",
+        id="no-backup-untracked",
+    ),
+    pytest.param(False, False, True, True, False, None, id="dry-run-never-copies"),
+]
+
+# Each row: in a repository?, tracked?, in a subdirectory?, git on PATH?, expected
+GIT_TRACKED_CASES = [
+    pytest.param(False, False, False, True, False, id="outside-a-repository"),
+    pytest.param(True, False, False, True, False, id="untracked"),
+    pytest.param(True, True, False, True, True, id="tracked"),
+    pytest.param(True, True, True, True, True, id="tracked-in-a-subdirectory"),
+    pytest.param(True, False, True, True, False, id="untracked-in-a-subdirectory"),
+    pytest.param(True, True, False, False, False, id="git-not-installed"),
+]
+
+# Each row: the arguments after the input path and the backup value parsed
+PARSE_ARGS_CASES = [
+    pytest.param([], None, id="default-is-git-aware"),
+    pytest.param(["--backup"], True, id="backup"),
+    pytest.param(["--no-backup"], False, id="no-backup"),
+]
+
+# Each row: the arguments, the exit status, the stream and a text it carries
+PARSE_ARGS_EXITS = [
+    pytest.param(
+        ["x.md", "--backup", "--no-backup"],
+        2,
+        "err",
+        "not allowed with argument --backup",
+        id="both-flags-conflict",
+    ),
+    pytest.param(
+        ["--help"],
+        0,
+        "out",
+        "only for a file Git does not track",
+        id="help-documents-default",
+    ),
+]
+
+# Each row: in a repository?, tracked?, the flags, whether t.md.bak exists afterwards
+MAIN_BACKUP_CASES = [
+    pytest.param(False, False, ["--no-backup"], False, id="no-backup"),
+    pytest.param(True, True, ["--backup"], True, id="backup-forces-copy-for-tracked"),
+    pytest.param(True, True, [], False, id="default-tracked"),
+    pytest.param(False, False, [], True, id="default-outside-repo"),
+]
 
 
 class TestBackup:
-    def test_no_backup_writes_the_file_without_a_copy(self, tmp_path, capsys):
-        f = tmp_path / "t.md"
-        f.write_text('"Hello"', encoding="utf-8")
-        process_single_file(f, dry_run=False, global_stats=make_stats(), backup=False)
-        assert DE_OPEN_DOUBLE in f.read_text(encoding="utf-8")
-        assert not (tmp_path / "t.md.bak").exists()
-        assert f"Written: {f} (no backup, --no-backup)" in capsys.readouterr().out
-
-    def test_backup_writes_the_copy_for_a_tracked_file(self, git_repo, capsys):
-        f = git_repo / "t.md"
-        f.write_text('"Hello"', encoding="utf-8")
-        track(f)
-        process_single_file(f, dry_run=False, global_stats=make_stats(), backup=True)
-        bak = git_repo / "t.md.bak"
-        assert bak.read_text(encoding="utf-8") == '"Hello"'
-        assert f"Written: {f} (backup: {bak})" in capsys.readouterr().out
-
-    def test_default_skips_the_copy_for_a_tracked_file(self, git_repo, capsys):
-        f = git_repo / "t.md"
-        f.write_text('"Hello"', encoding="utf-8")
-        track(f)
-        process_single_file(f, dry_run=False, global_stats=make_stats())
-        assert DE_OPEN_DOUBLE in f.read_text(encoding="utf-8")
-        assert not (git_repo / "t.md.bak").exists()
-        assert f"Written: {f} (no backup, tracked by Git)" in capsys.readouterr().out
-
-    def test_default_writes_the_copy_for_an_untracked_file_in_a_repository(
-        self, git_repo
+    @pytest.mark.parametrize(
+        "repo, tracked, backup, dry_run, expect_bak, note", BACKUP_DECISIONS
+    )
+    def test_backup_decision(
+        self, repo, tracked, backup, dry_run, expect_bak, note, tmp_path, capsys
     ):
-        f = git_repo / "t.md"
-        f.write_text('"Hello"', encoding="utf-8")
-        process_single_file(f, dry_run=False, global_stats=make_stats())
-        assert (git_repo / "t.md.bak").exists()
-
-    def test_default_writes_the_copy_in_a_subdirectory_only_when_untracked(
-        self, git_repo
-    ):
-        sub = git_repo / "manuscript"
-        sub.mkdir()
-        tracked = sub / "a.md"
-        tracked.write_text('"One"', encoding="utf-8")
-        track(tracked)
-        untracked = sub / "b.md"
-        untracked.write_text('"Two"', encoding="utf-8")
-        for f in (tracked, untracked):
-            process_single_file(f, dry_run=False, global_stats=make_stats())
-        assert not (sub / "a.md.bak").exists()
-        assert (sub / "b.md.bak").exists()
-
-    def test_dry_run_never_writes_a_copy(self, tmp_path):
-        f = tmp_path / "t.md"
-        f.write_text('"Hello"', encoding="utf-8")
-        process_single_file(f, dry_run=True, global_stats=make_stats(), backup=True)
-        assert not (tmp_path / "t.md.bak").exists()
+        f = _make_file(tmp_path, repo=repo, tracked=tracked)
+        bak = f.parent / "t.md.bak"
+        process_single_file(
+            f, dry_run=dry_run, global_stats=make_stats(), backup=backup
+        )
+        assert bak.exists() is expect_bak
+        if expect_bak:
+            assert bak.read_text(encoding="utf-8") == '"Hello"'
+        out = capsys.readouterr().out
+        if note is None:
+            assert f.read_text(encoding="utf-8") == '"Hello"'
+            assert "Written:" not in out
+        else:
+            assert DE_OPEN_DOUBLE in f.read_text(encoding="utf-8")
+            assert f"Written: {f} ({note.format(bak=bak)})" in out
 
     def test_an_unchanged_file_asks_git_nothing(self, tmp_path, monkeypatch):
         calls: list = []
@@ -1003,72 +1062,38 @@ class TestBackup:
         process_single_file(f, dry_run=False, global_stats=make_stats())
         assert calls == []
 
-    def test_is_git_tracked_outside_a_repository(self, tmp_path):
-        f = tmp_path / "t.md"
-        f.write_text("x", encoding="utf-8")
-        assert is_git_tracked(f) is False
-
-    def test_is_git_tracked_for_a_tracked_and_an_untracked_file(self, git_repo):
-        tracked = git_repo / "a.md"
-        tracked.write_text("x", encoding="utf-8")
-        track(tracked)
-        untracked = git_repo / "b.md"
-        untracked.write_text("x", encoding="utf-8")
-        assert is_git_tracked(tracked) is True
-        assert is_git_tracked(untracked) is False
-
-    def test_is_git_tracked_without_git(self, tmp_path, monkeypatch):
-        def no_git(*args, **kwargs):
-            raise FileNotFoundError("git")
-
-        monkeypatch.setattr(subprocess, "run", no_git)
-        f = tmp_path / "t.md"
-        f.write_text("x", encoding="utf-8")
-        assert is_git_tracked(f) is False
-
-    def test_parse_args_defaults_to_the_git_aware_backup(self, monkeypatch):
-        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", "x.md"])
-        assert parse_args().backup is None
-
     @pytest.mark.parametrize(
-        "flag, expected", [("--backup", True), ("--no-backup", False)]
+        "repo, tracked, subdir, git_on_path, expected", GIT_TRACKED_CASES
     )
-    def test_parse_args_backup_flags(self, monkeypatch, flag, expected):
-        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", "x.md", flag])
+    def test_is_git_tracked(
+        self, repo, tracked, subdir, git_on_path, expected, tmp_path, monkeypatch
+    ):
+        f = _make_file(tmp_path, repo=repo, tracked=tracked, subdir=subdir)
+        if not git_on_path:
+
+            def no_git(*args, **kwargs):
+                raise FileNotFoundError("git")
+
+            monkeypatch.setattr(subprocess, "run", no_git)
+        assert is_git_tracked(f) is expected
+
+    @pytest.mark.parametrize("argv_tail, expected", PARSE_ARGS_CASES)
+    def test_parse_args_backup_option(self, argv_tail, expected, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", "x.md", *argv_tail])
         assert parse_args().backup is expected
 
-    def test_parse_args_rejects_both_flags(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            sys, "argv", ["fix-german-quotes", "x.md", "--backup", "--no-backup"]
-        )
+    @pytest.mark.parametrize("argv, code, stream, text", PARSE_ARGS_EXITS)
+    def test_parse_args_exits(self, argv, code, stream, text, monkeypatch, capsys):
+        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", *argv])
         with pytest.raises(SystemExit) as exc:
             parse_args()
-        assert exc.value.code == 2
-        assert "not allowed with argument --backup" in capsys.readouterr().err
+        assert exc.value.code == code
+        assert text in getattr(capsys.readouterr(), stream)
 
-    def test_help_documents_the_default(self, monkeypatch, capsys):
-        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", "--help"])
-        with pytest.raises(SystemExit) as exc:
-            parse_args()
-        assert exc.value.code == 0
-        out = capsys.readouterr().out
-        assert "--backup" in out and "--no-backup" in out
-        assert "only for a file Git does not track" in out
-
-    def test_main_no_backup(self, tmp_path, monkeypatch):
-        f = tmp_path / "t.md"
-        f.write_text('"Hello"', encoding="utf-8")
-        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", str(f), "--no-backup"])
+    @pytest.mark.parametrize("repo, tracked, flags, expect_bak", MAIN_BACKUP_CASES)
+    def test_main_backup(self, repo, tracked, flags, expect_bak, tmp_path, monkeypatch):
+        f = _make_file(tmp_path, repo=repo, tracked=tracked)
+        monkeypatch.setattr(sys, "argv", ["fix-german-quotes", str(f), *flags])
         main()
         assert DE_OPEN_DOUBLE in f.read_text(encoding="utf-8")
-        assert not (tmp_path / "t.md.bak").exists()
-
-    def test_main_backup_forces_the_copy_in_a_repository(self, git_repo, monkeypatch):
-        f = git_repo / "t.md"
-        f.write_text('"Hello"', encoding="utf-8")
-        track(f)
-        monkeypatch.setattr(
-            sys, "argv", ["fix-german-quotes", str(git_repo), "--backup"]
-        )
-        main()
-        assert (git_repo / "t.md.bak").exists()
+        assert (tmp_path / "t.md.bak").exists() is expect_bak

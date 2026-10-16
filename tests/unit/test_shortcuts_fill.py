@@ -84,23 +84,45 @@ def test_split_valid_invalid_handles_no_value_flag_at_end():
     assert invalid == []
 
 
-def test_split_valid_invalid_treats_single_dash_and_positionals_as_unknown():
-    valid, invalid = sc._split_valid_invalid_options(
-        ["manuscript", "--lang", "de", "-x", "--epub2"], sc.FULL_EXPORT_ALLOWED_OPTS
+# Each row: the passthrough tokens, the ones to forward, the unknown ones.
+SPLIT_CASES = [
+    pytest.param(
+        ["manuscript", "--lang", "de", "-x", "--epub2"],
+        ["--lang", "de", "--epub2"],
+        ["manuscript", "-x"],
+        id="single-dash-and-positionals-are-unknown",
+    ),
+    pytest.param(
+        ["--bogus=1", "--lang=de"],
+        ["--lang=de"],
+        ["--bogus=1"],
+        id="unknown-with-inline-value",
+    ),
+    pytest.param(
+        ["--bogus", "x", "--lang", "de"],
+        ["--lang", "de"],
+        ["--bogus", "x"],
+        id="unknown-takes-its-value-along",
+    ),
+    pytest.param([], [], [], id="nothing"),
+]
+
+
+@pytest.mark.parametrize("extra, valid, invalid", SPLIT_CASES)
+def test_split_valid_invalid_options(extra, valid, invalid):
+    assert sc._split_valid_invalid_options(extra, sc.FULL_EXPORT_ALLOWED_OPTS) == (
+        valid,
+        invalid,
     )
-    assert valid == ["--lang", "de", "--epub2"]
-    assert invalid == ["manuscript", "-x"]
 
 
-def test_full_export_allow_list_covers_the_cli_layer_options():
-    # README documents `export-pdf --source-dir=...`; these were dropped before.
-    for name in (
-        "--source-dir",
-        "--resource-path",
-        "--strict-images",
-        "--no-strict-images",
-    ):
-        assert name in sc.FULL_EXPORT_ALLOWED_OPTS
+# The CLI layer of manuscripta.export.book. README documents
+# `export-pdf --source-dir=...`, which the allow-list dropped before #18.
+@pytest.mark.parametrize(
+    "name", ["--source-dir", "--resource-path", "--strict-images", "--no-strict-images"]
+)
+def test_full_export_allow_list_covers_the_cli_layer_option(name):
+    assert name in sc.FULL_EXPORT_ALLOWED_OPTS
 
 
 def test_print_version_allow_list_matches_its_parser():
@@ -137,43 +159,66 @@ def test_export_forwards_format_and_cover(capture_full):
     assert "--lang" in capture_full[0] and "de" in capture_full[0]
 
 
-def test_export_unknown_option_aborts_with_status_2(capture_full, capsys):
+# Each row: the passthrough tokens and the token the abort message must name.
+# --strict-opts is accepted for compatibility: unknown options abort with or
+# without it.
+UNKNOWN_OPTION_CASES = [
+    pytest.param(("--unknown-flag", "--epub2"), "--unknown-flag", id="long-option"),
+    pytest.param(
+        ("--unknown-flag", "--strict-opts"),
+        "--unknown-flag",
+        id="strict-opts-changes-nothing",
+    ),
+    pytest.param(("manuscript",), "manuscript", id="stray-positional"),
+    pytest.param(("-x",), "-x", id="short-option"),
+    pytest.param(("--lang", "de", "--bogus=1"), "--bogus=1", id="with-inline-value"),
+    pytest.param(("--bogus", "value"), "--bogus value", id="with-value"),
+]
+
+
+@pytest.mark.parametrize("extra, named", UNKNOWN_OPTION_CASES)
+def test_export_unknown_option_aborts_with_status_2(extra, named, capture_full, capsys):
     with pytest.raises(SystemExit) as exc:
-        sc.export("pdf", None, "--unknown-flag", "--epub2")
+        sc.export("pdf", None, *extra)
     assert exc.value.code == 2
     out = capsys.readouterr().out
     assert "Invalid options for full_export_book.py" in out
-    assert "--unknown-flag" in out
+    assert named in out
     assert "Aborting" in out and "--help" in out
     # _run_full_export not called: nothing is exported.
     assert capture_full == []
 
 
-def test_export_strict_opts_changes_nothing(capture_full):
-    # Accepted for compatibility; unknown options abort with or without it.
-    with pytest.raises(SystemExit):
-        sc.export("pdf", None, "--unknown-flag", "--strict-opts")
-    assert capture_full == []
+# Each row: the passthrough tokens, what the forwarded argv must contain and
+# what it must not.
+FORWARD_CASES = [
+    pytest.param(
+        ("--", "--lang", "de"), ["--lang", "de"], ["--"], id="bare-double-dash-dropped"
+    ),
+    pytest.param(
+        ("--source-dir=/tmp/book", "--no-strict-images"),
+        ["--source-dir=/tmp/book", "--no-strict-images"],
+        [],
+        id="cli-layer-options-forwarded",
+    ),
+    pytest.param(
+        ("--resource-path", "assets", "--strict-images"),
+        ["--resource-path", "assets", "--strict-images"],
+        [],
+        id="cli-layer-option-with-value",
+    ),
+]
 
 
-def test_export_stray_positional_aborts(capture_full, capsys):
-    with pytest.raises(SystemExit) as exc:
-        sc.export("pdf", None, "manuscript")
-    assert exc.value.code == 2
-    assert "manuscript" in capsys.readouterr().out
-    assert capture_full == []
-
-
-def test_export_bare_double_dash_is_dropped(capture_full):
-    sc.export("pdf", None, "--", "--lang", "de")
-    assert "--" not in capture_full[0]
-    assert "--lang" in capture_full[0]
-
-
-def test_export_forwards_source_dir(capture_full):
-    sc.export("pdf", None, "--source-dir=/tmp/book", "--no-strict-images")
-    assert "--source-dir=/tmp/book" in capture_full[0]
-    assert "--no-strict-images" in capture_full[0]
+@pytest.mark.parametrize("extra, present, absent", FORWARD_CASES)
+def test_export_forwards(extra, present, absent, capture_full):
+    sc.export("pdf", None, *extra)
+    argv = capture_full[0]
+    assert argv[:2] == ["--format", "pdf"]
+    for tok in present:
+        assert tok in argv
+    for tok in absent:
+        assert tok not in argv
 
 
 def test_export_strict_opts_not_forwarded_as_option(capture_full):
@@ -230,13 +275,6 @@ def test_export_all_formats_with_cover(capture_full):
     assert any("cover.jpg" in a for a in argv)
 
 
-def test_export_all_formats_unknown_option_aborts(capture_full, capsys):
-    with pytest.raises(SystemExit):
-        sc.export_all_formats("--bogus")
-    assert capture_full == []
-    assert "Aborting" in capsys.readouterr().out
-
-
 # --- export_epub2 / export_epub_with_cover / export_epub2_with_cover ----
 
 
@@ -245,13 +283,6 @@ def test_export_epub2_sets_flag(capture_full):
     argv = capture_full[0]
     assert "--epub2" in argv
     assert "--lang" in argv and "de" in argv
-
-
-def test_export_epub2_unknown_option_aborts(capture_full, capsys):
-    with pytest.raises(SystemExit):
-        sc.export_epub2("--not-a-flag")
-    assert capture_full == []
-    assert "Aborting" in capsys.readouterr().out
 
 
 def test_export_epub_with_cover_uses_default_cover(capture_full):
@@ -267,13 +298,6 @@ def test_export_epub2_with_cover(capture_full):
     argv = capture_full[0]
     assert "--epub2" in argv
     assert "--cover" in argv
-
-
-def test_export_epub2_with_cover_unknown_option_aborts(capture_full, capsys):
-    with pytest.raises(SystemExit):
-        sc.export_epub2_with_cover("--bogus")
-    assert capture_full == []
-    assert "Aborting" in capsys.readouterr().out
 
 
 # --- print-version wrappers ----------------------------------------------
@@ -320,28 +344,12 @@ def test_export_print_version_safe_honors_user_image_flag(capture_print):
     assert "--skip-images" not in argv
 
 
-def test_export_print_version_forwards_its_own_options(capture_print):
-    sc.export_print_version_epub("--restore", "--exact-name", "--dry-run")
-    argv = capture_print[0]
-    assert "--restore" in argv and "--exact-name" in argv and "--dry-run" in argv
-
-
-@pytest.mark.parametrize(
-    "func",
-    [
-        sc.export_print_version_epub,
-        sc.export_print_version_paperback,
-        sc.export_print_version_hardcover,
-        sc.export_print_version_paperback_safe,
-        sc.export_print_version_hardcover_safe,
-    ],
-)
-def test_export_print_version_unknown_option_aborts(func, capture_print, capsys):
-    with pytest.raises(SystemExit) as exc:
-        func("--bogus")
-    assert exc.value.code == 2
-    assert capture_print == []
-    assert "Invalid options for print_version_build.py" in capsys.readouterr().out
+# The options print_version_build.py consumes itself (its parser, pinned by
+# test_print_version_allow_list_matches_its_parser)
+@pytest.mark.parametrize("opt", ["--dry-run", "--restore", "--exact-name"])
+def test_export_print_version_forwards_its_own_option(opt, capture_print):
+    sc.export_print_version_epub(opt)
+    assert opt in capture_print[0]
 
 
 # --- export_safe + wrappers ---------------------------------------------
@@ -372,14 +380,7 @@ def test_safe_wrapper_does_not_inject_when_user_passed_flag(capture_full):
     assert "--skip-images" not in argv
 
 
-def test_export_safe_unknown_option_aborts(capture_full, capsys):
-    with pytest.raises(SystemExit):
-        sc.export_safe("pdf", "--bogus")
-    assert capture_full == []
-    assert "Aborting" in capsys.readouterr().out
-
-
-# --- --help / -h ---------------------------------------------------------
+# --- every wrapper: --help / -h and unknown options ----------------------
 
 FULL_EXPORT_WRAPPERS = [
     sc.export_pdf,
@@ -408,60 +409,141 @@ PRINT_VERSION_WRAPPERS = [
 ]
 
 
-@pytest.mark.parametrize("func", FULL_EXPORT_WRAPPERS)
+# Every wrapper with the target whose allow-list it validates against
+ALL_WRAPPERS = [
+    *[pytest.param(f, sc.FULL_EXPORT, id=f.__name__) for f in FULL_EXPORT_WRAPPERS],
+    *[pytest.param(f, sc.PRINT_VERSION, id=f.__name__) for f in PRINT_VERSION_WRAPPERS],
+]
+
+# What the help of a target must show: its "Runs ... as" line and one option
+# of every parser it prints (print-version-build forwards to full-export)
+HELP_FRAGMENTS = {
+    sc.FULL_EXPORT: [
+        "Runs full_export_book.py as\n  full-export ",
+        "--output-file OUTPUT_FILE",
+        "--source-dir SOURCE_DIR",
+    ],
+    sc.PRINT_VERSION: [
+        "Runs print_version_build.py as\n  print-version-build ",
+        "--export-format {epub,pdf}",
+        "--output-file OUTPUT_FILE",
+        "--source-dir SOURCE_DIR",
+    ],
+}
+
+
+@pytest.mark.parametrize("func, target", ALL_WRAPPERS)
 @pytest.mark.parametrize("flag", ["--help", "-h"])
-def test_full_export_wrappers_help_prints_usage_and_exports_nothing(
-    func, flag, capture_full, capture_print, capsys
+def test_wrappers_help_prints_usage_and_exports_nothing(
+    func, target, flag, capture_full, capture_print, capsys
 ):
     func(flag)
     assert capture_full == [] and capture_print == []
     out = capsys.readouterr().out
     assert out.startswith("usage: export-shortcut [-h] [OPTION ...]")
-    assert "Runs full_export_book.py as\n  full-export " in out
-    # the forwarded options of full_export_book.py and of its CLI layer
-    assert "--output-file OUTPUT_FILE" in out
-    assert "--source-dir SOURCE_DIR" in out
     assert "exit status 2" in out
+    for fragment in HELP_FRAGMENTS[target]:
+        assert fragment in out
 
 
-@pytest.mark.parametrize("func", PRINT_VERSION_WRAPPERS)
-@pytest.mark.parametrize("flag", ["--help", "-h"])
-def test_print_version_wrappers_help_prints_both_targets(
-    func, flag, capture_full, capture_print, capsys
+@pytest.mark.parametrize("func, target", ALL_WRAPPERS)
+def test_wrappers_abort_on_an_unknown_option(
+    func, target, capture_full, capture_print, capsys
 ):
-    func(flag)
+    with pytest.raises(SystemExit) as exc:
+        func("--bogus")
+    assert exc.value.code == 2
     assert capture_full == [] and capture_print == []
     out = capsys.readouterr().out
-    assert out.startswith("usage: export-shortcut [-h] [OPTION ...]")
-    assert "Runs print_version_build.py as\n  print-version-build " in out
-    assert "--export-format {epub,pdf}" in out
-    assert "--output-file OUTPUT_FILE" in out
+    assert f"Invalid options for {target}" in out
+    assert "Aborting" in out
 
 
-def test_help_names_the_base_arguments_of_the_shortcut(capsys):
-    sc.export_epub2_with_cover("--help")
-    out = capsys.readouterr().out
-    assert "full-export --epub2 --cover assets/covers/cover.jpg [OPTION ...]" in out
+# Each row: a wrapper and the command line its help says it runs
+RUNS_AS = [
+    pytest.param(sc.export_pdf, "full-export --format pdf", id="export_pdf"),
+    pytest.param(sc.export_epub2, "full-export --epub2", id="export_epub2"),
+    pytest.param(
+        sc.export_epub2_with_cover,
+        "full-export --epub2 --cover assets/covers/cover.jpg",
+        id="export_epub2_with_cover",
+    ),
+    pytest.param(
+        sc.export_all_formats_with_cover,
+        "full-export --format pdf,epub,docx,markdown,html --cover assets/covers/cover.jpg",
+        id="export_all_formats_with_cover",
+    ),
+    pytest.param(
+        sc.export_html_safe,
+        "full-export --format html --skip-images",
+        id="export_html_safe",
+    ),
+    pytest.param(
+        sc.export_print_version_epub,
+        "print-version-build",
+        id="export_print_version_epub",
+    ),
+    pytest.param(
+        sc.export_print_version_hardcover_safe,
+        "print-version-build --book-type hardcover --skip-images",
+        id="export_print_version_hardcover_safe",
+    ),
+]
 
 
-def test_help_wins_over_other_options_and_unknown_ones(capture_full, capsys):
-    sc.export_pdf("--lang=de", "--bogus", "--help")
+@pytest.mark.parametrize("func, runs", RUNS_AS)
+def test_help_names_what_the_wrapper_runs(func, runs, capsys):
+    func("--help")
+    assert f"\n  {runs} [OPTION ...]\n" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param(("--lang=de", "--bogus", "--help"), id="help-last"),
+        pytest.param(("--help", "--bogus"), id="help-first"),
+        pytest.param(("--lang", "-h", "de"), id="short-help-between"),
+    ],
+)
+def test_help_wins_over_other_options_and_unknown_ones(extra, capture_full, capsys):
+    sc.export_pdf(*extra)
     assert capture_full == []
     assert "usage:" in capsys.readouterr().out
 
 
-def test_help_uses_the_name_the_shortcut_was_called_as(monkeypatch, capsys):
-    monkeypatch.setattr(sys, "argv", ["/venv/bin/export-pvh", "--help"])
+@pytest.mark.parametrize(
+    "argv0, prog",
+    [
+        pytest.param("/venv/bin/export-pvh", "export-pvh", id="console-script-path"),
+        pytest.param("export-e", "export-e", id="bare-name"),
+        pytest.param("", "export-shortcut", id="no-name-falls-back"),
+    ],
+)
+def test_help_uses_the_name_the_wrapper_was_called_as(argv0, prog, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", [argv0, "--help"])
     sc.export_print_version_hardcover()
-    out = capsys.readouterr().out
-    assert out.startswith("usage: export-pvh [-h] [OPTION ...]")
+    assert capsys.readouterr().out.startswith(f"usage: {prog} [-h] [OPTION ...]")
 
 
-def test_print_shortcut_help_takes_an_explicit_prog(capsys):
-    sc.print_shortcut_help(sc.FULL_EXPORT, ["--format", "pdf"], prog="my-export")
+@pytest.mark.parametrize(
+    "target, base_args, runs",
+    [
+        pytest.param(
+            sc.FULL_EXPORT, ["--format", "pdf"], "full-export --format pdf", id="full"
+        ),
+        pytest.param(
+            sc.PRINT_VERSION,
+            ["--book-type", "paperback"],
+            "print-version-build --book-type paperback",
+            id="print-version",
+        ),
+    ],
+)
+def test_print_shortcut_help_takes_an_explicit_prog(target, base_args, runs, capsys):
+    sc.print_shortcut_help(target, base_args, prog="my-export")
     out = capsys.readouterr().out
     assert out.startswith("usage: my-export [-h] [OPTION ...]")
-    assert "full-export --format pdf [OPTION ...]" in out
+    assert f"\n  {runs} [OPTION ...]\n" in out
 
 
 # --- main() dispatch -----------------------------------------------------
@@ -543,7 +625,31 @@ def test_main_strict_opts_is_forwarded(monkeypatch):
     assert "--strict-opts" in args[2:]
 
 
-def test_main_passthrough_help_prints_the_shortcut_help(capture_full, capsys):
-    sc.main(["export", "--format", "pdf", "--", "--help"])
-    assert capture_full == []
-    assert "full-export --format pdf [OPTION ...]" in capsys.readouterr().out
+# Each row: the main() arguments and the command line the help names
+MAIN_HELP_CASES = [
+    pytest.param(
+        ["export", "--format", "pdf", "--", "--help"],
+        "full-export --format pdf",
+        id="export",
+    ),
+    pytest.param(["epub2", "--", "-h"], "full-export --epub2", id="epub2"),
+    pytest.param(
+        ["print-version", "--book-type", "hardcover", "--", "--help"],
+        "print-version-build --book-type hardcover",
+        id="print-version",
+    ),
+    pytest.param(
+        ["safe", "--format", "epub", "--", "--help"],
+        "full-export --format epub --skip-images",
+        id="safe",
+    ),
+]
+
+
+@pytest.mark.parametrize("argv, runs", MAIN_HELP_CASES)
+def test_main_passthrough_help_prints_the_shortcut_help(
+    argv, runs, capture_full, capture_print, capsys
+):
+    sc.main(argv)
+    assert capture_full == [] and capture_print == []
+    assert f"\n  {runs} [OPTION ...]\n" in capsys.readouterr().out

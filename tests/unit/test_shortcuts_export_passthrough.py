@@ -60,32 +60,41 @@ def test_export_html_safe_does_not_duplicate_safety_flags():
         assert ["--format", "html"] == args[0:2]
 
 
-def test_export_aborts_on_invalid_options(capsys):
+# Each row: the options and what the abort message must name. An unknown
+# option starts no export (#18), with --strict-opts just the same.
+INVALID_OPTION_CASES = [
+    pytest.param(
+        ("--output-file=ok", "--bogus-flag", "value"),
+        "--bogus-flag value",
+        id="unknown-flag-with-value",
+    ),
+    pytest.param(
+        ("--output-file=ok", "--bogus-flag", "--strict-opts"),
+        "--bogus-flag",
+        id="strict-opts-changes-nothing",
+    ),
+    pytest.param(("manuscript",), "manuscript", id="stray-positional"),
+]
+
+
+@pytest.mark.parametrize("extra, named", INVALID_OPTION_CASES)
+def test_export_aborts_on_invalid_options(extra, named, capsys):
     with patch("manuscripta.export.shortcuts._run_full_export") as run:
         with pytest.raises(SystemExit) as exc:
-            se.export_pdf("--output-file=ok", "--bogus-flag", "value")
+            se.export_pdf(*extra)
 
-        # Eine unbekannte Option startet keinen Export (#18)
         assert exc.value.code == 2
         run.assert_not_called()
 
         out, _ = capsys.readouterr()
         assert "Invalid options for full_export_book.py" in out
-        assert "--bogus-flag value" in out
+        assert named in out
 
 
-def test_export_aborts_on_invalid_options_with_strict_too(capsys):
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_export_help_prints_usage_instead_of_exporting(flag, capsys):
     with patch("manuscripta.export.shortcuts._run_full_export") as run:
-        with pytest.raises(SystemExit):
-            se.export_pdf("--output-file=ok", "--bogus-flag", "--strict-opts")
-
-        run.assert_not_called()
-        assert "Invalid options for full_export_book.py" in capsys.readouterr()[0]
-
-
-def test_export_help_prints_usage_instead_of_exporting(capsys):
-    with patch("manuscripta.export.shortcuts._run_full_export") as run:
-        se.export_pdf("--help")
+        se.export_pdf(flag)
 
         run.assert_not_called()
         out, _ = capsys.readouterr()
