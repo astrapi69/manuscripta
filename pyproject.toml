@@ -229,6 +229,7 @@ paths_to_mutate = [
     "src/manuscripta/paths/img_tags.py",
     "src/manuscripta/utils/bulk_extension.py",
     "src/manuscripta/project/reorder.py",
+    "src/manuscripta/project/init.py",
     # src/manuscripta/audiobook/tts/retry.py removed — insufficient
     # mutable surface per ADR-0002 §"Score formula treatment of
     # trampoline-induced equivalence". All three mutmut-3.x mutants
@@ -301,6 +302,7 @@ default = 75
 "src/manuscripta/paths/img_tags.py" = 85
 "src/manuscripta/utils/bulk_extension.py" = 85
 "src/manuscripta/project/reorder.py" = 75
+"src/manuscripta/project/init.py" = 85
 # "src/manuscripta/audiobook/tts/retry.py" = 80 — removed alongside
 # its paths_to_mutate entry above (§14.8.3 insufficient mutable
 # surface). Restore this line to 80 when the module re-enters scope.

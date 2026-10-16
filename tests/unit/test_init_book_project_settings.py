@@ -14,7 +14,9 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
+import json
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -25,6 +27,14 @@ import manuscripta.project.init as mod
 
 APPENDIX = "manuscript/back-matter/appendix.md"
 SETTINGS = mod.INIT_SETTINGS_FILE
+TEMPLATE = "config/data/image_prompt_generation_template.json"
+BAD_YAML = "directories: [a, b"
+
+# A legacy export script with the two placeholders the run replaces
+FULL_EXPORT_SCRIPT = """# legacy
+OUTPUT_FILE = "book"                            # Base name for the output files #TODO replace with your data
+f.write("title: 'CHANGE TO YOUR TITLE'\\nauthor: 'YOUR NAME'\\ndate: '2025'\\nlang: 'en'\\n") #TODO replace with your data
+"""
 
 
 def _defaults() -> dict:
@@ -43,6 +53,28 @@ def _settings_as_directory(base: Path) -> Path:
     path = base / SETTINGS
     path.mkdir(parents=True)
     return path
+
+
+def _read_error(path: Path) -> str:
+    """What the OSError raised by reading ``path`` says."""
+    try:
+        path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return str(exc)
+    raise AssertionError(f"{path} is readable")
+
+
+def _yaml_error(text: str) -> str:
+    """What the YAMLError raised by parsing ``text`` says."""
+    try:
+        yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        return str(exc)
+    raise AssertionError("the text parses")
+
+
+def _lines(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records]
 
 
 @pytest.fixture
@@ -65,36 +97,56 @@ def answers(monkeypatch):
 # load_init_settings
 # ---------------------------------------------------------------------------
 # Each row: a builder preparing base_dir, a builder of the settings expected
-# from the defaults, the level and fragment of the line logged
+# from the defaults, the level and a builder (from base_dir) of the exact
+# line logged: it names the file and quotes the error it hit
 LOAD_SETTINGS_CASES = [
     pytest.param(
         lambda base: None,
         lambda d: d,
-        ("INFO", "No config/init-settings.yaml found, using built-in defaults."),
+        (
+            "INFO",
+            lambda base: "No config/init-settings.yaml found, using built-in defaults.",
+        ),
         id="absent-file-uses-defaults",
     ),
     pytest.param(
         _settings_as_directory,
         lambda d: d,
-        ("WARNING", "Could not read"),
+        (
+            "WARNING",
+            lambda base: f"Could not read {base / SETTINGS} "
+            f"({_read_error(base / SETTINGS)}), falling back to defaults.",
+        ),
         id="unreadable-file-falls-back",
     ),
     pytest.param(
-        lambda base: _write_settings(base, "directories: [a, b"),
+        lambda base: _write_settings(base, BAD_YAML),
         lambda d: d,
-        ("ERROR", "Failed to parse"),
+        (
+            "ERROR",
+            lambda base: f"Failed to parse {base / SETTINGS} "
+            f"({_yaml_error(BAD_YAML)}), falling back to defaults.",
+        ),
         id="invalid-yaml-falls-back",
     ),
     pytest.param(
         lambda base: _write_settings(base, "- a\n- b\n"),
         lambda d: d,
-        ("ERROR", "does not contain a YAML mapping (got list)"),
+        (
+            "ERROR",
+            lambda base: f"{base / SETTINGS} does not contain a YAML mapping "
+            "(got list), falling back to defaults.",
+        ),
         id="list-instead-of-mapping-falls-back",
     ),
     pytest.param(
         lambda base: _write_settings(base, ""),
         lambda d: d,
-        ("ERROR", "does not contain a YAML mapping (got NoneType)"),
+        (
+            "ERROR",
+            lambda base: f"{base / SETTINGS} does not contain a YAML mapping "
+            "(got NoneType), falling back to defaults.",
+        ),
         id="empty-file-falls-back",
     ),
     pytest.param(
@@ -104,7 +156,7 @@ LOAD_SETTINGS_CASES = [
             "files": [f for f in d["files"] if f != "README.md"],
             "exclude": ["README.md"],
         },
-        ("INFO", "Loaded project structure from"),
+        ("INFO", lambda base: f"Loaded project structure from {base / SETTINGS}"),
         id="mapping-is-resolved",
     ),
 ]
@@ -117,10 +169,10 @@ def test_load_init_settings(tmp_path, caplog, prepare, expected, logged):
 
     assert mod.load_init_settings(tmp_path) == expected(_defaults())
 
-    level, fragment = logged
-    assert [r.levelname for r in caplog.records if fragment in r.getMessage()] == [
-        level
-    ]
+    level, line = logged
+    assert [
+        r.levelname for r in caplog.records if r.getMessage() == line(tmp_path)
+    ] == [level]
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +258,33 @@ RESOLVE_CASES = [
         ["  + file: 1", "  + file: 2.5"],
         id="entries-coerced-to-strings",
     ),
+    pytest.param(
+        {"files": "README.md"},
+        lambda d: {**d, "files": []},
+        [
+            "WARNING:'files' should be a list, got str. Ignoring.",
+            "Using custom files list (0 entries).",
+        ],
+        id="scalar-files-yields-empty-list",
+    ),
+    pytest.param(
+        {"include_directories": "assets/audio"},
+        lambda d: d,
+        ["WARNING:'include_directories' should be a list, got str. Ignoring."],
+        id="scalar-include-directories-ignored",
+    ),
+    pytest.param(
+        {"include_files": 3},
+        lambda d: d,
+        ["WARNING:'include_files' should be a list, got int. Ignoring."],
+        id="number-include-files-ignored",
+    ),
+    pytest.param(
+        {"exclude": {"output": True}},
+        lambda d: d,
+        ["WARNING:'exclude' should be a list, got dict. Ignoring."],
+        id="mapping-exclude-ignored",
+    ),
 ]
 
 
@@ -239,6 +318,26 @@ def test_as_list(caplog, value, result, warned):
         f"'exclude' should be a list, got {type(value).__name__}. Ignoring."
         in caplog.text
     ) is warned
+
+
+# ---------------------------------------------------------------------------
+# write_default_init_settings
+# ---------------------------------------------------------------------------
+def test_write_default_init_settings_creates_config_and_logs(tmp_path, caplog):
+    """The defaults land in base_dir/config/init-settings.yaml, config/ (and
+    whatever is missing above it) is created on the way, the write is logged
+    and the returned path is the file written."""
+    caplog.set_level(logging.INFO, logger="manuscripta.init")
+    base = tmp_path / "new-project"
+
+    path = mod.write_default_init_settings(base)
+
+    assert path == base / SETTINGS
+    assert yaml.safe_load(path.read_text(encoding="utf-8")) == {
+        "directories": mod._DEFAULT_DIRECTORIES,
+        "files": mod._DEFAULT_FILES,
+    }
+    assert _lines(caplog) == [f"Created default {path}"]
 
 
 # ---------------------------------------------------------------------------
@@ -285,13 +384,14 @@ def test_log_summary(caplog, fields, logged):
 # create_directories / create_files / check_excluded_on_disk
 # ---------------------------------------------------------------------------
 # Each row: the creator, the entries, the entries already on disk, the
-# (created, existed) stats fields it fills
+# (created, existed) stats fields it fills, the lines logged (one per entry)
 CREATE_CASES = [
     pytest.param(
         mod.create_directories,
         ["a", "b/c"],
         [],
         ("dirs_created", "dirs_existed"),
+        ["Created directory: a", "Created directory: b/c"],
         id="directories-all-new",
     ),
     pytest.param(
@@ -299,6 +399,7 @@ CREATE_CASES = [
         ["a", "b/c"],
         ["a"],
         ("dirs_created", "dirs_existed"),
+        ["Directory already exists: a", "Created directory: b/c"],
         id="directories-one-exists",
     ),
     pytest.param(
@@ -306,20 +407,31 @@ CREATE_CASES = [
         ["a.md", "b/c.md"],
         [],
         ("files_created", "files_existed"),
+        ["Created file: a.md", "Created file: b/c.md"],
         id="files-all-new-with-parents",
+    ),
+    pytest.param(
+        mod.create_files,
+        ["a.md", "b/c/d.md"],
+        [],
+        ("files_created", "files_existed"),
+        ["Created file: a.md", "Created file: b/c/d.md"],
+        id="files-missing-parents-created-all-the-way-down",
     ),
     pytest.param(
         mod.create_files,
         ["a.md", "b/c.md"],
         ["b/c.md"],
         ("files_created", "files_existed"),
+        ["Created file: a.md", "File already exists: b/c.md"],
         id="files-one-exists",
     ),
 ]
 
 
-@pytest.mark.parametrize("creator, entries, existing, fields", CREATE_CASES)
-def test_create_entries(tmp_path, creator, entries, existing, fields):
+@pytest.mark.parametrize("creator, entries, existing, fields, logged", CREATE_CASES)
+def test_create_entries(tmp_path, caplog, creator, entries, existing, fields, logged):
+    caplog.set_level(logging.INFO, logger="manuscripta.init")
     for entry in existing:
         path = tmp_path / entry
         if creator is mod.create_directories:
@@ -338,6 +450,7 @@ def test_create_entries(tmp_path, creator, entries, existing, fields):
     for entry in existing:
         if creator is mod.create_files:
             assert (tmp_path / entry).read_text(encoding="utf-8") == "keep"
+    assert _lines(caplog) == logged
 
 
 # Each row: the excluded entries, the ones present on disk as (entry, kind),
@@ -382,13 +495,14 @@ def test_check_excluded_on_disk(tmp_path, exclude, present, recorded):
 # ---------------------------------------------------------------------------
 # Each row: the items as (entry, kind) with kind "dir", "file" or "missing"
 # (not on disk), the answer typed, the entries left on disk afterwards, the
-# lines printed after the listing
+# lines printed after the listing, the lines logged
 CLEAN_DECISIONS = [
     pytest.param(
         [("d", "dir"), ("f.md", "file")],
         "y",
         [],
         ["  Deleted: d", "  Deleted: f.md"],
+        ["Deleted directory: d", "Deleted file: f.md"],
         id="yes-deletes-both-kinds",
     ),
     pytest.param(
@@ -396,6 +510,7 @@ CLEAN_DECISIONS = [
         "  Y ",
         [],
         ["  Deleted: d"],
+        ["Deleted directory: d"],
         id="answer-is-stripped-and-lowercased",
     ),
     pytest.param(
@@ -403,6 +518,7 @@ CLEAN_DECISIONS = [
         "n",
         ["d", "f.md"],
         ["Skipped. No items deleted."],
+        [],
         id="no-keeps-everything",
     ),
     pytest.param(
@@ -410,6 +526,7 @@ CLEAN_DECISIONS = [
         "",
         ["f.md"],
         ["Skipped. No items deleted."],
+        [],
         id="enter-defaults-to-no",
     ),
     pytest.param(
@@ -417,6 +534,11 @@ CLEAN_DECISIONS = [
         "y",
         [],
         ["  Deleted: d", "  Deleted: f.md"],
+        [
+            "Excluded item not on disk: gone",
+            "Deleted directory: d",
+            "Deleted file: f.md",
+        ],
         id="missing-item-reported-not-listed-not-deleted",
     ),
     pytest.param(
@@ -424,13 +546,17 @@ CLEAN_DECISIONS = [
         "n",
         ["d"],
         ["Skipped. No items deleted."],
+        ["Excluded item not on disk: gone.md"],
         id="missing-item-reported-before-no",
     ),
 ]
 
 
-@pytest.mark.parametrize("items, answer, left, printed", CLEAN_DECISIONS)
-def test_clean_excluded(tmp_path, capsys, answers, items, answer, left, printed):
+@pytest.mark.parametrize("items, answer, left, printed, logged", CLEAN_DECISIONS)
+def test_clean_excluded(
+    tmp_path, capsys, caplog, answers, items, answer, left, printed, logged
+):
+    caplog.set_level(logging.INFO, logger="manuscripta.init")
     _place(tmp_path, items)
     queue, prompts = answers
     queue.append(answer)
@@ -450,6 +576,7 @@ def test_clean_excluded(tmp_path, capsys, answers, items, answer, left, printed)
     assert lines == [""] + missing + listing + printed
     assert prompts == ["\nDelete these items? [y/N]: "]
     assert [e for e in names if (tmp_path / e).exists()] == left
+    assert _lines(caplog) == logged
 
 
 def test_clean_excluded_with_nothing_asks_nothing(tmp_path, capsys, answers):
@@ -485,7 +612,9 @@ def test_clean_excluded_reports_a_failed_deletion(
     out = capsys.readouterr().out
     assert "  Error deleting locked: device busy" in out
     assert "  Deleted: f.md" in out
-    assert "Failed to delete locked: device busy" in caplog.text
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == [
+        "Failed to delete locked: device busy"
+    ]
     assert (tmp_path / "locked").is_dir()
     assert not (tmp_path / "f.md").exists()
 
@@ -539,20 +668,31 @@ def test_update_pyproject(tmp_path, caplog, before, after, logged):
     mod.update_pyproject("new-book", "About it", tmp_path)
 
     assert (toml.load(path) if path.exists() else None) == after
-    assert logged in caplog.text
+    assert _lines(caplog) == [logged]
 
 
 # ---------------------------------------------------------------------------
 # run_init_book_project
 # ---------------------------------------------------------------------------
-def _run(base: Path, clean: bool = False):
-    mod.run_init_book_project(
+def _run(base: Path, clean: bool = False, **overrides):
+    arguments = dict(
         project_name="book",
         project_description="About it",
         book_title="Title",
         author_name="Author",
         base_dir=base,
         clean=clean,
+    )
+    mod.run_init_book_project(**{**arguments, **overrides})
+
+
+def _place_legacy_files(base: Path, script: str = FULL_EXPORT_SCRIPT) -> None:
+    """A pyproject.toml and an export script for the run to update."""
+    (base / "scripts").mkdir()
+    (base / "scripts" / "full_export_book.py").write_text(script, encoding="utf-8")
+    (base / "pyproject.toml").write_text(
+        toml.dumps({"project": {"name": "old", "description": "old"}}),
+        encoding="utf-8",
     )
 
 
@@ -595,6 +735,134 @@ def test_readme_excluded_from_files_is_still_written_with_content(tmp_path):
     assert (tmp_path / "manuscript" / "chapters" / "01-chapter.md").read_text(
         encoding="utf-8"
     ) == ""
+
+
+def test_run_init_keeps_an_existing_readme_and_template(tmp_path):
+    """The generated README.md and image-prompt template are written once:
+    a run never overwrites either when it is already on disk."""
+    readme = tmp_path / "README.md"
+    readme.write_text("mine\n", encoding="utf-8")
+    template = tmp_path / TEMPLATE
+    template.parent.mkdir(parents=True)
+    template.write_text("{}", encoding="utf-8")
+
+    _run(tmp_path)
+
+    assert readme.read_text(encoding="utf-8") == "mine\n"
+    assert template.read_text(encoding="utf-8") == "{}"
+
+
+def test_run_init_writes_a_template_that_describes_the_scaffold(tmp_path):
+    """The image-prompt template is pretty-printed JSON with its documented
+    sections; its paths point into the directories the same run created,
+    its two prompt-file and figures entries agree with each other ("Keep
+    prompt-file mapping stable") and its cover is the one metadata.yaml
+    names."""
+    _run(tmp_path)
+
+    text = (tmp_path / TEMPLATE).read_text(encoding="utf-8")
+    template = json.loads(text)
+    assert len(text.splitlines()) > 1
+    assert set(template) == {
+        "project_name",
+        "description",
+        "author",
+        "language",
+        "structure",
+        "output_formats",
+        "image_generation",
+        "tasks",
+        "notes",
+    }
+    structure, generation = template["structure"], template["image_generation"]
+    assert set(structure) == {
+        "source_format",
+        "chapter_path",
+        "assets_path",
+        "cover_file",
+        "image_prompt_file",
+    }
+    assert set(generation) == {"engine", "prompt_file", "target_path", "style"}
+    assert template["tasks"]
+    assert all(set(task) == {"name", "description"} for task in template["tasks"])
+    assert (tmp_path / structure["chapter_path"]).is_dir()
+    assert (tmp_path / structure["assets_path"]).is_dir()
+    assert (tmp_path / structure["cover_file"]).parent.is_dir()
+    assert (tmp_path / structure["image_prompt_file"]).parent.is_dir()
+    assert generation["prompt_file"] == structure["image_prompt_file"]
+    assert generation["target_path"] == structure["assets_path"]
+    metadata = yaml.safe_load(
+        (tmp_path / "config" / "metadata.yaml").read_text(encoding="utf-8")
+    )
+    assert structure["cover_file"] == metadata["cover_image"]
+
+
+def test_run_init_carries_the_given_metadata_into_every_file_and_logs_it(
+    tmp_path, caplog
+):
+    """Title, author, description, year and language reach metadata.yaml and
+    the legacy export script; the legacy metadata_values.json goes away;
+    each of these edits is logged."""
+    caplog.set_level(logging.INFO, logger="manuscripta.init")
+    _place_legacy_files(tmp_path)
+    legacy = tmp_path / "config" / "metadata_values.json"
+    legacy.parent.mkdir()
+    legacy.write_text("{}", encoding="utf-8")
+
+    _run(tmp_path, year="2031", lang="de")
+
+    metadata = yaml.safe_load(
+        (tmp_path / "config" / "metadata.yaml").read_text(encoding="utf-8")
+    )
+    assert {
+        key: metadata[key]
+        for key in ("title", "author", "description", "date", "language")
+    } == {
+        "title": "Title",
+        "author": "Author",
+        "description": "About it",
+        "date": "2031",
+        "language": "de",
+    }
+    script = (tmp_path / "scripts" / "full_export_book.py").read_text(encoding="utf-8")
+    assert "title: 'Title'\\nauthor: 'Author'\\ndate: '2031'\\nlang: 'de'" in script
+    assert "#TODO" not in script
+    assert not legacy.exists()
+    logged = _lines(caplog)
+    for line in (
+        "Removed legacy file: config/metadata_values.json",
+        "Updated pyproject.toml with name='book'.",
+        "Updated full_export_book.py with metadata.",
+    ):
+        assert line in logged
+
+
+def test_run_init_reads_and_writes_utf8_under_c_locale(tmp_path, monkeypatch):
+    """Every file the run reads or writes is UTF-8 whatever the locale: under
+    LC_ALL=C the locale codec is ASCII and cannot carry the umlauts in the
+    settings file, the export script, the title, the author and the
+    description."""
+    import locale
+
+    saved = locale.setlocale(locale.LC_ALL)
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("LANG", "C")
+    locale.setlocale(locale.LC_ALL, "C")
+    try:
+        _write_settings(tmp_path, "include_files:\n  - Grüße.md\n")
+        _place_legacy_files(tmp_path, "# Grüße\n" + FULL_EXPORT_SCRIPT)
+
+        _run(tmp_path, project_description="Über Bären", book_title="Grüße")
+
+        assert (tmp_path / "Grüße.md").exists()
+        metadata = (tmp_path / "config" / "metadata.yaml").read_bytes().decode("utf-8")
+        assert yaml.safe_load(metadata)["title"] == "Grüße"
+        pyproject = (tmp_path / "pyproject.toml").read_bytes().decode("utf-8")
+        assert toml.loads(pyproject)["project"]["description"] == "Über Bären"
+        script = (tmp_path / "scripts" / "full_export_book.py").read_bytes()
+        assert "title: 'Grüße'" in script.decode("utf-8")
+    finally:
+        locale.setlocale(locale.LC_ALL, saved)
 
 
 # Each row: the clean argument, the answers queued, whether the excluded
@@ -697,3 +965,53 @@ def test_main_rejects_unknown_option(monkeypatch, answers, capsys):
     assert exc.value.code == 2
     assert "unrecognized arguments: --bogus" in capsys.readouterr().err
     assert answers[1] == []
+
+
+def _help_output(monkeypatch, capsys) -> str:
+    """The --help page, rendered wide enough that no entry wraps."""
+    monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.setattr(sys, "argv", ["init-bp", "--help"])
+    with pytest.raises(SystemExit) as exc:
+        mod.main()
+    assert exc.value.code == 0
+    return capsys.readouterr().out
+
+
+def test_help_has_a_description_paragraph_and_help_text_for_clean(
+    monkeypatch, answers, capsys
+):
+    """Presence, not wording (TESTING.md §14.8.1): --help carries a
+    description paragraph between the usage block and the options, and the
+    --clean entry carries help text."""
+    out = _help_output(monkeypatch, capsys)
+
+    usage, _, rest = out.partition("\n\n")
+    assert usage.startswith("usage:")
+    description, _, options = rest.partition("\n\n")
+    assert description.strip() and not description.startswith("options:")
+    assert re.search(r"^\s*--clean\s{2,}\S", options, re.MULTILINE)
+    assert answers[1] == []
+
+
+def test_main_shows_every_action_to_the_operator_tagged_with_its_level(
+    tmp_path, monkeypatch, answers, capsys
+):
+    """The CLI configures INFO-level logging to stderr, so the actions the
+    module docstring promises to log reach the operator, each line tagged
+    with its level. basicConfig is a no-op while pytest's own handlers sit
+    on the root logger, hence the cleared handler list."""
+    root = logging.getLogger()
+    saved_level = root.level
+    monkeypatch.setattr(root, "handlers", [])
+    monkeypatch.setattr(mod, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["init-bp"])
+    answers[0].extend(["my-book", "About it", "Title", "Author", "", ""])
+
+    try:
+        mod.main()
+    finally:
+        root.setLevel(saved_level)
+
+    err = capsys.readouterr().err.splitlines()
+    assert any(re.fullmatch(r"INFO\b.*Created directory: config", line) for line in err)
+    assert (tmp_path / "config" / "metadata.yaml").exists()

@@ -662,3 +662,199 @@ src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_chang
 src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_65
 # parse_args mutant 69: the dest kwarg dropped
 src/manuscripta/utils/bulk_extension.py:manuscripta.utils.bulk_extension.x_parse_args__mutmut_69
+
+# ---------------------------------------------------------------------------
+# project/init.py — triage 2026-10-16
+# src/manuscripta/project/init.py — 32 equivalents across 7 paths
+#   §14.8.3 (trampoline)              : 4 mutants — run_init_book_project 1,
+#                                       2, 3, 4
+#   §14.8.1 (help/description wording): 6 mutants — main 9, 10, 11, 22, 23, 24
+#   ad-hoc (codec-alias)              : 8 mutants — load_init_settings 15;
+#                                       run_init_book_project 81;
+#                                       update_full_export_script 9, 30;
+#                                       update_pyproject 67;
+#                                       write_default_init_settings 19;
+#                                       write_readme 9;
+#                                       write_image_prompt_generation_template 134
+#   ad-hoc (ASCII constant, codec moot): 6 mutants — write_readme 2, 4;
+#                                       write_default_init_settings 15, 17;
+#                                       write_image_prompt_generation_template
+#                                       122, 124
+#   ad-hoc (ensure_ascii on ASCII)    : 3 mutants — write_image_prompt_
+#                                       generation_template 127, 130, 132
+#   ad-hoc (exist_ok behind a guard)  : 3 mutants — create_directories 12, 14, 16
+#   ad-hoc (dead .get default)        : 2 mutants — run_init_book_project 18, 20
+# Triage: branch round2/init (tests/unit/test_init_book_project_settings.py
+# carries the A-side: every logged action as an exact line, the scaffold
+# template's sections and paths, the metadata reaching every file, the
+# UTF-8 contract under LC_ALL=C for files with user content, help PRESENCE
+# and the INFO level of the operator log).
+# ---------------------------------------------------------------------------
+
+# --- §14.8.3 — trampoline-induced equivalence ---
+# One free-function target (run_init_book_project) carries three literal
+# defaults (year "2025", lang "en", clean False); lang draws two mutants
+# (XX-wrap and upper), so Σ = 4 exceeds the 2 × targets stop-rule and the
+# wrapper was read: it binds `args = [project_name, project_description,
+# book_title, author_name, year, lang, base_dir, clean]` from the original
+# signature and forwards them to every mutant, so none of the mutated
+# defaults is ever consulted. The behavioural side of the three defaults is
+# pinned by MAIN_CASES (blank answers become "2025" / "en", --clean absent
+# becomes False) and by the run rows passing year, lang and clean explicitly.
+#
+# run_init_book_project mutant 1: year: str = "2025" -> "XX2025XX"
+src/manuscripta/project/init.py:manuscripta.project.init.x_run_init_book_project__mutmut_1
+# run_init_book_project mutant 2: lang: str = "en" -> "XXenXX"
+src/manuscripta/project/init.py:manuscripta.project.init.x_run_init_book_project__mutmut_2
+# run_init_book_project mutant 3: lang: str = "en" -> "EN"
+src/manuscripta/project/init.py:manuscripta.project.init.x_run_init_book_project__mutmut_3
+# run_init_book_project mutant 4: clean: bool = False -> True
+src/manuscripta/project/init.py:manuscripta.project.init.x_run_init_book_project__mutmut_4
+
+# --- §14.8.1 — CLI help-text wording is incidental ---
+# main mutants 9/10/11: parser description XX-wrap / lower / upper. The
+# PRESENCE of the description paragraph (mutant 8, description=None) is A,
+# killed by test_help_has_a_description_paragraph_and_help_text_for_clean.
+src/manuscripta/project/init.py:manuscripta.project.init.x_main__mutmut_9
+src/manuscripta/project/init.py:manuscripta.project.init.x_main__mutmut_10
+src/manuscripta/project/init.py:manuscripta.project.init.x_main__mutmut_11
+# main mutants 22/23/24: --clean help wording XX-wrap / lower / upper. The
+# PRESENCE of the help text (mutants 14 and 17, help=None / dropped) is A,
+# killed by the same test.
+src/manuscripta/project/init.py:manuscripta.project.init.x_main__mutmut_22
+src/manuscripta/project/init.py:manuscripta.project.init.x_main__mutmut_23
+src/manuscripta/project/init.py:manuscripta.project.init.x_main__mutmut_24
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# Same reasoning as the convert.py / to_absolute.py / to_relative.py /
+# normalize_toc.py / img_tags.py codec-alias clusters: codecs.lookup
+# canonicalises case, so "utf-8" and "UTF-8" name the identical codec. The
+# encoding=None / kwarg-dropped siblings on the files that carry USER content
+# (load_init_settings 13, run_init_book_project 67/69,
+# update_full_export_script 7/26/28, update_pyproject 62/64) are A: killed
+# under LC_ALL=C by test_run_init_reads_and_writes_utf8_under_c_locale.
+#
+# load_init_settings mutant 15: read_text(encoding="utf-8") -> "UTF-8"
+src/manuscripta/project/init.py:manuscripta.project.init.x_load_init_settings__mutmut_15
+# run_init_book_project mutant 81: metadata.yaml write_text(..., encoding="UTF-8")
+src/manuscripta/project/init.py:manuscripta.project.init.x_run_init_book_project__mutmut_81
+# update_full_export_script mutant 9: read_text(encoding="utf-8") -> "UTF-8"
+src/manuscripta/project/init.py:manuscripta.project.init.x_update_full_export_script__mutmut_9
+# update_full_export_script mutant 30: write_text(..., encoding="utf-8") -> "UTF-8"
+src/manuscripta/project/init.py:manuscripta.project.init.x_update_full_export_script__mutmut_30
+# update_pyproject mutant 67: write_text(toml.dumps(data), encoding="UTF-8")
+src/manuscripta/project/init.py:manuscripta.project.init.x_update_pyproject__mutmut_67
+# write_default_init_settings mutant 19: write_text(content, encoding="UTF-8")
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_default_init_settings__mutmut_19
+# write_readme mutant 9: write_text(..., encoding="UTF-8")
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_readme__mutmut_9
+# write_image_prompt_generation_template mutant 134: write_text(..., encoding="UTF-8")
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_image_prompt_generation_template__mutmut_134
+
+# --- Ad-hoc cluster: ASCII-only constant content, the codec is moot ---
+# Reasoning (shared for the six mutants): each of these three writers emits
+# content built from module constants only — write_readme its two-line
+# literal, write_default_init_settings the header comment plus
+# _DEFAULT_DIRECTORIES / _DEFAULT_FILES, write_image_prompt_generation_
+# template its literal dict — and every character in them is ASCII (checked:
+# `content.isascii()` holds for all three). With encoding=None or the kwarg
+# dropped, write_text encodes with the locale codec; every locale codec
+# CPython can start under is an ASCII superset (glibc charmaps and Windows
+# ANSI code pages alike; UTF-16/32 are never locale codecs), so the bytes on
+# disk are identical on every host. The LC_ALL=C technique that kills the
+# user-content siblings cannot tell these apart because there is no
+# non-ASCII byte to miscode. If one of the constants ever gains a non-ASCII
+# character, the C-locale test must be extended and these re-triage to A.
+#
+# write_readme mutant 2: write_text(..., encoding=None)
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_readme__mutmut_2
+# write_readme mutant 4: the encoding kwarg dropped
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_readme__mutmut_4
+# write_default_init_settings mutant 15: write_text(content, encoding=None)
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_default_init_settings__mutmut_15
+# write_default_init_settings mutant 17: the encoding kwarg dropped
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_default_init_settings__mutmut_17
+# write_image_prompt_generation_template mutant 122: write_text(..., encoding=None)
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_image_prompt_generation_template__mutmut_122
+# write_image_prompt_generation_template mutant 124: the encoding kwarg dropped
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_image_prompt_generation_template__mutmut_124
+
+# --- Ad-hoc cluster: ensure_ascii on an ASCII-only literal dict ---
+# Reasoning (shared for mutants 127, 130, 132): json.dumps' ensure_ascii
+# decides only whether non-ASCII characters are written raw or as \uXXXX
+# escapes; the template dict is a literal containing ASCII characters only
+# (see the cluster above), so ensure_ascii=False (orig), None (falsy, same
+# branch), True and the default True all serialise to the identical text.
+#
+# write_image_prompt_generation_template mutant 127: ensure_ascii=False -> None
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_image_prompt_generation_template__mutmut_127
+# write_image_prompt_generation_template mutant 130: the ensure_ascii kwarg dropped
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_image_prompt_generation_template__mutmut_130
+# write_image_prompt_generation_template mutant 132: ensure_ascii=False -> True
+src/manuscripta/project/init.py:manuscripta.project.init.x_write_image_prompt_generation_template__mutmut_132
+
+# --- Ad-hoc cluster: exist_ok behind the exists() guard that excludes it ---
+# Reasoning (shared for mutants 12, 14, 16): create_directories calls
+# `full.mkdir(parents=True, exist_ok=True)` only in the else branch of
+# `if full.exists():`. mkdir consults exist_ok solely to suppress the
+# FileExistsError raised when the target already exists, and the guard
+# has just established that it does not, so exist_ok=None (falsy), the
+# kwarg dropped (default False) and exist_ok=False all take the same path
+# on every sequential execution. Only a concurrent creation between the
+# check and the call could tell them apart; no unit test can stage that
+# deterministically, and the module makes no concurrency promise. The
+# parents=True sibling (mutant 15) is A: "b/c" needs the missing "b". The
+# create_files siblings (12, 14, 16) are A as well: a file's parent is often
+# the base directory itself, which exists.
+#
+# create_directories mutant 12: mkdir(parents=True, exist_ok=None)
+src/manuscripta/project/init.py:manuscripta.project.init.x_create_directories__mutmut_12
+# create_directories mutant 14: the exist_ok kwarg dropped
+src/manuscripta/project/init.py:manuscripta.project.init.x_create_directories__mutmut_14
+# create_directories mutant 16: mkdir(parents=True, exist_ok=False)
+src/manuscripta/project/init.py:manuscripta.project.init.x_create_directories__mutmut_16
+
+# --- Ad-hoc cluster: a .get default that no producer leaves to be used ---
+# Reasoning (shared for mutants 18, 20): `settings` in run_init_book_project
+# comes from load_init_settings only, whose every return path is either
+# _build_default_init_settings() or _resolve_settings(); both build the dict
+# with the "exclude" key set (to [] or to the resolved list). `settings.get(
+# "exclude", [])` therefore never falls back to its default, and replacing
+# that default with None or dropping it changes nothing on any input.
+#
+# run_init_book_project mutant 18: settings.get("exclude", []) -> .get("exclude", None)
+src/manuscripta/project/init.py:manuscripta.project.init.x_run_init_book_project__mutmut_18
+# run_init_book_project mutant 20: the default argument dropped
+src/manuscripta/project/init.py:manuscripta.project.init.x_run_init_book_project__mutmut_20
+
+# (C-category, NOT annotated — 57 survivors by design, until the
+#  specification speaks:
+#  - write_image_prompt_generation_template mutants 4, 5, 8, 9, 10, 13, 14,
+#    15, 18, 19: the template's project_name, description, author and
+#    language are hard-coded placeholders ("your_project_name", "Your
+#    description", "Asterios Raptis", "en") that ignore the project_name,
+#    project_description, author_name and lang the run was given. A test
+#    can only kill them by pinning the placeholders as correct, which §14.5
+#    C forbids. Seam: fill the four fields from the run's arguments; the
+#    metadata assertions in test_run_init_carries_the_given_metadata_into_
+#    every_file_and_logs_it then pin them as A.
+#  - write_image_prompt_generation_template mutants 24, 25, 26 (source_format
+#    "Markdown"), 45-54 (the output_formats identifiers), 59, 60, 61 (engine),
+#    72, 73 (style), 78-80, 83-85, 88-90, 93-95, 98-100, 103-105, 108-110,
+#    113-115 (the four task names and descriptions), 118-120 (notes) and 131
+#    (indent 2 -> 3): free text and identifiers inside a generated file.
+#    §14.8.1 stops at help text and explicitly keeps file output outside the
+#    policy, no module in the package consumes these values (the export
+#    package has per-format flags, not a format list the identifiers could
+#    be checked against), and pinning their spelling would be the hash check
+#    §14.5 A forbids. Seam: either a canonical output-format list in the
+#    export package (45-54 become A) or an ADR extending §14.8.1 to
+#    placeholder text in generated template files (the rest become B).
+#  - main mutant 4: basicConfig's format "%(levelname)s: %(message)s"
+#    dropped, i.e. logging's default "%(levelname)s:%(name)s:%(message)s".
+#    The operator-visible line format is nowhere specified beyond
+#    "level-tagged, carrying the message", which
+#    test_main_shows_every_action_to_the_operator_tagged_with_its_level pins
+#    and which both formats satisfy; §14.8.1 names logging format as outside
+#    its scope and needing its own ADR. (Its sibling mutant 2, format=None,
+#    is A: Formatter(None) renders the bare message without the level tag.))
