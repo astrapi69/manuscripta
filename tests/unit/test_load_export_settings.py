@@ -37,11 +37,24 @@ def settings_file(tmp_path):
 
 # --- load_export_settings ---------------------------------------------------
 
+# Each row: a key of the settings file above, the value loaded for it
+LOADED_SETTINGS = [
+    pytest.param("toc_depth", 3, id="reads-json"),
+    pytest.param(
+        "formats",
+        {"markdown": "gfm", "pdf": "pdf", "epub": "epub"},
+        id="returns-formats",
+    ),
+    pytest.param(
+        "epub_skip_toc_files", ["front-matter/toc.md"], id="returns-epub-skip"
+    ),
+]
 
-def test_load_export_settings_reads_json(settings_file):
+
+@pytest.mark.parametrize("key, expected", LOADED_SETTINGS)
+def test_load_export_settings_reads_json(settings_file, key, expected):
     result = load_export_settings(settings_file)
-    assert result["toc_depth"] == 3
-    assert "markdown" in result["formats"]
+    assert result[key] == expected
 
 
 def test_load_export_settings_missing_file_returns_empty(tmp_path):
@@ -49,66 +62,57 @@ def test_load_export_settings_missing_file_returns_empty(tmp_path):
     assert result == {}
 
 
-def test_load_export_settings_returns_formats(settings_file):
-    result = load_export_settings(settings_file)
-    assert result["formats"] == {"markdown": "gfm", "pdf": "pdf", "epub": "epub"}
-
-
-def test_load_export_settings_returns_epub_skip(settings_file):
-    result = load_export_settings(settings_file)
-    assert result["epub_skip_toc_files"] == ["front-matter/toc.md"]
-
-
 # --- get_section_order_from_settings -----------------------------------------
 
+# Each row: the book type, the order the settings file above yields for it
+# (None: no order, the caller uses its built-in one)
+SECTION_ORDER_CASES = [
+    pytest.param("default", ["chapters", "back-matter/epilogue.md"], id="default"),
+    # ebook is null in the test fixture -> should fall back to 'default' key.
+    pytest.param(
+        "ebook",
+        ["chapters", "back-matter/epilogue.md"],
+        id="ebook-falls-back-to-default",
+    ),
+    pytest.param(
+        "paperback", ["front-matter/toc-print.md", "chapters"], id="paperback-explicit"
+    ),
+    # hardcover is null -> should fall back to 'paperback' key.
+    pytest.param(
+        "hardcover",
+        ["front-matter/toc-print.md", "chapters"],
+        id="hardcover-falls-back-to-paperback",
+    ),
+    pytest.param(
+        "audiobook", ["front-matter/preface.md", "chapters"], id="audiobook-explicit"
+    ),
+    # An unknown book type with no key should return None (caller uses built-in).
+    pytest.param("comic", None, id="unknown-type-returns-none"),
+]
 
-def test_get_section_order_default(settings_file):
+
+@pytest.mark.parametrize("book_type, expected", SECTION_ORDER_CASES)
+def test_get_section_order(settings_file, book_type, expected):
     settings = load_export_settings(settings_file)
-    order = get_section_order_from_settings(settings, "default")
-    assert order == ["chapters", "back-matter/epilogue.md"]
+    order = get_section_order_from_settings(settings, book_type)
+    if expected is None:
+        assert order is None
+    else:
+        assert order == expected
 
 
-def test_get_section_order_ebook_falls_back_to_default(settings_file):
-    """ebook is null in the test fixture -> should fall back to 'default' key."""
-    settings = load_export_settings(settings_file)
-    order = get_section_order_from_settings(settings, "ebook")
-    assert order == ["chapters", "back-matter/epilogue.md"]
+# Each row: settings without a section_order, the book type asked for
+NO_SECTION_ORDER_CASES = [
+    # Empty settings dict should return None.
+    pytest.param({}, "ebook", id="empty-settings-returns-none"),
+    # Settings with other keys but no section_order should return None.
+    pytest.param(
+        {"formats": {"pdf": "pdf"}, "toc_depth": 2}, "ebook", id="no-section-order-key"
+    ),
+]
 
 
-def test_get_section_order_paperback_explicit(settings_file):
-    settings = load_export_settings(settings_file)
-    order = get_section_order_from_settings(settings, "paperback")
-    assert order == ["front-matter/toc-print.md", "chapters"]
-
-
-def test_get_section_order_hardcover_falls_back_to_paperback(settings_file):
-    """hardcover is null -> should fall back to 'paperback' key."""
-    settings = load_export_settings(settings_file)
-    order = get_section_order_from_settings(settings, "hardcover")
-    assert order == ["front-matter/toc-print.md", "chapters"]
-
-
-def test_get_section_order_audiobook_explicit(settings_file):
-    settings = load_export_settings(settings_file)
-    order = get_section_order_from_settings(settings, "audiobook")
-    assert order == ["front-matter/preface.md", "chapters"]
-
-
-def test_get_section_order_unknown_type_returns_none(settings_file):
-    """An unknown book type with no key should return None (caller uses built-in)."""
-    settings = load_export_settings(settings_file)
-    order = get_section_order_from_settings(settings, "comic")
-    assert order is None
-
-
-def test_get_section_order_empty_settings_returns_none():
-    """Empty settings dict should return None."""
-    order = get_section_order_from_settings({}, "ebook")
-    assert order is None
-
-
-def test_get_section_order_no_section_order_key():
-    """Settings with other keys but no section_order should return None."""
-    settings = {"formats": {"pdf": "pdf"}, "toc_depth": 2}
-    order = get_section_order_from_settings(settings, "ebook")
+@pytest.mark.parametrize("settings, book_type", NO_SECTION_ORDER_CASES)
+def test_get_section_order_without_section_order(settings, book_type):
+    order = get_section_order_from_settings(settings, book_type)
     assert order is None

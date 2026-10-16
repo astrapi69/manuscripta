@@ -5,25 +5,26 @@ pytestmark = pytest.mark.unit
 # tests/test_replace_emojis_text.py
 from manuscripta.markdown.emojis import replace_emojis_in_text
 
+# Each row: the mapping, text, the text replaced, the replacements counted
+REPLACE_EMOJI_CASES = [
+    pytest.param(
+        {"🔥": "+++", "📈": "↑"},
+        "growth 📈 and energy 🔥🔥",
+        "growth ↑ and energy ++++++",
+        3,
+        id="basic",
+    ),
+    # If one key were a substring of another (rare with emojis), length-desc
+    # prevents partial; the keys simulate a multi-codepoint “emoji”
+    pytest.param(
+        {"AB": "X", "A": "Y"}, "AB A AB", "X Y X", 3, id="handles-overlap-order"
+    ),
+    pytest.param({"🧠": "★"}, "", "", 0, id="no-change-on-empty"),
+]
 
-def test_replace_basic():
-    mapping = {"🔥": "+++", "📈": "↑"}
-    text = "growth 📈 and energy 🔥🔥"
+
+@pytest.mark.parametrize("mapping, text, expected, count", REPLACE_EMOJI_CASES)
+def test_replace_emojis_in_text(mapping, text, expected, count):
     out, n = replace_emojis_in_text(text, mapping)
-    assert out == "growth ↑ and energy ++++++"
-    assert n == 3
-
-
-def test_replace_handles_overlap_order():
-    # If one key were a substring of another (rare with emojis), length-desc prevents partial
-    mapping = {"AB": "X", "A": "Y"}  # simulate multi-codepoint “emoji”
-    text = "AB A AB"
-    out, n = replace_emojis_in_text(text, mapping)
-    assert out == "X Y X"
-    assert n == 3
-
-
-def test_replace_no_change_on_empty():
-    out, n = replace_emojis_in_text("", {"🧠": "★"})
-    assert out == ""
-    assert n == 0
+    assert out == expected
+    assert n == count

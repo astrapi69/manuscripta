@@ -6,16 +6,19 @@ pytestmark = pytest.mark.unit
 
 from manuscripta.data.emoji_map import EMOJI_MAP
 
-CIRCLE = "◯"  # ◯, the replacement both globe emojis share
+CIRCLE = "◯"  # ◯, the replacement both globes share
 DIAMETER_SIGN = "⌀"  # ⌀, a technical symbol that must not appear in prose
 
+# Each row: an emoji and its replacement
+REPLACEMENTS = [
+    pytest.param("🌐", CIRCLE, id="globe-with-meridians-maps-to-circle"),
+    pytest.param("🌍", CIRCLE, id="both-globes-share-the-same-replacement"),
+]
 
-def test_globe_with_meridians_maps_to_circle():
-    assert EMOJI_MAP["🌐"] == CIRCLE
 
-
-def test_both_globes_share_the_same_replacement():
-    assert EMOJI_MAP["🌐"] == EMOJI_MAP["🌍"]
+@pytest.mark.parametrize("emoji, replacement", REPLACEMENTS)
+def test_replacement(emoji, replacement):
+    assert EMOJI_MAP[emoji] == replacement
 
 
 def test_diameter_sign_is_no_longer_a_replacement():

@@ -4,6 +4,7 @@ pytestmark = pytest.mark.unit
 
 # tests/test_generate_audiobook.py
 
+from functools import partial
 from types import ModuleType
 import sys
 from manuscripta.audiobook.tts.base import TTSAdapter
@@ -34,45 +35,53 @@ def write(p: Path, s: str):
     p.write_text(s, encoding="utf-8")
 
 
-def test_generate_skips_empty_after_cleanup(tmp_path: Path):
-    src = tmp_path / "src"
-    out = tmp_path / "out"
-    src.mkdir()
-    write(
-        src / "01.md", "<figure><img src='x.png'/><figcaption>c</figcaption></figure>"
-    )
-    write(src / "02.md", "Hello **world** [link](https://e.x)")
-
-    tts = DummyTTS()
-    generate_audio_from_markdown(src, out, tts)
-
-    files = sorted(p.name for p in out.glob("*.mp3"))
-    assert files == ["02_02.mp3"]
-    assert len(tts.calls) == 1
-    assert "Hello world link" in tts.calls[0][0]
-
-
-def test_output_directory_is_created(tmp_path: Path):
-    src = tmp_path / "src"
-    out = tmp_path / "nested" / "audio"
-    src.mkdir()
-    write(src / "chapter.md", "# Title\nSome text.")
-
-    tts = DummyTTS()
-    generate_audio_from_markdown(src, out, tts)
-    assert (out / "01_chapter.mp3").exists()
-
-
-def test_generate_skips_meaningless_text(tmp_path: Path):
-    src = tmp_path / "src"
-    out = tmp_path / "out"
-    src.mkdir()
+# Each row: the Markdown files of the source directory with their text, the
+# output directory below tmp_path, the MP3 files generated (sorted) and the
+# text each one was synthesized from, in that order
+GENERATE_CASES = [
+    pytest.param(
+        {
+            "01.md": "<figure><img src='x.png'/><figcaption>c</figcaption></figure>",
+            "02.md": "Hello **world** [link](https://e.x)",
+        },
+        ("out",),
+        ["02_02.mp3"],
+        ["Hello world link"],
+        id="skips-empty-after-cleanup",
+    ),
+    pytest.param(
+        {"chapter.md": "# Title\nSome text."},
+        ("nested", "audio"),
+        ["01_chapter.mp3"],
+        ["Title Some text."],
+        id="output-directory-is-created",
+    ),
     # After cleanup this is only punctuation/newlines → should skip
-    write(src / "x.md", "![i](a.png)\n<figure>...</figure>\n(**)**\n")
+    pytest.param(
+        {"x.md": "![i](a.png)\n<figure>...</figure>\n(**)**\n"},
+        ("out",),
+        [],
+        [],
+        id="skips-meaningless-text",
+    ),
+]
+
+
+@pytest.mark.parametrize("sources, out_parts, mp3_names, texts", GENERATE_CASES)
+def test_generate_audio_from_markdown(
+    sources, out_parts, mp3_names, texts, tmp_path: Path
+):
+    src = tmp_path / "src"
+    src.mkdir()
+    for name, text in sources.items():
+        write(src / name, text)
+    out = tmp_path.joinpath(*out_parts)
+
     tts = DummyTTS()
     generate_audio_from_markdown(src, out, tts)
-    assert list(out.glob("*.mp3")) == []
-    assert tts.calls == []
+
+    assert sorted(p.name for p in out.glob("*.mp3")) == mp3_names
+    assert [text for text, _ in tts.calls] == texts
 
 
 # --- get_tts_adapter coverage: fake adapter modules so we don't need real deps
@@ -114,148 +123,181 @@ def _install_fake_adapter_module(
     monkeypatch.setitem(sys.modules, module_name, mod)
 
 
-def test_get_tts_adapter_google(monkeypatch):
-    _install_fake_adapter_module(
-        monkeypatch,
-        "manuscripta.audiobook.tts.google_translate_adapter",
-        "GoogleTranslateTTSAdapter",
-    )
-    adapter = get_tts_adapter("google", lang="en", voice=None, rate=200)
-    assert hasattr(adapter, "synthesize")
-
-
-def test_get_tts_adapter_pyttsx3(monkeypatch):
-    _install_fake_adapter_module(
-        monkeypatch, "manuscripta.audiobook.tts.pyttsx3_adapter", "Pyttsx3Adapter"
-    )
-    adapter = get_tts_adapter("pyttsx3", lang="en", voice="Alice", rate=180)
-    assert hasattr(adapter, "synthesize")
-
-
-def test_get_tts_adapter_elevenlabs_with_and_without_key(monkeypatch):
-    # Fake ElevenLabs adapter that raises if api_key missing
-    def raises_on_kwargs(kwargs):
-        return not kwargs.get("api_key")
-
-    _install_fake_adapter_module(
-        monkeypatch,
-        "manuscripta.audiobook.tts.elevenlabs_adapter",
-        "ElevenLabsAdapter",
-        raises_on_kwargs,
+def _fake(module: str, class_name: str, raises_on_kwargs=None):
+    """A builder installing the fake ``class_name`` as the tts.<module> adapter."""
+    return partial(
+        _install_fake_adapter_module,
+        module_name=f"manuscripta.audiobook.tts.{module}",
+        class_name=class_name,
+        raises_on_kwargs=raises_on_kwargs,
     )
 
+
+def _needs_api_key(kwargs) -> bool:
+    """Fake ElevenLabs adapter that raises if api_key missing."""
+    return not kwargs.get("api_key")
+
+
+# Each row: the fake adapter to install (None: none), ELEVENLABS_API_KEY (None:
+# unset), engine, voice, rate, the ValueError message (None: an adapter with a
+# synthesize method comes back)
+GET_TTS_ADAPTER_CASES = [
+    pytest.param(
+        _fake("google_translate_adapter", "GoogleTranslateTTSAdapter"),
+        None,
+        "google",
+        None,
+        200,
+        None,
+        id="google",
+    ),
+    pytest.param(
+        _fake("pyttsx3_adapter", "Pyttsx3Adapter"),
+        None,
+        "pyttsx3",
+        "Alice",
+        180,
+        None,
+        id="pyttsx3",
+    ),
     # Without key -> should raise
-    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
-    try:
-        raised = False
-        get_tts_adapter("elevenlabs", lang="en", voice=None, rate=200)
-    except ValueError:
-        raised = True
-    assert raised, "Expected ValueError when ELEVENLABS_API_KEY is missing"
-
+    pytest.param(
+        _fake("elevenlabs_adapter", "ElevenLabsAdapter", _needs_api_key),
+        None,
+        "elevenlabs",
+        None,
+        200,
+        "Missing API key",
+        id="elevenlabs-without-key",
+    ),
     # With key -> should construct
-    monkeypatch.setenv("ELEVENLABS_API_KEY", "XYZ")
-    adapter = get_tts_adapter("elevenlabs", lang="en", voice="Rachel", rate=200)
-    assert hasattr(adapter, "synthesize")
+    pytest.param(
+        _fake("elevenlabs_adapter", "ElevenLabsAdapter", _needs_api_key),
+        "XYZ",
+        "elevenlabs",
+        "Rachel",
+        200,
+        None,
+        id="elevenlabs-with-key",
+    ),
+    pytest.param(
+        None,
+        None,
+        "unknown",
+        None,
+        200,
+        "Unsupported engine: unknown",
+        id="invalid-engine",
+    ),
+]
 
 
-def test_get_tts_adapter_invalid_engine():
-    try:
-        get_tts_adapter("unknown", lang="en", voice=None, rate=200)
-        assert False, "Expected ValueError for invalid engine"
-    except ValueError:
-        pass
+@pytest.mark.parametrize(
+    "install, api_key, engine, voice, rate, error", GET_TTS_ADAPTER_CASES
+)
+def test_get_tts_adapter(install, api_key, engine, voice, rate, error, monkeypatch):
+    if install is not None:
+        install(monkeypatch)
+    if api_key is None:
+        monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("ELEVENLABS_API_KEY", api_key)
+
+    if error is not None:
+        with pytest.raises(ValueError, match=error):
+            get_tts_adapter(engine, lang="en", voice=voice, rate=rate)
+    else:
+        adapter = get_tts_adapter(engine, lang="en", voice=voice, rate=rate)
+        assert hasattr(adapter, "synthesize")
 
 
 # --- Emphasis stripping tests ------------------------------------------------
 
-
-def test_strip_single_line_italic():
-    assert strip_emphasis_markers("*hello*") == "hello"
-
-
-def test_strip_single_line_bold():
-    assert strip_emphasis_markers("**hello**") == "hello"
-
-
-def test_strip_single_line_underscore():
-    assert strip_emphasis_markers("_hello_") == "hello"
-    assert strip_emphasis_markers("__hello__") == "hello"
-
-
-def test_strip_bold_italic_combined():
-    assert strip_emphasis_markers("***hello***") == "hello"
-
-
-def test_strip_multiline_italic():
-    text = "*Als Nächstes untersuchen wir,\nwas geschieht.*"
-    result = strip_emphasis_markers(text)
-    assert "*" not in result
-    assert "Als Nächstes untersuchen wir," in result
-    assert "was geschieht." in result
-
-
-def test_strip_multiline_bold():
-    text = "**Dieser Text geht\nüber zwei Zeilen.**"
-    result = strip_emphasis_markers(text)
-    assert "**" not in result
-    assert "Dieser Text geht" in result
+# Each row: text and the text with its emphasis markers stripped
+STRIP_EMPHASIS_CASES = [
+    pytest.param("*hello*", "hello", id="single-line-italic"),
+    pytest.param("**hello**", "hello", id="single-line-bold"),
+    pytest.param("_hello_", "hello", id="single-line-underscore"),
+    pytest.param("__hello__", "hello", id="single-line-double-underscore"),
+    pytest.param("***hello***", "hello", id="bold-italic-combined"),
+    pytest.param(
+        "*Als Nächstes untersuchen wir,\nwas geschieht.*",
+        "Als Nächstes untersuchen wir,\nwas geschieht.",
+        id="multiline-italic",
+    ),
+    pytest.param(
+        "**Dieser Text geht\nüber zwei Zeilen.**",
+        "Dieser Text geht\nüber zwei Zeilen.",
+        id="multiline-bold",
+    ),
+    pytest.param(
+        "*eins* normal *zwei*", "eins normal zwei", id="multiple-emphasis-on-same-line"
+    ),
+    pytest.param(
+        "Normal **bold** und *italic* text.",
+        "Normal bold und italic text.",
+        id="mixed-emphasis",
+    ),
+]
 
 
-def test_strip_multiple_emphasis_on_same_line():
-    text = "*eins* normal *zwei*"
-    result = strip_emphasis_markers(text)
-    assert result == "eins normal zwei"
-
-
-def test_strip_mixed_emphasis():
-    text = "Normal **bold** und *italic* text."
-    result = strip_emphasis_markers(text)
-    assert result == "Normal bold und italic text."
-
-
-def test_strip_emphasis_in_full_cleanup():
-    """Verify emphasis stripping works through the full clean_markdown_for_tts pipeline."""
-    text = "*Als Nächstes untersuchen wir, was geschieht, wenn dieser Prozess\nnicht bezeugt wird.*"
-    result = clean_markdown_for_tts(text)
-    assert "*" not in result
-    assert "Als Nächstes untersuchen wir" in result
-    assert "nicht bezeugt wird." in result
+@pytest.mark.parametrize("text, expected", STRIP_EMPHASIS_CASES)
+def test_strip_emphasis_markers(text, expected):
+    assert strip_emphasis_markers(text) == expected
 
 
 # --- Newline normalization tests ---------------------------------------------
 
-
-def test_single_newline_becomes_space():
-    assert (
-        normalize_single_newlines("erste Zeile\nzweite Zeile")
-        == "erste Zeile zweite Zeile"
-    )
-
-
-def test_paragraph_break_preserved():
-    result = normalize_single_newlines("Absatz eins.\n\nAbsatz zwei.")
-    assert result == "Absatz eins.\nAbsatz zwei."
-
-
-def test_mixed_newlines():
-    text = "Satz geht\nweiter hier.\n\nNeuer Absatz mit\nUmbruch."
-    result = normalize_single_newlines(text)
-    assert result == "Satz geht weiter hier.\nNeuer Absatz mit Umbruch."
-
-
-def test_single_newline_no_pause_in_full_cleanup():
-    """Soft-wrapped lines should not produce TTS pauses."""
-    text = "Das Bewusstsein steht\nder Ewigkeit gegenüber."
-    result = clean_markdown_for_tts(text)
-    assert "\n" not in result
-    assert "steht der" in result
+# Each row: text and the text with its single newlines turned into spaces
+NORMALIZE_NEWLINE_CASES = [
+    pytest.param(
+        "erste Zeile\nzweite Zeile",
+        "erste Zeile zweite Zeile",
+        id="single-newline-becomes-space",
+    ),
+    pytest.param(
+        "Absatz eins.\n\nAbsatz zwei.",
+        "Absatz eins.\nAbsatz zwei.",
+        id="paragraph-break-preserved",
+    ),
+    pytest.param(
+        "Satz geht\nweiter hier.\n\nNeuer Absatz mit\nUmbruch.",
+        "Satz geht weiter hier.\nNeuer Absatz mit Umbruch.",
+        id="mixed-newlines",
+    ),
+]
 
 
-def test_paragraph_break_kept_in_full_cleanup():
-    """Real paragraph breaks should remain for natural TTS pauses."""
-    text = "Ende von Absatz eins.\n\nAnfang von Absatz zwei."
-    result = clean_markdown_for_tts(text)
-    assert "\n" in result
-    assert "Ende von Absatz eins." in result
-    assert "Anfang von Absatz zwei." in result
+@pytest.mark.parametrize("text, expected", NORMALIZE_NEWLINE_CASES)
+def test_normalize_single_newlines(text, expected):
+    assert normalize_single_newlines(text) == expected
+
+
+# Each row: text and what the full clean_markdown_for_tts pipeline makes of it
+FULL_CLEANUP_CASES = [
+    # Emphasis stripping works through the full pipeline
+    pytest.param(
+        "*Als Nächstes untersuchen wir, was geschieht, wenn dieser Prozess\n"
+        "nicht bezeugt wird.*",
+        "Als Nächstes untersuchen wir, was geschieht, wenn dieser Prozess "
+        "nicht bezeugt wird.",
+        id="strip-emphasis",
+    ),
+    # Soft-wrapped lines should not produce TTS pauses.
+    pytest.param(
+        "Das Bewusstsein steht\nder Ewigkeit gegenüber.",
+        "Das Bewusstsein steht der Ewigkeit gegenüber.",
+        id="single-newline-no-pause",
+    ),
+    # Real paragraph breaks should remain for natural TTS pauses.
+    pytest.param(
+        "Ende von Absatz eins.\n\nAnfang von Absatz zwei.",
+        "Ende von Absatz eins.\nAnfang von Absatz zwei.",
+        id="paragraph-break-kept",
+    ),
+]
+
+
+@pytest.mark.parametrize("text, expected", FULL_CLEANUP_CASES)
+def test_clean_markdown_for_tts(text, expected):
+    assert clean_markdown_for_tts(text) == expected

@@ -6,64 +6,46 @@ pytestmark = pytest.mark.unit
 
 from manuscripta.markdown.bullet_points import convert_bullets_in_text
 
-
-def test_simple_dash_and_star_bullets():
-    input_text = "- First item\n" "* Second item\n" "Normal line\n"
-
-    expected = "• First item  \n" "• Second item  \n" "Normal line\n"
-
-    assert convert_bullets_in_text(input_text) == expected
-
-
-def test_multiline_bullet_item():
-    input_text = (
+# Each row: text and the text with its bullets converted
+BULLET_CASES = [
+    pytest.param(
+        "- First item\n* Second item\nNormal line\n",
+        "• First item  \n• Second item  \nNormal line\n",
+        id="simple-dash-and-star-bullets",
+    ),
+    pytest.param(
         "- First item with continuation line\n"
         "  second line of the item\n"
-        "Next normal line\n"
-    )
-
-    expected = (
+        "Next normal line\n",
         "• First item with continuation line  \n"
         "  second line of the item  \n"
-        "Next normal line\n"
-    )
-
-    assert convert_bullets_in_text(input_text) == expected
-
-
-def test_list_state_resets_for_non_indented_line():
-    input_text = "- Point one\n" "Normal line\n" "  Not a follow-item, just indented\n"
-
-    expected = "• Point one  \n" "Normal line\n" "  Not a follow-item, just indented\n"
-
-    assert convert_bullets_in_text(input_text) == expected
-
-
-def test_code_block_is_ignored():
-    input_text = (
-        "```python\n" "- this is not a bullet, but code\n" "```\n" "- actual bullet\n"
-    )
-
-    expected = (
-        "```python\n" "- this is not a bullet, but code\n" "```\n" "• actual bullet  \n"
-    )
-
-    assert convert_bullets_in_text(input_text) == expected
-
-
-def test_indented_follow_line_without_list_start_not_treated_as_bullet():
-    input_text = (
+        "Next normal line\n",
+        id="multiline-bullet-item",
+    ),
+    pytest.param(
+        "- Point one\nNormal line\n  Not a follow-item, just indented\n",
+        "• Point one  \nNormal line\n  Not a follow-item, just indented\n",
+        id="list-state-resets-for-non-indented-line",
+    ),
+    pytest.param(
+        "```python\n- this is not a bullet, but code\n```\n- actual bullet\n",
+        "```python\n- this is not a bullet, but code\n```\n• actual bullet  \n",
+        id="code-block-is-ignored",
+    ),
+    pytest.param(
         "Normal line\n"
         "  indented line without a list\n"
         "- List item\n"
-        "  continuation line\n"
-    )
-
-    expected = (
+        "  continuation line\n",
         "Normal line\n"
         "  indented line without a list\n"
         "• List item  \n"
-        "  continuation line  \n"
-    )
+        "  continuation line  \n",
+        id="indented-follow-line-without-list-start-not-treated-as-bullet",
+    ),
+]
 
-    assert convert_bullets_in_text(input_text) == expected
+
+@pytest.mark.parametrize("text, expected", BULLET_CASES)
+def test_convert_bullets_in_text(text, expected):
+    assert convert_bullets_in_text(text) == expected

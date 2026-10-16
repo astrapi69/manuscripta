@@ -16,26 +16,32 @@ def write(p: Path, text: str):
     p.write_text(text, encoding="utf-8")
 
 
-def test_basic_link_conversion():
-    text = "Visit [Example](https://example.com) now."
-    out, n = convert_links_in_text(text)
-    assert n == 1
-    assert out == "Visit Example: https://example.com now."
+# Each row: text, the text with its links converted, the links counted
+CONVERT_TEXT_CASES = [
+    pytest.param(
+        "Visit [Example](https://example.com) now.",
+        "Visit Example: https://example.com now.",
+        1,
+        id="basic-link-conversion",
+    ),
+    pytest.param(
+        "![Img](pic.png) and [anchor](#section)",
+        "![Img](pic.png) and [anchor](#section)",
+        0,
+        id="skip-images-and-anchor-links",
+    ),
+    pytest.param(
+        "```\n[Link](https://secret.com)\n``` and `[Another](https://skip.com)`",
+        "```\n[Link](https://secret.com)\n``` and `[Another](https://skip.com)`",
+        0,
+        id="skip-links-in-code",
+    ),
+]
 
 
-def test_skip_images_and_anchor_links():
-    text = "![Img](pic.png) and [anchor](#section)"
-    out, n = convert_links_in_text(text)
-    assert n == 0
-    assert out == text
-
-
-def test_skip_links_in_code():
-    code = "```\n[Link](https://secret.com)\n``` and `[Another](https://skip.com)`"
-    out, n = convert_links_in_text(code)
-    assert n == 0
-    assert "[Link]" in out
-    assert "[Another]" in out
+@pytest.mark.parametrize("text, expected, count", CONVERT_TEXT_CASES)
+def test_convert_links_in_text(text, expected, count):
+    assert convert_links_in_text(text) == (expected, count)
 
 
 def test_file_and_many_conversion(tmp_path: Path):

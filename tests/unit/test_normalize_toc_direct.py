@@ -20,39 +20,39 @@ from manuscripta.markdown.normalize_toc import (
 
 # strip_to_anchors --------------------------------------------------------
 
-
-def test_strip_to_anchors_converts_md_links_to_anchors():
-    assert strip_to_anchors("(chapters/01.md#intro)") == "(#intro)"
-
-
-def test_strip_to_anchors_converts_gfm_links():
-    assert strip_to_anchors("(chapters/01.gfm#intro)") == "(#intro)"
-
-
-def test_strip_to_anchors_converts_markdown_ext():
-    assert strip_to_anchors("(chapters/01.markdown#intro)") == "(#intro)"
-
-
-def test_strip_to_anchors_preserves_anchor_only_links():
-    assert strip_to_anchors("(#intro)") == "(#intro)"
-
-
-def test_strip_to_anchors_leaves_plain_urls_alone():
-    assert strip_to_anchors("(http://example.com/page)") == "(http://example.com/page)"
-
-
-def test_strip_to_anchors_handles_nested_paths():
-    assert strip_to_anchors("(front-matter/sub/toc.md#x)") == "(#x)"
-
-
-def test_strip_to_anchors_handles_multiple_in_one_string():
-    s = "[a](c/01.md#a) and [b](c/02.md#b)"
-    assert strip_to_anchors(s) == "[a](#a) and [b](#b)"
-
-
-def test_strip_to_anchors_leaves_non_link_dots_alone():
+# Each row: the text and what strip_to_anchors makes of it
+STRIP_TO_ANCHORS_CASES = [
+    pytest.param(
+        "(chapters/01.md#intro)", "(#intro)", id="converts-md-links-to-anchors"
+    ),
+    pytest.param("(chapters/01.gfm#intro)", "(#intro)", id="converts-gfm-links"),
+    pytest.param(
+        "(chapters/01.markdown#intro)", "(#intro)", id="converts-markdown-ext"
+    ),
+    pytest.param("(#intro)", "(#intro)", id="preserves-anchor-only-links"),
+    pytest.param(
+        "(http://example.com/page)",
+        "(http://example.com/page)",
+        id="leaves-plain-urls-alone",
+    ),
+    pytest.param("(front-matter/sub/toc.md#x)", "(#x)", id="handles-nested-paths"),
+    pytest.param(
+        "[a](c/01.md#a) and [b](c/02.md#b)",
+        "[a](#a) and [b](#b)",
+        id="handles-multiple-in-one-string",
+    ),
     # Prose containing words that look like an ext should not be rewritten.
-    assert strip_to_anchors("the file name.md is here") == "the file name.md is here"
+    pytest.param(
+        "the file name.md is here",
+        "the file name.md is here",
+        id="leaves-non-link-dots-alone",
+    ),
+]
+
+
+@pytest.mark.parametrize("text, expected", STRIP_TO_ANCHORS_CASES)
+def test_strip_to_anchors(text, expected):
+    assert strip_to_anchors(text) == expected
 
 
 # replace_extension -------------------------------------------------------
@@ -63,89 +63,94 @@ def test_strip_to_anchors_leaves_non_link_dots_alone():
 # regex uses a lookahead `(?=(?:\)|#))` but runs on group(1) of the outer
 # `\(([^)]+)\)` capture, which strips the trailing `)`. Consequence:
 # extension rewriting only fires when the URL is followed by an anchor `#…`,
-# never at a bare end-of-URL. Tests below pin the ACTUAL behaviour; the
-# docstring-contract tests are xfail pending triage.
+# never at a bare end-of-URL. Rows below pin the ACTUAL behaviour; the
+# docstring-contract rows are xfail pending triage.
 
-
-def test_replace_extension_swaps_before_anchor():
-    assert replace_extension("(chapters/01.md#x)", "gfm") == "(chapters/01.gfm#x)"
-
-
-def test_replace_extension_leaves_non_matching_extensions():
-    assert replace_extension("(a.png)", "md") == "(a.png)"
-
-
-def test_replace_extension_only_affects_link_urls_not_prose():
-    assert replace_extension("foo.md is a file", "gfm") == "foo.md is a file"
-
-
-def test_replace_extension_does_not_touch_bare_url_without_anchor():
+# Each row: the text, the target extension and what replace_extension returns
+REPLACE_EXTENSION_CASES = [
+    pytest.param(
+        "(chapters/01.md#x)", "gfm", "(chapters/01.gfm#x)", id="swaps-before-anchor"
+    ),
+    pytest.param("(a.png)", "md", "(a.png)", id="leaves-non-matching-extensions"),
+    pytest.param(
+        "foo.md is a file",
+        "gfm",
+        "foo.md is a file",
+        id="only-affects-link-urls-not-prose",
+    ),
     # Actual behaviour — pins the ambiguity observed. Do not "fix" this
-    # test without also fixing the module and the docstring together.
-    assert replace_extension("(chapters/01.md)", "gfm") == "(chapters/01.md)"
+    # row without also fixing the module and the docstring together.
+    pytest.param(
+        "(chapters/01.md)",
+        "gfm",
+        "(chapters/01.md)",
+        id="does-not-touch-bare-url-without-anchor",
+    ),
+    pytest.param(
+        "(chapters/01.md)",
+        "gfm",
+        "(chapters/01.gfm)",
+        marks=pytest.mark.xfail(
+            reason="docstring promises extension rewrite without anchor; actual "
+            "implementation requires a trailing anchor (see §Behavioral ambiguity)"
+        ),
+        id="should-swap-bare-url-per-docstring",
+    ),
+    pytest.param(
+        "(a.markdown)",
+        "gfm",
+        "(a.gfm)",
+        marks=pytest.mark.xfail(
+            reason="same underlying ambiguity — bare .markdown URL not rewritten"
+        ),
+        id="should-handle-markdown-ext-per-docstring",
+    ),
+]
 
 
-@pytest.mark.xfail(
-    reason="docstring promises extension rewrite without anchor; actual "
-    "implementation requires a trailing anchor (see §Behavioral ambiguity)"
-)
-def test_replace_extension_should_swap_bare_url_per_docstring():
-    assert replace_extension("(chapters/01.md)", "gfm") == "(chapters/01.gfm)"
-
-
-@pytest.mark.xfail(
-    reason="same underlying ambiguity — bare .markdown URL not rewritten"
-)
-def test_replace_extension_should_handle_markdown_ext_per_docstring():
-    assert replace_extension("(a.markdown)", "gfm") == "(a.gfm)"
+@pytest.mark.parametrize("text, ext, expected", REPLACE_EXTENSION_CASES)
+def test_replace_extension(text, ext, expected):
+    assert replace_extension(text, ext) == expected
 
 
 # main -------------------------------------------------------------------
 
-
-def test_main_strip_to_anchors_rewrites_file(tmp_path, monkeypatch, capsys):
-    toc = tmp_path / "toc.md"
-    toc.write_text("- [Ch1](chapters/01.md#intro)\n", encoding="utf-8")
-    monkeypatch.setattr(
-        "sys.argv",
-        ["normalize_toc", "--toc", str(toc), "--mode", "strip-to-anchors"],
-    )
-    main()
-    assert toc.read_text(encoding="utf-8") == "- [Ch1](#intro)\n"
-    out = capsys.readouterr().out
-    assert "✅ TOC normalized" in out
-
-
-def test_main_replace_extension_rewrites_file(tmp_path, monkeypatch, capsys):
-    toc = tmp_path / "toc.md"
+# Each row: the TOC text (None: no file), the arguments after ``--toc <path>``,
+# the text afterwards (None: no file) and a fragment of the summary line
+MAIN_CASES = [
+    pytest.param(
+        "- [Ch1](chapters/01.md#intro)\n",
+        ["--mode", "strip-to-anchors"],
+        "- [Ch1](#intro)\n",
+        "✅ TOC normalized",
+        id="strip-to-anchors-rewrites-file",
+    ),
     # Must include anchor — see §Behavioral ambiguity above.
-    toc.write_text("[Ch1](chapters/01.md#intro)\n", encoding="utf-8")
-    monkeypatch.setattr(
-        "sys.argv",
-        ["normalize_toc", "--toc", str(toc), "--mode", "replace-ext", "--ext", "gfm"],
-    )
-    main()
-    assert toc.read_text(encoding="utf-8") == "[Ch1](chapters/01.gfm#intro)\n"
+    pytest.param(
+        "[Ch1](chapters/01.md#intro)\n",
+        ["--mode", "replace-ext", "--ext", "gfm"],
+        "[Ch1](chapters/01.gfm#intro)\n",
+        "✅ TOC normalized",
+        id="replace-extension-rewrites-file",
+    ),
+    # main() must not raise
+    pytest.param(None, [], None, "TOC not found", id="missing-toc-warns-and-returns"),
+    pytest.param(
+        "- [Ch1](#intro)\n",
+        ["--mode", "strip-to-anchors"],
+        "- [Ch1](#intro)\n",
+        "unchanged",
+        id="no-change-when-already-normalized",
+    ),
+]
 
 
-def test_main_missing_toc_warns_and_returns(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(
-        "sys.argv",
-        ["normalize_toc", "--toc", str(tmp_path / "does-not-exist.md")],
-    )
-    main()  # must not raise
-    out = capsys.readouterr().out
-    assert "TOC not found" in out
-
-
-def test_main_no_change_when_already_normalized(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("text, argv, after, note", MAIN_CASES)
+def test_main(text, argv, after, note, tmp_path, monkeypatch, capsys):
     toc = tmp_path / "toc.md"
-    content = "- [Ch1](#intro)\n"
-    toc.write_text(content, encoding="utf-8")
-    monkeypatch.setattr(
-        "sys.argv",
-        ["normalize_toc", "--toc", str(toc), "--mode", "strip-to-anchors"],
-    )
+    if text is not None:
+        toc.write_text(text, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["normalize_toc", "--toc", str(toc), *argv])
     main()
-    assert toc.read_text(encoding="utf-8") == content  # unchanged
-    assert "unchanged" in capsys.readouterr().out
+    assert (toc.read_text(encoding="utf-8") if toc.exists() else None) == after
+    assert note in capsys.readouterr().out

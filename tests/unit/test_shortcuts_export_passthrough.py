@@ -16,48 +16,119 @@ def test_export_pdf_passthrough():
         assert exp.called
 
 
-def test_export_html_forwards_valid_options():
-    # Wir patchen den internen Runner, um die zusammengesetzten Args zu sehen
+ALL_FORMATS = "pdf,epub,docx,markdown,html"
+DEFAULT_COVER = "assets/covers/cover.jpg"
+
+# Each row: the wrapper, its options and the argv it hands to
+# full_export_book.py: --format first, then the valid options unchanged.
+WRAPPER_ARGS_CASES = [
+    pytest.param(
+        se.export_html,
+        ("--skip-images", "--output-file=foo", "--lang=de"),
+        ["--format", "html", "--skip-images", "--output-file=foo", "--lang=de"],
+        id="export-html-forwards-valid-options",
+    ),
+    # Safe-Mode erzwingt mindestens einen Schutz-Flag
+    pytest.param(
+        se.export_html_safe,
+        ("--output-file=bar",),
+        ["--format", "html", "--skip-images", "--output-file=bar"],
+        id="export-html-safe-adds-skip-images-by-default",
+    ),
+    # User gibt schon einen der Safe-Flags mit: keinen doppelten Safe-Flag injizieren
+    pytest.param(
+        se.export_html_safe,
+        ("--keep-relative-paths", "--output-file=baz"),
+        ["--format", "html", "--keep-relative-paths", "--output-file=baz"],
+        id="export-html-safe-does-not-duplicate-safety-flags",
+    ),
+    # Alle einfachen Wrapper (pdf/epub/docx/markdown/html) sollen --format
+    # korrekt setzen und gültige Optionen unverändert weiterreichen
+    pytest.param(
+        se.export_pdf,
+        ("--output-file=mybook", "--lang=de"),
+        ["--format", "pdf", "--output-file=mybook", "--lang=de"],
+        id="export-wrappers-forward-args-and-format-pdf",
+    ),
+    pytest.param(
+        se.export_epub,
+        ("--output-file=mybook", "--lang=de"),
+        ["--format", "epub", "--output-file=mybook", "--lang=de"],
+        id="export-wrappers-forward-args-and-format-epub",
+    ),
+    pytest.param(
+        se.export_docx,
+        ("--output-file=mybook", "--lang=de"),
+        ["--format", "docx", "--output-file=mybook", "--lang=de"],
+        id="export-wrappers-forward-args-and-format-docx",
+    ),
+    pytest.param(
+        se.export_markdown,
+        ("--output-file=mybook", "--lang=de"),
+        ["--format", "markdown", "--output-file=mybook", "--lang=de"],
+        id="export-wrappers-forward-args-and-format-markdown",
+    ),
+    pytest.param(
+        se.export_html,
+        ("--output-file=mybook", "--lang=de"),
+        ["--format", "html", "--output-file=mybook", "--lang=de"],
+        id="export-wrappers-forward-args-and-format-html",
+    ),
+    # Wenn der Aufrufer schon --keep-relative-paths/--skip-images setzt,
+    # darf kein zusätzlicher Safety-Flag erzwungen werden.
+    pytest.param(
+        se.export_pdf_safe,
+        ("--keep-relative-paths", "--output-file=draft"),
+        ["--format", "pdf", "--keep-relative-paths", "--output-file=draft"],
+        id="export-safe-wrappers-respect-existing-safety-flag-pdf",
+    ),
+    pytest.param(
+        se.export_epub_safe,
+        ("--keep-relative-paths", "--output-file=draft"),
+        ["--format", "epub", "--keep-relative-paths", "--output-file=draft"],
+        id="export-safe-wrappers-respect-existing-safety-flag-epub",
+    ),
+    pytest.param(
+        se.export_docx_safe,
+        ("--keep-relative-paths", "--output-file=draft"),
+        ["--format", "docx", "--keep-relative-paths", "--output-file=draft"],
+        id="export-safe-wrappers-respect-existing-safety-flag-docx",
+    ),
+    pytest.param(
+        se.export_markdown_safe,
+        ("--keep-relative-paths", "--output-file=draft"),
+        ["--format", "markdown", "--keep-relative-paths", "--output-file=draft"],
+        id="export-safe-wrappers-respect-existing-safety-flag-markdown",
+    ),
+    pytest.param(
+        se.export_html_safe,
+        ("--keep-relative-paths", "--output-file=draft"),
+        ["--format", "html", "--keep-relative-paths", "--output-file=draft"],
+        id="export-safe-wrappers-respect-existing-safety-flag-html",
+    ),
+    # Formatliste inkl. html, Cover gesetzt, Extra-Option weitergereicht
+    pytest.param(
+        se.export_all_formats_with_cover,
+        ("--output-file=mybook",),
+        ["--format", ALL_FORMATS, "--cover", DEFAULT_COVER, "--output-file=mybook"],
+        id="export-all-formats-with-cover-includes-html-and-cover",
+    ),
+    # kein Cover-Argument
+    pytest.param(
+        se.export_all_formats,
+        ("--output-file=test",),
+        ["--format", ALL_FORMATS, "--output-file=test"],
+        id="export-all-formats-without-cover",
+    ),
+]
+
+
+@pytest.mark.parametrize("func, extra, args", WRAPPER_ARGS_CASES)
+def test_wrappers_forward_args(func, extra, args):
     with patch("manuscripta.export.shortcuts._run_full_export") as run:
-        se.export_html(
-            "--skip-images",
-            "--output-file=foo",
-            "--lang=de",
-        )
+        func(*extra)
 
-        run.assert_called_once()
-        (args,), _ = run.call_args
-        # args ist die Liste, die an full_export_book geht
-        assert args[0:2] == ["--format", "html"]
-        # alle validen Optionen müssen drin sein
-        assert "--skip-images" in args
-        assert "--output-file=foo" in args
-        assert "--lang=de" in args
-
-
-def test_export_html_safe_adds_skip_images_by_default():
-    with patch("manuscripta.export.shortcuts._run_full_export") as run:
-        se.export_html_safe("--output-file=bar")
-
-        (args,), _ = run.call_args
-        # Safe-Mode erzwingt mindestens einen Schutz-Flag
-        assert ["--format", "html"] == args[0:2]
-        assert "--skip-images" in args
-        assert "--output-file=bar" in args
-
-
-def test_export_html_safe_does_not_duplicate_safety_flags():
-    with patch("manuscripta.export.shortcuts._run_full_export") as run:
-        # User gibt schon einen der Safe-Flags mit
-        se.export_html_safe("--keep-relative-paths", "--output-file=baz")
-
-        (args,), _ = run.call_args
-        # Keinen doppelten Safe-Flag injizieren
-        assert "--keep-relative-paths" in args
-        # es darf *nicht* zusätzlich ein zweiter Safe-Flag automatisch eingefügt werden
-        # (in deinem Code wird nur einer hinzugefügt, wenn gar keiner existiert)
-        # Wir prüfen hier vor allem, dass es nicht crasht und die Liste plausibel ist
-        assert ["--format", "html"] == args[0:2]
+        run.assert_called_once_with(args)
 
 
 # Each row: the options and what the abort message must name. An unknown
@@ -100,93 +171,3 @@ def test_export_help_prints_usage_instead_of_exporting(flag, capsys):
         out, _ = capsys.readouterr()
         assert out.startswith("usage: ")
         assert "full-export --format pdf [OPTION ...]" in out
-
-
-@pytest.mark.parametrize(
-    "func, expected_format",
-    [
-        (se.export_pdf, "pdf"),
-        (se.export_epub, "epub"),
-        (se.export_docx, "docx"),
-        (se.export_markdown, "markdown"),
-    ],
-)
-def test_export_wrappers_forward_args_and_format(func, expected_format):
-    """
-    Alle einfachen Wrapper (pdf/epub/docx/markdown) sollen:
-      - --format korrekt setzen
-      - gültige Optionen unverändert weiterreichen
-    """
-    with patch("manuscripta.export.shortcuts._run_full_export") as run:
-        func("--output-file=mybook", "--lang=de")
-
-        run.assert_called_once()
-        (args,), _ = run.call_args
-
-        # format vorne
-        assert args[0:2] == ["--format", expected_format]
-        # gültige Optionen müssen drin sein
-        assert "--output-file=mybook" in args
-        assert "--lang=de" in args
-
-
-@pytest.mark.parametrize(
-    "func, expected_format",
-    [
-        (se.export_pdf_safe, "pdf"),
-        (se.export_epub_safe, "epub"),
-        (se.export_docx_safe, "docx"),
-        (se.export_markdown_safe, "markdown"),
-    ],
-)
-def test_export_safe_wrappers_respect_existing_safety_flag(func, expected_format):
-    """
-    Wenn der Aufrufer schon --keep-relative-paths/--skip-images setzt,
-    darf kein zusätzlicher Safety-Flag erzwungen werden.
-    """
-    with patch("manuscripta.export.shortcuts._run_full_export") as run:
-        func("--keep-relative-paths", "--output-file=draft")
-
-        run.assert_called_once()
-        (args,), _ = run.call_args
-
-        assert args[0:2] == ["--format", expected_format]
-        assert "--output-file=draft" in args
-
-        tokens = {tok.split("=", 1)[0] for tok in args if tok.startswith("--")}
-        assert "--keep-relative-paths" in tokens
-        # nichts zusätzlich erzwungen
-        assert "--skip-images" not in tokens
-
-
-def test_export_all_formats_with_cover_includes_html_and_cover():
-    with patch("manuscripta.export.shortcuts._run_full_export") as run:
-        se.export_all_formats_with_cover("--output-file=mybook")
-
-        run.assert_called_once()
-        (args,), _ = run.call_args
-
-        # Formatliste inkl. html
-        assert "--format" in args
-        assert "pdf,epub,docx,markdown,html" in args
-
-        # Cover gesetzt
-        assert "--cover" in args
-        assert "assets/covers/cover.jpg" in args
-
-        # Extra-Option weitergereicht
-        assert "--output-file=mybook" in args
-
-
-def test_export_all_formats_without_cover():
-    with patch("manuscripta.export.shortcuts._run_full_export") as run:
-        se.export_all_formats("--output-file=test")
-
-        run.assert_called_once()
-        (args,), _ = run.call_args
-
-        assert "--format" in args
-        assert "pdf,epub,docx,markdown,html" in args
-        assert "--output-file=test" in args
-        # kein Cover-Argument
-        assert "--cover" not in args

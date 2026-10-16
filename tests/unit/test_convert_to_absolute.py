@@ -13,78 +13,68 @@ def write(p: Path, text: str):
     p.write_text(text, encoding="utf-8")
 
 
-def test_converts_relative_image_to_absolute(tmp_path: Path):
-    base = tmp_path
-    chapters = base / "manuscript" / "chapters"
-    img = base / "assets" / "figs" / "a.png"
-    write(img, "x")
-
-    md = chapters / "01.md"
-    rel = os.path.relpath(img, start=md.parent)
-    write(md, f"Before\n![alt]({rel})\nAfter\n")
-
-    changed, count = convert_file_to_absolute(md)
-    assert changed and count == 1
-    out = md.read_text(encoding="utf-8")
-    assert f"![alt]({img.resolve()})" in out
-
-
-def test_keeps_already_absolute_and_skips_missing(tmp_path: Path):
-    base = tmp_path
-    ch = base / "manuscript" / "chapters"
-    img_abs = base / "assets" / "b.png"
-    write(img_abs, "x")
-
-    md = ch / "02.md"
+# Each row: the image file under assets/, the chapter body, the expected
+# (changed, count) and the text of the chapter afterwards (None: unchanged).
+# {rel} is the image path relative to the chapter, {img} its absolute path.
+SINGLE_FILE_CASES = [
+    pytest.param(
+        "figs/a.png",
+        "Before\n![alt]({rel})\nAfter\n",
+        (True, 1),
+        "Before\n![alt]({img})\nAfter\n",
+        id="converts-relative-image-to-absolute",
+    ),
     # one absolute (should remain), one missing (should remain unchanged)
-    write(md, f"![abs]({img_abs}) and ![missing](images/notthere.png)")
-
-    changed, count = convert_file_to_absolute(md)
-    # nothing to convert: first is absolute, second doesn't exist
-    assert (changed is False) and (count == 0)
-    assert md.read_text(encoding="utf-8").count("![") == 2
-
-
-def test_preserves_title_and_handles_angle_brackets(tmp_path: Path):
-    base = tmp_path
-    ch = base / "manuscript" / "chapters"
-    img = base / "assets" / "weird (name).png"
-    write(img, "x")
-
-    md = ch / "03.md"
-    rel = os.path.relpath(img, start=md.parent)
+    pytest.param(
+        "b.png",
+        "![abs]({img}) and ![missing](images/notthere.png)",
+        (False, 0),
+        None,
+        id="keeps-already-absolute-and-skips-missing",
+    ),
     # with a title and with angle-brackets
-    write(md, f'![titled](<{rel}> "Cover")\n![angled](<{rel}>)')
+    pytest.param(
+        "weird (name).png",
+        '![titled](<{rel}> "Cover")\n![angled](<{rel}>)',
+        (True, 2),
+        '![titled]({img} "Cover")\n![angled]({img})',
+        id="preserves-title-and-handles-angle-brackets",
+    ),
+    # Only the visible one converted; code-block and inline stayed as-is
+    pytest.param(
+        "c.png",
+        "Visible ![ok]({rel})\n"
+        "```\ncode ![nope]({rel})\n```\n"
+        "Inline `![nope2]({rel})` end.",
+        (True, 1),
+        "Visible ![ok]({img})\n"
+        "```\ncode ![nope]({rel})\n```\n"
+        "Inline `![nope2]({rel})` end.",
+        id="skips-inside-code-blocks-and-inline-code",
+    ),
+    pytest.param(
+        "x.png",
+        "![abs]({img})",
+        (False, 0),
+        None,
+        id="no-write-when-no-change",
+    ),
+]
 
-    changed, count = convert_file_to_absolute(md)
-    assert changed and count == 2
-    out = md.read_text(encoding="utf-8")
-    assert f'![titled]({img.resolve()} "Cover")' in out
-    assert f"![angled]({img.resolve()})" in out
 
-
-def test_skips_inside_code_blocks_and_inline_code(tmp_path: Path):
-    base = tmp_path
-    ch = base / "manuscript" / "chapters"
-    img = base / "assets" / "c.png"
+@pytest.mark.parametrize("image, body, expected, after", SINGLE_FILE_CASES)
+def test_convert_file_to_absolute(image, body, expected, after, tmp_path: Path):
+    img = tmp_path / "assets" / image
     write(img, "x")
-
-    md = ch / "04.md"
-    rel = os.path.relpath(img, start=md.parent)
-    text = (
-        "Visible ![ok](" + rel + ")\n"
-        "```\ncode ![nope](" + rel + ")\n```\n"
-        "Inline `![nope2](" + rel + ")` end."
-    )
+    md = tmp_path / "manuscript" / "chapters" / "doc.md"
+    fields = {"rel": os.path.relpath(img, start=md.parent), "img": img.resolve()}
+    text = body.format(**fields)
     write(md, text)
 
-    changed, count = convert_file_to_absolute(md)
-    assert changed and count == 1
-    out = md.read_text(encoding="utf-8")
-    # Only the visible one converted; code-block and inline stayed as-is
-    assert f"![ok]({img.resolve()})" in out
-    assert "code ![nope](" in out
-    assert "`![nope2](" in out
+    assert convert_file_to_absolute(md) == expected
+    assert md.read_text(encoding="utf-8") == (
+        text if after is None else after.format(**fields)
+    )
 
 
 def test_directory_walk_multiple_dirs(tmp_path: Path):
@@ -106,16 +96,3 @@ def test_directory_walk_multiple_dirs(tmp_path: Path):
     files_changed, converted = convert_to_absolute([ch, fm])
     assert files_changed == 2
     assert converted == 2
-
-
-def test_no_write_when_no_change(tmp_path: Path):
-    base = tmp_path
-    ch = base / "manuscript" / "chapters"
-    img = base / "assets" / "x.png"
-    write(img, "x")
-    md = ch / "z.md"
-    write(md, f"![abs]({img.resolve()})")
-
-    changed, count = convert_file_to_absolute(md)
-    assert changed is False and count == 0
-    assert md.read_text(encoding="utf-8").startswith("![abs](")

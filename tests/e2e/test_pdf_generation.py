@@ -58,27 +58,116 @@ def _build_pdf(source_dir: Path, **kwargs) -> Path:
     return out
 
 
+# Placements: each takes the fixture root and tmp_path and returns the
+# source dir to export and the cwd to run from.
+
+
+def _in_place(project: Path, tmp_path: Path) -> tuple[Path, Path]:
+    """Export the fixture where it lies, from its parent directory."""
+    return project, project.parent
+
+
+def _from_inside(project: Path, tmp_path: Path) -> tuple[Path, Path]:
+    """Export the fixture where it lies, from inside the project."""
+    return project, tmp_path
+
+
+def _from_elsewhere(project: Path, tmp_path: Path) -> tuple[Path, Path]:
+    """Export the fixture from an unrelated directory under tmp_path."""
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    return project, elsewhere
+
+
+def _copied_into_spaced_dir(project: Path, tmp_path: Path) -> tuple[Path, Path]:
+    """Export a copy of the fixture whose path carries spaces and parens."""
+    target = tmp_path / "My Book (Draft)"
+    shutil.copytree(project, target)
+    return target, tmp_path
+
+
+def _behind_symlink(project: Path, tmp_path: Path) -> tuple[Path, Path]:
+    """Export the fixture through a symlink to it."""
+    link = tmp_path / "linked-book"
+    link.symlink_to(project)
+    return link, tmp_path
+
+
 # --------------------------------------------------------------------------
-# 1–4: Core happy-path
+# Happy-path builds: the images embed and the text survives
 # --------------------------------------------------------------------------
+
+
+# Each row: the conftest fixture to build, its placement (see above), the
+# image count pdfimages must report, the texts pdftotext must show (a tuple
+# lists the spellings font fallback may produce)
+HAPPY_PATH_BUILDS = [
+    pytest.param(
+        "minimal_book_fixture",
+        _in_place,
+        1,
+        ["Chapter One"],
+        id="single-chapter-single-image-embeds",
+    ),
+    pytest.param(
+        "multi_chapter_fixture",
+        _in_place,
+        3,
+        [],
+        id="multi-chapter-all-images-embedded",
+    ),
+    # Original-bug regression: run_export called with source_dir from
+    # a different cwd.
+    pytest.param(
+        "minimal_book_fixture",
+        _from_elsewhere,
+        1,
+        [],
+        id="called-from-different-cwd-with-source-dir",
+    ),
+    pytest.param(
+        "nested_assets_fixture", _in_place, 2, [], id="nested-asset-dirs-resolve"
+    ),
+    pytest.param(
+        "absolute_path_fixture", _in_place, 1, [], id="absolute-path-image-embeds"
+    ),
+    pytest.param(
+        "unicode_fixture",
+        _in_place,
+        1,
+        ["Καλημέρα", ("Élan", "Elan"), "Bücher"],
+        id="unicode-in-paths-and-content",
+    ),
+    pytest.param(
+        "minimal_book_fixture",
+        _copied_into_spaced_dir,
+        1,
+        [],
+        id="source-dir-with-spaces-in-path",
+    ),
+    pytest.param(
+        "minimal_book_fixture", _behind_symlink, 1, [], id="source-dir-as-symlink"
+    ),
+]
 
 
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
-def test_single_chapter_single_image_embeds(minimal_book_fixture, monkeypatch):
-    monkeypatch.chdir(minimal_book_fixture.parent)
-    pdf = _build_pdf(minimal_book_fixture)
+@pytest.mark.parametrize("fixture, place, images, texts", HAPPY_PATH_BUILDS)
+def test_pdf_build_embeds_images(
+    fixture, place, images, texts, request, tmp_path, monkeypatch
+):
+    source_dir, cwd = place(request.getfixturevalue(fixture), tmp_path)
+    monkeypatch.chdir(cwd)
+    pdf = _build_pdf(source_dir)
     assert pdf.exists()
-    assert_pdf_has_images(pdf, 1)
-    assert_pdf_contains_text(pdf, "Chapter One")
-
-
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_multi_chapter_all_images_embedded(multi_chapter_fixture, monkeypatch):
-    monkeypatch.chdir(multi_chapter_fixture.parent)
-    pdf = _build_pdf(multi_chapter_fixture)
-    assert_pdf_has_images(pdf, 3)
+    assert_pdf_has_images(pdf, images)
+    for spellings in texts:
+        if isinstance(spellings, str):
+            assert_pdf_contains_text(pdf, spellings)
+        else:  # font fallbacks may strip accents
+            text = pdf_text(pdf)
+            assert any(s in text for s in spellings), f"None of {spellings} in PDF"
 
 
 @pytest.mark.requires_pandoc
@@ -145,21 +234,8 @@ def test_image_actually_visible_not_just_embedded(minimal_book_fixture, monkeypa
 
 
 # --------------------------------------------------------------------------
-# 5–8: Original-bug regression tests
+# Original-bug regression tests: the library API and its Pandoc argv
 # --------------------------------------------------------------------------
-
-
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_called_from_different_cwd_with_source_dir(
-    minimal_book_fixture, tmp_path, monkeypatch
-):
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    monkeypatch.chdir(elsewhere)
-    pdf = _build_pdf(minimal_book_fixture)
-    assert pdf.exists()
-    assert_pdf_has_images(pdf, 1)
 
 
 def test_called_without_source_dir_raises_typeerror():
@@ -217,71 +293,59 @@ def test_pandoc_invoked_with_no_chdir(minimal_book_fixture, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# 9–10: Image edge cases
+# strict_images contract
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_nested_asset_dirs_resolve(nested_assets_fixture, monkeypatch):
-    monkeypatch.chdir(nested_assets_fixture.parent)
-    pdf = _build_pdf(nested_assets_fixture)
-    assert_pdf_has_images(pdf, 2)
+# Each row: the conftest fixture to build, its placement, the output path
+# relative to the source dir, the paths ManuscriptaImageError.unresolved must
+# list (the message names each of them). Every row builds with
+# strict_images=True and must leave no PDF behind.
+STRICT_IMAGE_FAILURES = [
+    pytest.param(
+        "broken_image_fixture",
+        _in_place,
+        "output/book.pdf",
+        ["missing.png"],
+        id="strict-images-true-raises-on-missing",
+    ),
+    pytest.param(
+        "mixed_image_fixture",
+        _in_place,
+        "output/book.pdf",
+        ["absent.png"],
+        id="mixed-images-strict-lists-only-missing",
+    ),
+    # Pandoc's own resource warning is what the message must surface.
+    pytest.param(
+        "broken_image_fixture",
+        _in_place,
+        "output/book.pdf",
+        ["missing.png"],
+        id="pandoc-warnings-surfaced-when-strict",
+    ),
+    pytest.param(
+        "broken_image_fixture",
+        _from_inside,
+        "out/book.pdf",
+        ["missing.png"],
+        id="failed-build-does-not-leave-partial-pdf",
+    ),
+]
 
 
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
-def test_absolute_path_image_embeds(absolute_path_fixture, monkeypatch):
-    monkeypatch.chdir(absolute_path_fixture.parent)
-    pdf = _build_pdf(absolute_path_fixture)
-    assert_pdf_has_images(pdf, 1)
-
-
-# --------------------------------------------------------------------------
-# 11–14: strict_images contract
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_strict_images_true_raises_on_missing(broken_image_fixture, monkeypatch):
-    monkeypatch.chdir(broken_image_fixture.parent)
-    out = broken_image_fixture / "output" / "book.pdf"
-    with pytest.raises(ManuscriptaImageError) as excinfo:
-        run_export(
-            broken_image_fixture,
-            formats="pdf",
-            output_path=out,
-            skip_images=True,
-            no_type_suffix=True,
-            output_file="book",
-            strict_images=True,
-        )
-    assert "missing.png" in str(excinfo.value)
-    assert not out.exists(), "Strict failure must not leave a partial PDF"
-
-
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_strict_images_false_completes_with_warning(
-    broken_image_fixture, monkeypatch, capsys
+@pytest.mark.parametrize("fixture, place, out, unresolved", STRICT_IMAGE_FAILURES)
+def test_strict_images_missing_raises_and_leaves_no_pdf(
+    fixture, place, out, unresolved, request, tmp_path, monkeypatch
 ):
-    monkeypatch.chdir(broken_image_fixture.parent)
-    pdf = _build_pdf(broken_image_fixture, strict_images=False)
-    assert pdf.exists()
-    assert_pdf_has_images(pdf, 0)
-    out = capsys.readouterr().out
-    assert "missing.png" in out
-
-
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_mixed_images_strict_lists_only_missing(mixed_image_fixture, monkeypatch):
-    monkeypatch.chdir(mixed_image_fixture.parent)
-    out = mixed_image_fixture / "output" / "book.pdf"
+    source_dir, cwd = place(request.getfixturevalue(fixture), tmp_path)
+    monkeypatch.chdir(cwd)
+    out = source_dir / out
     with pytest.raises(ManuscriptaImageError) as excinfo:
         run_export(
-            mixed_image_fixture,
+            source_dir,
             formats="pdf",
             output_path=out,
             skip_images=True,
@@ -290,62 +354,54 @@ def test_mixed_images_strict_lists_only_missing(mixed_image_fixture, monkeypatch
             strict_images=True,
         )
     err = excinfo.value
-    assert err.unresolved == ["absent.png"], err.unresolved
+    assert err.unresolved == unresolved, err.unresolved
+    for name in unresolved:
+        assert name in str(err)
+    assert not out.exists(), f"Partial PDF left at {out}"
+
+
+# Each row: the conftest fixture to build, the image count pdfimages must
+# report, the images the warning on stdout must name, the ones it must not
+# name. Every row builds with strict_images=False and must complete.
+LENIENT_IMAGE_BUILDS = [
+    pytest.param(
+        "broken_image_fixture",
+        0,
+        ["missing.png"],
+        [],
+        id="strict-images-false-completes-with-warning",
+    ),
+    # don't false-warn on the valid one
+    pytest.param(
+        "mixed_image_fixture",
+        1,
+        ["absent.png"],
+        ["present.png"],
+        id="mixed-images-lenient-embeds-valid-skips-missing",
+    ),
+]
 
 
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
-def test_mixed_images_lenient_embeds_valid_skips_missing(
-    mixed_image_fixture, monkeypatch, capsys
+@pytest.mark.parametrize("fixture, images, warned, unwarned", LENIENT_IMAGE_BUILDS)
+def test_lenient_images_build_completes_with_warning(
+    fixture, images, warned, unwarned, request, monkeypatch, capsys
 ):
-    monkeypatch.chdir(mixed_image_fixture.parent)
-    pdf = _build_pdf(mixed_image_fixture, strict_images=False)
-    assert_pdf_has_images(pdf, 1)
-    out = capsys.readouterr().out
-    assert "absent.png" in out
-    assert "present.png" not in out  # don't false-warn on the valid one
-
-
-# --------------------------------------------------------------------------
-# 15–17: Filesystem / encoding edge cases
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_unicode_in_paths_and_content(unicode_fixture, monkeypatch):
-    monkeypatch.chdir(unicode_fixture.parent)
-    pdf = _build_pdf(unicode_fixture)
-    assert_pdf_has_images(pdf, 1)
-    text = pdf_text(pdf)
-    assert "Καλημέρα" in text
-    assert "Élan" in text or "Elan" in text  # font fallbacks may strip accents
-    assert "Bücher" in text or "B\u00fccher" in text
-
-
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_source_dir_with_spaces_in_path(minimal_book_fixture, tmp_path, monkeypatch):
-    target = tmp_path / "My Book (Draft)"
-    shutil.copytree(minimal_book_fixture, target)
-    monkeypatch.chdir(tmp_path)
-    pdf = _build_pdf(target)
-    assert_pdf_has_images(pdf, 1)
-
-
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_source_dir_as_symlink(minimal_book_fixture, tmp_path, monkeypatch):
-    link = tmp_path / "linked-book"
-    link.symlink_to(minimal_book_fixture)
-    monkeypatch.chdir(tmp_path)
-    pdf = _build_pdf(link)
+    project = request.getfixturevalue(fixture)
+    monkeypatch.chdir(project.parent)
+    pdf = _build_pdf(project, strict_images=False)
     assert pdf.exists()
-    assert_pdf_has_images(pdf, 1)
+    assert_pdf_has_images(pdf, images)
+    out = capsys.readouterr().out
+    for name in warned:
+        assert name in out
+    for name in unwarned:
+        assert name not in out
 
 
 # --------------------------------------------------------------------------
-# 18–20: Pandoc / LaTeX integration
+# Pandoc / LaTeX integration
 # --------------------------------------------------------------------------
 
 
@@ -372,24 +428,6 @@ def test_pandoc_stderr_surfaced_on_failure(minimal_book_fixture, monkeypatch):
     assert (
         "yaml" in msg or "metadata" in msg or "parse" in msg
     ), f"Pandoc stderr should be in the message; got: {excinfo.value}"
-
-
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_pandoc_warnings_surfaced_when_strict(broken_image_fixture, monkeypatch):
-    monkeypatch.chdir(broken_image_fixture.parent)
-    out = broken_image_fixture / "output" / "book.pdf"
-    with pytest.raises(ManuscriptaImageError) as excinfo:
-        run_export(
-            broken_image_fixture,
-            formats="pdf",
-            output_path=out,
-            skip_images=True,
-            no_type_suffix=True,
-            output_file="book",
-            strict_images=True,
-        )
-    assert "missing.png" in str(excinfo.value)
 
 
 def test_pdf_engine_failure_produces_clear_error(minimal_book_fixture, monkeypatch):
@@ -422,14 +460,28 @@ def test_pdf_engine_failure_produces_clear_error(minimal_book_fixture, monkeypat
 
 
 # --------------------------------------------------------------------------
-# 21–24: Output / artifact tests
+# Output / artifact tests
 # --------------------------------------------------------------------------
+
+
+# Each row: the explicit output path under tmp_path (its parents do not
+# exist yet), the output_file name the library must not derive a path from.
+# Every row builds minimal_book_fixture from tmp_path.
+OUTPUT_PATH_CASES = [
+    pytest.param("outdir/named.pdf", "ignored", id="output-path-respected"),
+    pytest.param(
+        "deep/nest/book.pdf", "book", id="output-directory-created-if-missing"
+    ),
+]
 
 
 @pytest.mark.requires_pandoc
 @pytest.mark.requires_latex
-def test_output_path_respected(minimal_book_fixture, tmp_path, monkeypatch):
-    explicit = tmp_path / "outdir" / "named.pdf"
+@pytest.mark.parametrize("out, output_file", OUTPUT_PATH_CASES)
+def test_explicit_output_path_is_the_only_pdf(
+    out, output_file, minimal_book_fixture, tmp_path, monkeypatch
+):
+    explicit = tmp_path / out
     monkeypatch.chdir(tmp_path)
     run_export(
         minimal_book_fixture,
@@ -437,32 +489,14 @@ def test_output_path_respected(minimal_book_fixture, tmp_path, monkeypatch):
         output_path=explicit,
         skip_images=True,
         no_type_suffix=True,
-        output_file="ignored",
+        output_file=output_file,
     )
     assert explicit.exists()
     # Library must NOT silently dump elsewhere.
-    assert not (Path.cwd() / "named.pdf").exists()
+    assert not (Path.cwd() / explicit.name).exists()
     # The default derived path under source_dir/output should not be present.
-    default = minimal_book_fixture / "output" / "ignored.pdf"
+    default = minimal_book_fixture / "output" / f"{output_file}.pdf"
     assert not default.exists()
-
-
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_output_directory_created_if_missing(
-    minimal_book_fixture, tmp_path, monkeypatch
-):
-    out = tmp_path / "deep" / "nest" / "book.pdf"
-    monkeypatch.chdir(tmp_path)
-    run_export(
-        minimal_book_fixture,
-        formats="pdf",
-        output_path=out,
-        skip_images=True,
-        no_type_suffix=True,
-        output_file="book",
-    )
-    assert out.exists()
 
 
 @pytest.mark.requires_pandoc
@@ -480,28 +514,8 @@ def test_no_temp_files_left_behind(minimal_book_fixture, tmp_path, monkeypatch):
     assert not leftover, f"LaTeX/Pandoc debris left behind: {leftover}"
 
 
-@pytest.mark.requires_pandoc
-@pytest.mark.requires_latex
-def test_failed_build_does_not_leave_partial_pdf(
-    broken_image_fixture, tmp_path, monkeypatch
-):
-    out = tmp_path / "out" / "book.pdf"
-    monkeypatch.chdir(tmp_path)
-    with pytest.raises(ManuscriptaError):
-        run_export(
-            broken_image_fixture,
-            formats="pdf",
-            output_path=out,
-            skip_images=True,
-            no_type_suffix=True,
-            output_file="book",
-            strict_images=True,
-        )
-    assert not out.exists(), f"Partial PDF left at {out}"
-
-
 # --------------------------------------------------------------------------
-# 25: Performance / scale
+# Performance / scale
 # --------------------------------------------------------------------------
 
 

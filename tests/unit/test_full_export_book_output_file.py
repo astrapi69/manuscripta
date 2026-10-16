@@ -71,41 +71,45 @@ def run_main_with_args(
         sys.stdout = old_stdout
 
 
-def test_output_file_explicit(monkeypatch, tmp_path):
-    out = run_main_with_args(
-        monkeypatch, ["--output-file", "custom"], tmp_path, stub_project_name="ignored"
-    )
-    assert "custom_ebook" in out
-
-
-def test_output_file_from_pyproject(monkeypatch, tmp_path):
+# Each row: the arguments after --skip-images, a preset OUTPUT_FILE, the
+# stubbed project name and the output name main() prints
+OUTPUT_FILE_CASES = [
+    pytest.param(
+        ["--output-file", "custom"], None, "ignored", "custom_ebook", id="explicit"
+    ),
     # Here we bypass TOML parsing and directly control return value
-    out = run_main_with_args(monkeypatch, [], tmp_path, stub_project_name="demo-book")
-    assert "demo-book_ebook" in out
-
-
-def test_output_file_preset(monkeypatch, tmp_path):
-    out = run_main_with_args(
-        monkeypatch,
-        [],
-        tmp_path,
-        preset_output="presetname",
-        stub_project_name="ignored",
-    )
-    assert "presetname_ebook" in out
-
-
-def test_output_file_book_type(monkeypatch, tmp_path):
-    out = run_main_with_args(
-        monkeypatch,
+    pytest.param([], None, "demo-book", "demo-book_ebook", id="from-pyproject"),
+    pytest.param([], "presetname", "ignored", "presetname_ebook", id="preset"),
+    pytest.param(
         ["--book-type", "paperback"],
-        tmp_path,
-        stub_project_name="demo-book",
-    )
-    assert "demo-book_paperback" in out
-
-
-def test_output_file_broken_pyproject(monkeypatch, tmp_path):
+        None,
+        "demo-book",
+        "demo-book_paperback",
+        id="book-type",
+    ),
+    pytest.param(
+        ["--book-type", "hardcover"],
+        None,
+        "demo-book",
+        "demo-book_hardcover",
+        id="book-type-hardcover",
+    ),
     # Simulate parsing error fallback
-    out = run_main_with_args(monkeypatch, [], tmp_path, stub_project_name="book")
-    assert "book_ebook" in out
+    pytest.param([], None, "book", "book_ebook", id="broken-pyproject"),
+]
+
+
+@pytest.mark.parametrize(
+    "args, preset_output, stub_project_name, expected", OUTPUT_FILE_CASES
+)
+def test_output_file(
+    args, preset_output, stub_project_name, expected, monkeypatch, tmp_path
+):
+    out = run_main_with_args(
+        monkeypatch,
+        args,
+        tmp_path,
+        preset_output=preset_output,
+        stub_project_name=stub_project_name,
+    )
+    assert expected in out

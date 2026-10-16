@@ -14,27 +14,52 @@ class DummyCompleted:
         self.stderr = stderr
 
 
-def test_clean_git_cache_calls_commands_in_order(monkeypatch, tmp_path: Path, capsys):
+# Each row: aggressive?, the prune spec, the reflog command, the gc command
+COMMAND_CASES = [
+    pytest.param(
+        True,
+        "now",
+        ["git", "reflog", "expire", "--expire=now", "--all"],
+        ["git", "gc", "--prune=now", "--aggressive"],
+        id="calls-commands-in-order",
+    ),
+    # no --aggressive
+    pytest.param(
+        False,
+        "1.week.ago",
+        ["git", "reflog", "expire", "--expire=1.week.ago", "--all"],
+        ["git", "gc", "--prune=1.week.ago"],
+        id="non-aggressive",
+    ),
+    pytest.param(
+        True,
+        "1.week.ago",
+        ["git", "reflog", "expire", "--expire=1.week.ago", "--all"],
+        ["git", "gc", "--prune=1.week.ago", "--aggressive"],
+        id="aggressive-with-prune-spec",
+    ),
+]
+
+
+@pytest.mark.parametrize("aggressive, prune, reflog, gc", COMMAND_CASES)
+def test_clean_git_cache_runs_commands(
+    monkeypatch, tmp_path: Path, capsys, aggressive, prune, reflog, gc
+):
     calls = []
 
     def fake_run(cmd, cwd=None, check=True, capture_output=True, text=True):
         # record the call
-        calls.append((tuple(cmd), Path(cwd) if cwd else None))
+        calls.append((cmd, Path(cwd) if cwd else None))
         # mimic successful git output
         return DummyCompleted(stdout="ok", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     # Act
-    clean_git_cache(cwd=tmp_path, aggressive=True, prune="now")
+    clean_git_cache(cwd=tmp_path, aggressive=aggressive, prune=prune)
 
     # Assert order & args
-    assert len(calls) == 2
-    assert calls[0][0] == ("git", "reflog", "expire", "--expire=now", "--all")
-    assert calls[0][1] == tmp_path
-
-    assert calls[1][0] == ("git", "gc", "--prune=now", "--aggressive")
-    assert calls[1][1] == tmp_path
+    assert calls == [(reflog, tmp_path), (gc, tmp_path)]
 
     # Ensure user-friendly prints happened
     out = capsys.readouterr().out
@@ -57,28 +82,3 @@ def test_clean_git_cache_propagates_errors(monkeypatch, tmp_path: Path):
 
     assert exc.value.returncode == 128
     assert "not a git repository" in (exc.value.stderr or "").lower()
-
-
-def test_clean_git_cache_non_aggressive(monkeypatch, tmp_path: Path):
-    recorded = {}
-
-    def fake_run(cmd, cwd=None, check=True, capture_output=True, text=True):
-        # store last command per 'phase'
-        if cmd[1] == "reflog":
-            recorded["reflog"] = cmd
-        elif cmd[1] == "gc":
-            recorded["gc"] = cmd
-        return DummyCompleted()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    clean_git_cache(cwd=tmp_path, aggressive=False, prune="1.week.ago")
-
-    assert recorded["reflog"] == [
-        "git",
-        "reflog",
-        "expire",
-        "--expire=1.week.ago",
-        "--all",
-    ]
-    assert recorded["gc"] == ["git", "gc", "--prune=1.week.ago"]  # no --aggressive

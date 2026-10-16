@@ -18,46 +18,150 @@ def read(p: Path) -> str:
     return p.read_text(encoding="utf-8")
 
 
-def test_header_bold_removed_only_in_headers(tmp_path: Path):
-    src = """# **Main Title**
+MIXED_SRC = """# **Main Title**
 Some paragraph with **bold** should stay bold.
 ### **From Paper to Practice**
 End.
 """
-    expected = """# Main Title
+MIXED_EXPECTED = """# Main Title
 Some paragraph with **bold** should stay bold.
 ### From Paper to Practice
 End.
 """
-    f = write(tmp_path / "doc.md", src)
-    changes, wrote = m.process_file(f, allowed_levels=None, dry_run=False, backup=True)
-    assert changes == 2
-    assert wrote is True
-    assert read(f) == expected
-
-    # Backup created and equals original
-    bak = f.with_suffix(".md.bak")
-    assert bak.exists()
-    assert read(bak) == src
-
-
-def test_levels_filter_only_h3_changes(tmp_path: Path):
-    src = """## **Keep Bold** (H2)
+LEVELS_SRC = """## **Keep Bold** (H2)
 ### **Change Me** (H3)
 #### **Also Change Me** (H4)
 """
-    expected = """## **Keep Bold** (H2)
+LEVELS_EXPECTED = """## **Keep Bold** (H2)
 ### Change Me (H3)
 #### Also Change Me (H4)
 """
-    f = write(tmp_path / "doc.md", src)
+
+# Each row: the text of doc.md, the header levels allowed (None: all), dry run?,
+# backup?, the changes counted, written?, the text of doc.md afterwards, whether
+# doc.md.bak exists afterwards (holding the original text)
+PROCESS_FILE_CASES = [
+    pytest.param(
+        MIXED_SRC,
+        None,
+        False,
+        True,
+        2,
+        True,
+        MIXED_EXPECTED,
+        True,
+        id="header-bold-removed-only-in-headers",
+    ),
     # Only levels 3 and 4
-    changes, wrote = m.process_file(
-        f, allowed_levels={3, 4}, dry_run=False, backup=False
+    pytest.param(
+        LEVELS_SRC,
+        {3, 4},
+        False,
+        False,
+        2,
+        True,
+        LEVELS_EXPECTED,
+        False,
+        id="levels-filter-only-h3-changes",
+    ),
+    # File unchanged
+    pytest.param(
+        "### **X**\n",
+        None,
+        True,
+        True,
+        1,
+        False,
+        "### **X**\n",
+        False,
+        id="dry-run-reports-but-does-not-write",
+    ),
+    pytest.param(
+        "### **Title**\n",
+        None,
+        False,
+        False,
+        1,
+        True,
+        "### Title\n",
+        False,
+        id="no-backup-when-disabled",
+    ),
+    pytest.param(
+        "### Title\nParagraph **bold** stays.\n",
+        None,
+        False,
+        True,
+        0,
+        False,
+        "### Title\nParagraph **bold** stays.\n",
+        False,
+        id="no-change-when-no-bold-in-header",
+    ),
+    pytest.param(
+        "### **Title** with suffix\n",
+        None,
+        False,
+        False,
+        1,
+        True,
+        "### Title with suffix\n",
+        False,
+        id="trailing-text-after-bold-is-preserved",
+    ),
+    pytest.param(
+        "# **A**\n", {1}, False, False, 1, True, "# A\n", False, id="levels-h1"
+    ),
+    pytest.param(
+        "## **A**\n", {2}, False, False, 1, True, "## A\n", False, id="levels-h2"
+    ),
+    pytest.param(
+        "### **A**\n", {3}, False, False, 1, True, "### A\n", False, id="levels-h3"
+    ),
+    pytest.param(
+        "### **A**\n",
+        {4},
+        False,
+        False,
+        0,
+        False,
+        "### **A**\n",
+        False,
+        id="levels-h4-leaves-h3",
+    ),
+    pytest.param(
+        "###### **A**\n",
+        None,
+        False,
+        False,
+        1,
+        True,
+        "###### A\n",
+        False,
+        id="levels-none-allows-h6",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "src, levels, dry_run, backup, changes, written, text_after, bak_exists",
+    PROCESS_FILE_CASES,
+)
+def test_process_file(
+    src, levels, dry_run, backup, changes, written, text_after, bak_exists, tmp_path
+):
+    f = write(tmp_path / "doc.md", src)
+    assert m.process_file(f, allowed_levels=levels, dry_run=dry_run, backup=backup) == (
+        changes,
+        written,
     )
-    assert changes == 2
-    assert wrote is True
-    assert read(f) == expected
+    assert read(f) == text_after
+
+    bak = f.with_suffix(".md.bak")
+    assert bak.exists() is bak_exists
+    if bak_exists:
+        # Backup created and equals original
+        assert read(bak) == src
 
 
 def test_recursive_and_extensions(tmp_path: Path):
@@ -79,56 +183,3 @@ def test_recursive_and_extensions(tmp_path: Path):
     assert total_changes == 2
     assert read(mdx) == "### MDX Title\n"
     assert read(md) == "### MD Title\n"
-
-
-def test_dry_run_reports_but_does_not_write(
-    tmp_path: Path, capsys: pytest.CaptureFixture
-):
-    src = "### **X**\n"
-    f = write(tmp_path / "doc.md", src)
-    changes, wrote = m.process_file(f, allowed_levels=None, dry_run=True, backup=True)
-    assert changes == 1
-    assert wrote is False
-    # File unchanged
-    assert read(f) == src
-
-
-def test_no_backup_when_disabled(tmp_path: Path):
-    f = write(tmp_path / "doc.md", "### **Title**\n")
-    changes, wrote = m.process_file(f, allowed_levels=None, dry_run=False, backup=False)
-    assert changes == 1 and wrote is True
-    assert not (tmp_path / "doc.md.bak").exists()
-
-
-def test_no_change_when_no_bold_in_header(tmp_path: Path):
-    f = write(tmp_path / "doc.md", "### Title\nParagraph **bold** stays.\n")
-    changes, wrote = m.process_file(f, allowed_levels=None, dry_run=False, backup=True)
-    assert changes == 0
-    assert wrote is False
-    assert read(f) == "### Title\nParagraph **bold** stays.\n"
-
-
-def test_trailing_text_after_bold_is_preserved(tmp_path: Path):
-    f = write(tmp_path / "doc.md", "### **Title** with suffix\n")
-    changes, wrote = m.process_file(f, allowed_levels=None, dry_run=False, backup=False)
-    assert changes == 1 and wrote is True
-    assert read(f) == "### Title with suffix\n"
-
-
-@pytest.mark.parametrize(
-    "levels,header,should_change",
-    [
-        ({1}, "# **A**\n", True),
-        ({2}, "## **A**\n", True),
-        ({3}, "### **A**\n", True),
-        ({4}, "### **A**\n", False),
-        (None, "###### **A**\n", True),
-    ],
-)
-def test_levels_parametrized(tmp_path: Path, levels, header, should_change):
-    f = write(tmp_path / "doc.md", header)
-    changes, wrote = m.process_file(
-        f, allowed_levels=levels, dry_run=False, backup=False
-    )
-    assert (changes > 0) == should_change
-    assert wrote == should_change

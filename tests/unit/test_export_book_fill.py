@@ -56,63 +56,73 @@ def _valid_project(root: Path) -> Path:
     return root
 
 
+def _file(path: Path) -> Path:
+    """A file at ``path``; returns the path."""
+    path.write_text("x", encoding="utf-8")
+    return path
+
+
+def _dir(path: Path) -> Path:
+    """An empty directory at ``path``; returns the path."""
+    path.mkdir()
+    return path
+
+
 # --------------------------------------------------------------------------
 # Pure helpers
 # --------------------------------------------------------------------------
 
 
-def test_resolve_ext_markdown_default():
-    assert bm.resolve_ext("markdown", None) == "md"
-
-
-def test_resolve_ext_markdown_custom_extension():
-    assert bm.resolve_ext("markdown", "gfm") == "gfm"
-
-
-def test_resolve_ext_non_markdown_ignores_custom():
+# Each row: the format, the custom Markdown extension, the extension resolved
+RESOLVE_EXT_CASES = [
+    pytest.param("markdown", None, "md", id="markdown-default"),
+    pytest.param("markdown", "gfm", "gfm", id="markdown-custom-extension"),
     # Non-markdown formats use the FORMATS mapping regardless of custom_ext.
-    assert bm.resolve_ext("pdf", "something-else") == "pdf"
+    pytest.param("pdf", "something-else", "pdf", id="non-markdown-ignores-custom"),
+    pytest.param("epub", None, "epub", id="epub-from-mapping"),
+    pytest.param("docx", None, "docx", id="docx-from-mapping"),
+]
 
 
-def test_pick_section_order_ebook():
-    assert bm.pick_section_order(BookType.EBOOK, "pdf") == bm.EBOOK_SECTION_ORDER
+@pytest.mark.parametrize("fmt, custom, expected", RESOLVE_EXT_CASES)
+def test_resolve_ext(fmt, custom, expected):
+    assert bm.resolve_ext(fmt, custom) == expected
 
 
-def test_pick_section_order_paperback():
-    assert (
-        bm.pick_section_order(BookType.PAPERBACK, "pdf") == bm.PAPERBACK_SECTION_ORDER
-    )
+# Each row: the book type and the section order picked for it
+PICK_SECTION_ORDER_CASES = [
+    pytest.param(BookType.EBOOK, bm.EBOOK_SECTION_ORDER, id="ebook"),
+    pytest.param(BookType.PAPERBACK, bm.PAPERBACK_SECTION_ORDER, id="paperback"),
+    pytest.param(BookType.HARDCOVER, bm.HARDCOVER_SECTION_ORDER, id="hardcover"),
+]
 
 
-def test_pick_section_order_hardcover():
-    assert (
-        bm.pick_section_order(BookType.HARDCOVER, "pdf") == bm.HARDCOVER_SECTION_ORDER
-    )
+@pytest.mark.parametrize("book_type, expected", PICK_SECTION_ORDER_CASES)
+def test_pick_section_order(book_type, expected):
+    assert bm.pick_section_order(book_type, "pdf") == expected
 
 
-def test_get_project_name_from_pyproject_reads_tool_poetry_name(tmp_path):
+# Each row: the pyproject.toml text, the project name read, a line printed
+# (None: nothing to check)
+PROJECT_NAME_CASES = [
+    pytest.param(
+        '[tool.poetry]\nname = "alpha"\n', "alpha", None, id="reads-tool-poetry-name"
+    ),
+    pytest.param('[project]\nname = "beta"\n', "beta", None, id="reads-project-name"),
+    pytest.param(
+        "not valid toml = = =", "book", "Could not read", id="fallback-on-error"
+    ),
+    pytest.param("", "book", None, id="fallback-when-missing"),
+]
+
+
+@pytest.mark.parametrize("text, expected, printed", PROJECT_NAME_CASES)
+def test_get_project_name_from_pyproject(text, expected, printed, tmp_path, capsys):
     p = tmp_path / "pyproject.toml"
-    p.write_text('[tool.poetry]\nname = "alpha"\n', encoding="utf-8")
-    assert bm.get_project_name_from_pyproject(str(p)) == "alpha"
-
-
-def test_get_project_name_from_pyproject_reads_project_name(tmp_path):
-    p = tmp_path / "pyproject.toml"
-    p.write_text('[project]\nname = "beta"\n', encoding="utf-8")
-    assert bm.get_project_name_from_pyproject(str(p)) == "beta"
-
-
-def test_get_project_name_from_pyproject_fallback_on_error(tmp_path, capsys):
-    p = tmp_path / "pyproject.toml"
-    p.write_text("not valid toml = = =", encoding="utf-8")
-    assert bm.get_project_name_from_pyproject(str(p)) == "book"
-    assert "Could not read" in capsys.readouterr().out
-
-
-def test_get_project_name_from_pyproject_fallback_when_missing(tmp_path):
-    p = tmp_path / "empty.toml"
-    p.write_text("", encoding="utf-8")
-    assert bm.get_project_name_from_pyproject(str(p)) == "book"
+    p.write_text(text, encoding="utf-8")
+    assert bm.get_project_name_from_pyproject(str(p)) == expected
+    if printed is not None:
+        assert printed in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------
@@ -120,32 +130,30 @@ def test_get_project_name_from_pyproject_fallback_when_missing(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_get_metadata_language_reads_lang_field(tmp_path, monkeypatch):
+# Each row: the metadata.yaml text (None: no file), the language read, a line
+# printed (None: nothing to check)
+METADATA_LANGUAGE_CASES = [
+    pytest.param('lang: "fr"\n', "fr", None, id="reads-lang-field"),
+    pytest.param('language: "es"\n', "es", None, id="falls-back-to-language"),
+    pytest.param(None, None, "Metadata file not found", id="missing-file-returns-none"),
+    pytest.param(
+        "this: is: not: valid: yaml: [",
+        None,
+        "Failed to parse",
+        id="yaml-error-returns-none",
+    ),
+]
+
+
+@pytest.mark.parametrize("text, expected, printed", METADATA_LANGUAGE_CASES)
+def test_get_metadata_language(text, expected, printed, tmp_path, monkeypatch, capsys):
     md = tmp_path / "metadata.yaml"
-    md.write_text('lang: "fr"\n', encoding="utf-8")
+    if text is not None:
+        md.write_text(text, encoding="utf-8")
     monkeypatch.setattr(bm, "METADATA_FILE", md)
-    assert bm.get_metadata_language() == "fr"
-
-
-def test_get_metadata_language_falls_back_to_language(tmp_path, monkeypatch):
-    md = tmp_path / "metadata.yaml"
-    md.write_text('language: "es"\n', encoding="utf-8")
-    monkeypatch.setattr(bm, "METADATA_FILE", md)
-    assert bm.get_metadata_language() == "es"
-
-
-def test_get_metadata_language_missing_file_returns_none(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(bm, "METADATA_FILE", tmp_path / "nope.yaml")
-    assert bm.get_metadata_language() is None
-    assert "Metadata file not found" in capsys.readouterr().out
-
-
-def test_get_metadata_language_yaml_error_returns_none(tmp_path, monkeypatch, capsys):
-    md = tmp_path / "metadata.yaml"
-    md.write_text("this: is: not: valid: yaml: [", encoding="utf-8")
-    monkeypatch.setattr(bm, "METADATA_FILE", md)
-    assert bm.get_metadata_language() is None
-    assert "Failed to parse" in capsys.readouterr().out
+    assert bm.get_metadata_language() == expected
+    if printed is not None:
+        assert printed in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------
@@ -153,26 +161,59 @@ def test_get_metadata_language_yaml_error_returns_none(tmp_path, monkeypatch, ca
 # --------------------------------------------------------------------------
 
 
-def test_load_export_settings_missing_returns_empty(tmp_path):
-    assert bm.load_export_settings(tmp_path / "nope.yaml") == {}
+# Each row: the settings text (None: no file) and the settings loaded
+LOAD_EXPORT_SETTINGS_CASES = [
+    pytest.param(None, {}, id="missing-returns-empty"),
+    pytest.param(
+        "formats:\n  pdf: pdf\n", {"formats": {"pdf": "pdf"}}, id="reads-yaml"
+    ),
+]
 
 
-def test_load_export_settings_reads_yaml(tmp_path):
+@pytest.mark.parametrize("text, expected", LOAD_EXPORT_SETTINGS_CASES)
+def test_load_export_settings(text, expected, tmp_path):
     p = tmp_path / "settings.yaml"
-    p.write_text("formats:\n  pdf: pdf\n", encoding="utf-8")
-    settings = bm.load_export_settings(p)
-    assert settings == {"formats": {"pdf": "pdf"}}
+    if text is not None:
+        p.write_text(text, encoding="utf-8")
+    assert bm.load_export_settings(p) == expected
 
 
-def test_get_section_order_from_settings_null_fallback_chain():
-    # ebook -> default
-    settings = {"section_order": {"ebook": None, "default": ["x"]}}
-    assert bm.get_section_order_from_settings(settings, "ebook") == ["x"]
-    # hardcover -> paperback
-    settings = {"section_order": {"hardcover": None, "paperback": ["y"]}}
-    assert bm.get_section_order_from_settings(settings, "hardcover") == ["y"]
-    # no section_order -> None
-    assert bm.get_section_order_from_settings({}, "ebook") is None
+# Each row: the settings, the book type and the section order resolved
+# (None: the caller uses the built-in order)
+SECTION_ORDER_FALLBACK_CASES = [
+    pytest.param(
+        {"section_order": {"ebook": None, "default": ["x"]}},
+        "ebook",
+        ["x"],
+        id="ebook-falls-back-to-default",
+    ),
+    pytest.param(
+        {"section_order": {"audiobook": None, "default": ["x"]}},
+        "audiobook",
+        ["x"],
+        id="audiobook-falls-back-to-default",
+    ),
+    pytest.param(
+        {"section_order": {"hardcover": None, "paperback": ["y"]}},
+        "hardcover",
+        ["y"],
+        id="hardcover-falls-back-to-paperback",
+    ),
+    pytest.param(
+        {"section_order": {"paperback": None, "default": ["x"]}},
+        "paperback",
+        None,
+        id="paperback-has-no-fallback",
+    ),
+    pytest.param({}, "ebook", None, id="no-section-order-is-none"),
+]
+
+
+@pytest.mark.parametrize("settings, book_type, expected", SECTION_ORDER_FALLBACK_CASES)
+def test_get_section_order_from_settings_null_fallback_chain(
+    settings, book_type, expected
+):
+    assert bm.get_section_order_from_settings(settings, book_type) == expected
 
 
 # --------------------------------------------------------------------------
@@ -218,47 +259,60 @@ def test_ensure_metadata_file_creates_when_missing(tmp_path, monkeypatch, capsys
 # --------------------------------------------------------------------------
 
 
-def test_prepare_output_folder_moves_content_to_backup(tmp_path, monkeypatch):
+# Each row: the files in output/, the files in an old backup/ (None: no
+# backup yet), verbose?, whether backup/ exists afterwards, a line printed
+# (None: nothing to check). output/ is always recreated empty.
+PREPARE_OUTPUT_FOLDER_CASES = [
+    pytest.param(["a.txt"], None, True, True, None, id="moves-content-to-backup"),
+    # Old backup replaced, then new backup contains only the moved files.
+    pytest.param(
+        ["a.txt"],
+        ["old.txt"],
+        True,
+        True,
+        "Deleted old backup",
+        id="removes-existing-backup",
+    ),
+    pytest.param([], None, False, False, None, id="skips-backup-when-output-empty"),
+]
+
+
+@pytest.mark.parametrize(
+    "output_files, backup_files, verbose, expect_bak, printed",
+    PREPARE_OUTPUT_FOLDER_CASES,
+)
+def test_prepare_output_folder(
+    output_files,
+    backup_files,
+    verbose,
+    expect_bak,
+    printed,
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
     out = tmp_path / "output"
     bak = tmp_path / "backup"
     out.mkdir()
-    (out / "a.txt").write_text("x", encoding="utf-8")
+    for name in output_files:
+        (out / name).write_text("x", encoding="utf-8")
+    if backup_files is not None:
+        bak.mkdir()
+        for name in backup_files:
+            (bak / name).write_text("old", encoding="utf-8")
     monkeypatch.setattr(bm, "OUTPUT_DIR", str(out))
     monkeypatch.setattr(bm, "BACKUP_DIR", str(bak))
 
-    bm.prepare_output_folder(verbose=True)
+    bm.prepare_output_folder(verbose=verbose)
     assert out.exists()
     assert not any(out.iterdir())
-    assert (bak / "a.txt").exists()
-
-
-def test_prepare_output_folder_removes_existing_backup(tmp_path, monkeypatch, capsys):
-    out = tmp_path / "output"
-    bak = tmp_path / "backup"
-    out.mkdir()
-    (out / "a.txt").write_text("x", encoding="utf-8")
-    bak.mkdir()
-    (bak / "old.txt").write_text("old", encoding="utf-8")
-    monkeypatch.setattr(bm, "OUTPUT_DIR", str(out))
-    monkeypatch.setattr(bm, "BACKUP_DIR", str(bak))
-
-    bm.prepare_output_folder(verbose=True)
-    # Old backup replaced, then new backup contains only the moved files.
-    assert (bak / "a.txt").exists()
-    assert not (bak / "old.txt").exists()
-    assert "Deleted old backup" in capsys.readouterr().out
-
-
-def test_prepare_output_folder_skips_backup_when_output_empty(tmp_path, monkeypatch):
-    out = tmp_path / "output"
-    bak = tmp_path / "backup"
-    out.mkdir()
-    monkeypatch.setattr(bm, "OUTPUT_DIR", str(out))
-    monkeypatch.setattr(bm, "BACKUP_DIR", str(bak))
-
-    bm.prepare_output_folder()
-    assert out.exists()
-    assert not bak.exists()
+    assert bak.exists() is expect_bak
+    for name in output_files:
+        assert (bak / name).exists()
+    for name in backup_files or []:
+        assert not (bak / name).exists()
+    if printed is not None:
+        assert printed in capsys.readouterr().out
 
 
 # --------------------------------------------------------------------------
@@ -289,74 +343,80 @@ def _compile_and_capture(monkeypatch, *, format, **kwargs):
     return captured.get("argv")
 
 
-def test_compile_book_pdf_includes_pdf_engine_flags(monkeypatch, tmp_path):
+# Each row: the format, extra compile_book arguments ({tmp} in a value is the
+# project directory), tokens the Pandoc argv must contain, texts some token
+# must contain, prefixes no token may start with
+COMPILE_BOOK_ARGV_CASES = [
+    pytest.param(
+        "pdf",
+        {"resource_path": "{tmp}/assets"},
+        ["--pdf-engine=xelatex", "mainfont=DejaVu Sans"],
+        [],
+        [],
+        id="pdf-includes-pdf-engine-flags",
+    ),
+    pytest.param(
+        "markdown", {}, ["--wrap=none"], [], [], id="markdown-includes-wrap-none"
+    ),
+    pytest.param(
+        "html",
+        {"lang": "fr"},
+        ["--standalone", "--css=assets/style.css", "lang=fr"],
+        [],
+        [],
+        id="html-includes-standalone-and-css",
+    ),
+    pytest.param(
+        "epub",
+        {},
+        ["--toc", "--split-level=1"],
+        ["--toc-depth="],
+        ["--epub-chapter-level"],
+        id="epub-ebook-includes-toc-and-split-level",
+    ),
+    pytest.param(
+        "epub",
+        {"force_epub2": True},
+        ["epub.version=2"],
+        [],
+        [],
+        id="epub2-sets-metadata",
+    ),
+    pytest.param(
+        "epub",
+        {"cover_path": "cover.jpg"},
+        ["--epub-cover-image=cover.jpg"],
+        [],
+        [],
+        id="epub-cover-image-included",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "fmt, kwargs, present, fragments, absent_prefixes", COMPILE_BOOK_ARGV_CASES
+)
+def test_compile_book_argv(
+    fmt, kwargs, present, fragments, absent_prefixes, monkeypatch, tmp_path
+):
     chapters = tmp_path / "chapters"
     chapters.mkdir()
     (chapters / "ch1.md").write_text("# x", encoding="utf-8")
     monkeypatch.setattr(bm, "BOOK_DIR", str(tmp_path))
     monkeypatch.setattr(bm, "OUTPUT_DIR", str(tmp_path / "output"))
+    kwargs = {
+        k: v.format(tmp=tmp_path) if isinstance(v, str) else v
+        for k, v in kwargs.items()
+    }
 
-    argv = _compile_and_capture(
-        monkeypatch, format="pdf", resource_path=str(tmp_path / "assets")
-    )
+    argv = _compile_and_capture(monkeypatch, format=fmt, **kwargs)
     assert argv is not None
-    assert "--pdf-engine=xelatex" in argv
-    assert "mainfont=DejaVu Sans" in argv
-
-
-def test_compile_book_markdown_includes_wrap_none(monkeypatch, tmp_path):
-    chapters = tmp_path / "chapters"
-    chapters.mkdir()
-    (chapters / "ch1.md").write_text("# x", encoding="utf-8")
-    monkeypatch.setattr(bm, "BOOK_DIR", str(tmp_path))
-    monkeypatch.setattr(bm, "OUTPUT_DIR", str(tmp_path / "output"))
-    argv = _compile_and_capture(monkeypatch, format="markdown")
-    assert "--wrap=none" in argv
-
-
-def test_compile_book_html_includes_standalone_and_css(monkeypatch, tmp_path):
-    chapters = tmp_path / "chapters"
-    chapters.mkdir()
-    (chapters / "ch1.md").write_text("# x", encoding="utf-8")
-    monkeypatch.setattr(bm, "BOOK_DIR", str(tmp_path))
-    monkeypatch.setattr(bm, "OUTPUT_DIR", str(tmp_path / "output"))
-    argv = _compile_and_capture(monkeypatch, format="html", lang="fr")
-    assert "--standalone" in argv
-    assert any("style.css" in a for a in argv)
-    assert any("lang=fr" in a for a in argv)
-
-
-def test_compile_book_epub_ebook_includes_toc_and_split_level(monkeypatch, tmp_path):
-    chapters = tmp_path / "chapters"
-    chapters.mkdir()
-    (chapters / "ch1.md").write_text("# x", encoding="utf-8")
-    monkeypatch.setattr(bm, "BOOK_DIR", str(tmp_path))
-    monkeypatch.setattr(bm, "OUTPUT_DIR", str(tmp_path / "output"))
-    argv = _compile_and_capture(monkeypatch, format="epub")
-    assert "--toc" in argv
-    assert any("--toc-depth=" in a for a in argv)
-    assert "--split-level=1" in argv
-    assert not any(a.startswith("--epub-chapter-level") for a in argv)
-
-
-def test_compile_book_epub2_sets_metadata(monkeypatch, tmp_path):
-    chapters = tmp_path / "chapters"
-    chapters.mkdir()
-    (chapters / "ch1.md").write_text("# x", encoding="utf-8")
-    monkeypatch.setattr(bm, "BOOK_DIR", str(tmp_path))
-    monkeypatch.setattr(bm, "OUTPUT_DIR", str(tmp_path / "output"))
-    argv = _compile_and_capture(monkeypatch, format="epub", force_epub2=True)
-    assert any("epub.version=2" in a for a in argv)
-
-
-def test_compile_book_epub_cover_image_included(monkeypatch, tmp_path):
-    chapters = tmp_path / "chapters"
-    chapters.mkdir()
-    (chapters / "ch1.md").write_text("# x", encoding="utf-8")
-    monkeypatch.setattr(bm, "BOOK_DIR", str(tmp_path))
-    monkeypatch.setattr(bm, "OUTPUT_DIR", str(tmp_path / "output"))
-    argv = _compile_and_capture(monkeypatch, format="epub", cover_path="cover.jpg")
-    assert any(a.startswith("--epub-cover-image=") and "cover.jpg" in a for a in argv)
+    for token in present:
+        assert token in argv
+    for text in fragments:
+        assert any(text in a for a in argv)
+    for prefix in absent_prefixes:
+        assert not any(a.startswith(prefix) for a in argv)
 
 
 def test_compile_book_no_markdown_files_returns_early(monkeypatch, tmp_path, capsys):
@@ -490,64 +550,83 @@ def _capture_pipeline(monkeypatch):
     return captured
 
 
-def test_run_export_builds_argv_with_every_option(tmp_path, monkeypatch):
+# Each row: the run_export keyword arguments, (flag, value) pairs the argv
+# must carry side by side, tokens it must contain, tokens it must not
+RUN_EXPORT_ARGV_CASES = [
+    pytest.param(
+        {
+            "formats": ["pdf", "epub"],
+            "section_order": ["front-matter/foreword.md", "chapters"],
+            "cover": "cover.jpg",
+            "epub2": True,
+            "lang": "de",
+            "extension": "gfm",
+            "book_type": BookType.PAPERBACK,
+            "output_file": "custom",
+            "no_type_suffix": True,
+            "toc_depth": 3,
+            "use_manual_toc": True,
+            "skip_images": True,
+            "copy_epub_to": "/tmp/out",
+        },
+        [],
+        [
+            "--format",
+            "pdf,epub",
+            "--order",
+            "--cover",
+            "cover.jpg",
+            "--epub2",
+            "--lang",
+            "de",
+            "--extension",
+            "gfm",
+            "--book-type",
+            "paperback",
+            "--output-file",
+            "custom",
+            "--no-type-suffix",
+            "--toc-depth",
+            "3",
+            "--use-manual-toc",
+            "--skip-images",
+            "--copy-epub-to",
+        ],
+        [],
+        id="builds-argv-with-every-option",
+    ),
+    pytest.param(
+        {"formats": "pdf"}, [("--format", "pdf")], [], [], id="formats-as-string"
+    ),
+    pytest.param(
+        {"formats": "pdf", "keep_relative_paths": True},
+        [],
+        ["--keep-relative-paths"],
+        ["--skip-images"],
+        id="keep-relative-paths-when-not-skip-images",
+    ),
+    pytest.param(
+        {"formats": "pdf", "book_type": "hardcover"},
+        [("--book-type", "hardcover")],
+        [],
+        [],
+        id="book-type-string-is-accepted",
+    ),
+]
+
+
+@pytest.mark.parametrize("kwargs, pairs, present, absent", RUN_EXPORT_ARGV_CASES)
+def test_run_export_argv(kwargs, pairs, present, absent, tmp_path, monkeypatch):
     _valid_project(tmp_path)
     captured = _capture_pipeline(monkeypatch)
-    bm.run_export(
-        tmp_path,
-        formats=["pdf", "epub"],
-        section_order=["front-matter/foreword.md", "chapters"],
-        cover="cover.jpg",
-        epub2=True,
-        lang="de",
-        extension="gfm",
-        book_type=BookType.PAPERBACK,
-        output_file="custom",
-        no_type_suffix=True,
-        toc_depth=3,
-        use_manual_toc=True,
-        skip_images=True,
-        copy_epub_to="/tmp/out",
-    )
+    bm.run_export(tmp_path, **kwargs)
     argv = captured["argv"]
-    assert "--format" in argv and "pdf,epub" in argv
-    assert "--order" in argv
-    assert "--cover" in argv and "cover.jpg" in argv
-    assert "--epub2" in argv
-    assert "--lang" in argv and "de" in argv
-    assert "--extension" in argv and "gfm" in argv
-    assert "--book-type" in argv and "paperback" in argv
-    assert "--output-file" in argv and "custom" in argv
-    assert "--no-type-suffix" in argv
-    assert "--toc-depth" in argv and "3" in argv
-    assert "--use-manual-toc" in argv
-    assert "--skip-images" in argv
-    assert "--copy-epub-to" in argv
-
-
-def test_run_export_formats_as_string(tmp_path, monkeypatch):
-    _valid_project(tmp_path)
-    captured = _capture_pipeline(monkeypatch)
-    bm.run_export(tmp_path, formats="pdf")
-    assert "--format" in captured["argv"]
-    idx = captured["argv"].index("--format")
-    assert captured["argv"][idx + 1] == "pdf"
-
-
-def test_run_export_keep_relative_paths_when_not_skip_images(tmp_path, monkeypatch):
-    _valid_project(tmp_path)
-    captured = _capture_pipeline(monkeypatch)
-    bm.run_export(tmp_path, formats="pdf", keep_relative_paths=True)
-    assert "--keep-relative-paths" in captured["argv"]
-    assert "--skip-images" not in captured["argv"]
-
-
-def test_run_export_book_type_string_is_accepted(tmp_path, monkeypatch):
-    _valid_project(tmp_path)
-    captured = _capture_pipeline(monkeypatch)
-    bm.run_export(tmp_path, formats="pdf", book_type="hardcover")
-    idx = captured["argv"].index("--book-type")
-    assert captured["argv"][idx + 1] == "hardcover"
+    for flag, value in pairs:
+        assert argv[argv.index(flag) + 1] == value
+    for token in present:
+        assert token in argv
+    for token in absent:
+        assert token not in argv
 
 
 def test_run_export_none_source_dir_raises_typeerror():
@@ -615,26 +694,31 @@ def test_normalize_toc_if_needed_handles_subprocess_failure(
 # --------------------------------------------------------------------------
 
 
-def test_parse_unresolved_images_extracts_double_quoted():
-    stderr = '[WARNING] Could not fetch resource "images/a.png": not found\n'
-    assert bm._parse_unresolved_images(stderr) == ["images/a.png"]
-
-
-def test_parse_unresolved_images_extracts_single_quoted():
-    stderr = "[WARNING] Could not fetch resource 'images/b.png'\n"
-    assert bm._parse_unresolved_images(stderr) == ["images/b.png"]
-
-
-def test_parse_unresolved_images_deduplicates():
-    stderr = (
+# Each row: the Pandoc stderr and the unresolved image paths parsed from it
+PARSE_UNRESOLVED_CASES = [
+    pytest.param(
+        '[WARNING] Could not fetch resource "images/a.png": not found\n',
+        ["images/a.png"],
+        id="extracts-double-quoted",
+    ),
+    pytest.param(
+        "[WARNING] Could not fetch resource 'images/b.png'\n",
+        ["images/b.png"],
+        id="extracts-single-quoted",
+    ),
+    pytest.param(
         '[WARNING] Could not fetch resource "x.png"\n'
-        '[WARNING] Could not fetch resource "x.png"\n'
-    )
-    assert bm._parse_unresolved_images(stderr) == ["x.png"]
+        '[WARNING] Could not fetch resource "x.png"\n',
+        ["x.png"],
+        id="deduplicates",
+    ),
+    pytest.param("no warnings here", [], id="empty-on-no-match"),
+]
 
 
-def test_parse_unresolved_images_empty_on_no_match():
-    assert bm._parse_unresolved_images("no warnings here") == []
+@pytest.mark.parametrize("stderr, expected", PARSE_UNRESOLVED_CASES)
+def test_parse_unresolved_images(stderr, expected):
+    assert bm._parse_unresolved_images(stderr) == expected
 
 
 # --------------------------------------------------------------------------
@@ -642,18 +726,29 @@ def test_parse_unresolved_images_empty_on_no_match():
 # --------------------------------------------------------------------------
 
 
-def test_validate_layout_rejects_missing(tmp_path):
-    with pytest.raises(ManuscriptaLayoutError) as ex:
-        bm._validate_layout(tmp_path / "nope")
-    assert ex.value.reason == "nonexistent"
+# Each row: builds the path under tmp_path, the reason of the
+# ManuscriptaLayoutError (None: subdirectories missing) and the
+# subdirectories it lists
+VALIDATE_LAYOUT_REJECTS = [
+    pytest.param(lambda t: t / "nope", "nonexistent", [], id="rejects-missing"),
+    pytest.param(
+        lambda t: _file(t / "file.txt"), "not_a_directory", [], id="rejects-file"
+    ),
+    pytest.param(
+        lambda t: _dir(t / "empty"),
+        None,
+        ["manuscript", "config", "assets"],
+        id="rejects-empty-directory",
+    ),
+]
 
 
-def test_validate_layout_rejects_file(tmp_path):
-    f = tmp_path / "file.txt"
-    f.write_text("x", encoding="utf-8")
+@pytest.mark.parametrize("build, reason, missing", VALIDATE_LAYOUT_REJECTS)
+def test_validate_layout_rejects(build, reason, missing, tmp_path):
     with pytest.raises(ManuscriptaLayoutError) as ex:
-        bm._validate_layout(f)
-    assert ex.value.reason == "not_a_directory"
+        bm._validate_layout(build(tmp_path))
+    assert ex.value.reason == reason
+    assert ex.value.missing == missing
 
 
 def test_validate_layout_accepts_valid_project(tmp_path):
@@ -769,26 +864,28 @@ def test_configure_paths_deduplicates_resource_paths(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------
 
 
-def _slot_between(order: list[str], entry: str, before: str, after: str) -> None:
-    assert order.index(before) < order.index(entry) < order.index(after)
-
-
-def test_builtin_default_order_has_other_publications_slot():
-    _slot_between(
+# Each row: a built-in section order, an entry, the entries it sits between
+BUILTIN_ORDER_SLOTS = [
+    pytest.param(
         bm._BUILTIN_DEFAULT_SECTION_ORDER,
         "back-matter/other-publications.md",
         "back-matter/about-the-author.md",
         "back-matter/imprint.md",
-    )
-
-
-def test_builtin_paperback_order_has_other_publications_print_slot():
-    _slot_between(
+        id="default-order-has-other-publications-slot",
+    ),
+    pytest.param(
         bm._BUILTIN_PAPERBACK_SECTION_ORDER,
         "back-matter/other-publications-print.md",
         "back-matter/about-the-author.md",
         "back-matter/imprint.md",
-    )
+        id="paperback-order-has-other-publications-print-slot",
+    ),
+]
+
+
+@pytest.mark.parametrize("order, entry, before, after", BUILTIN_ORDER_SLOTS)
+def test_builtin_order_slot(order, entry, before, after):
+    assert order.index(before) < order.index(entry) < order.index(after)
 
 
 def test_compile_book_skips_missing_other_publications_file(monkeypatch, tmp_path):

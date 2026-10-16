@@ -3,6 +3,7 @@ import pytest
 pytestmark = pytest.mark.unit
 
 # tests/test_generate_audiobook_use_cases.py
+from functools import partial
 from pathlib import Path
 from types import ModuleType
 import sys
@@ -116,48 +117,98 @@ def _install_fake(monkeypatch, module_name: str, class_name: str, fail_on_kwargs
     monkeypatch.setitem(sys.modules, module_name, mod)
 
 
-def test_get_tts_adapter_paths(monkeypatch):
-    _install_fake(
-        monkeypatch,
-        "manuscripta.audiobook.tts.google_translate_adapter",
-        "GoogleTranslateTTSAdapter",
-    )
-    _install_fake(
-        monkeypatch, "manuscripta.audiobook.tts.pyttsx3_adapter", "Pyttsx3Adapter"
-    )
-
-    a = get_tts_adapter("google", lang="en", voice=None, rate=200)
-    b = get_tts_adapter("pyttsx3", lang="de", voice="Anna", rate=170)
-    assert hasattr(a, "synthesize") and hasattr(b, "synthesize")
-
-
-def test_get_tts_adapter_elevenlabs_key_required(monkeypatch):
-    # Fake module that fails if api_key not passed
-    _install_fake(
-        monkeypatch,
-        "manuscripta.audiobook.tts.elevenlabs_adapter",
-        "ElevenLabsAdapter",
-        fail_on_kwargs=lambda kw: not kw.get("api_key"),
+def _fake(module: str, class_name: str, fail_on_kwargs=None):
+    """A builder installing the fake ``class_name`` as the tts.<module> adapter."""
+    return partial(
+        _install_fake,
+        module_name=f"manuscripta.audiobook.tts.{module}",
+        class_name=class_name,
+        fail_on_kwargs=fail_on_kwargs,
     )
 
+
+# Fake module that fails if api_key not passed
+_ELEVENLABS = _fake(
+    "elevenlabs_adapter",
+    "ElevenLabsAdapter",
+    fail_on_kwargs=lambda kw: not kw.get("api_key"),
+)
+
+# Each row: the fake adapter to install (None: none), ELEVENLABS_API_KEY (None:
+# unset), engine, lang, voice, rate, the ValueError message (None: an adapter
+# with a synthesize method comes back)
+GET_TTS_ADAPTER_CASES = [
+    pytest.param(
+        _fake("google_translate_adapter", "GoogleTranslateTTSAdapter"),
+        None,
+        "google",
+        "en",
+        None,
+        200,
+        None,
+        id="google",
+    ),
+    pytest.param(
+        _fake("pyttsx3_adapter", "Pyttsx3Adapter"),
+        None,
+        "pyttsx3",
+        "de",
+        "Anna",
+        170,
+        None,
+        id="pyttsx3",
+    ),
     # No key -> should raise
-    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
-    raised = False
-    try:
-        get_tts_adapter("elevenlabs", lang="en", voice=None, rate=200)
-    except ValueError:
-        raised = True
-    assert raised
-
+    pytest.param(
+        _ELEVENLABS,
+        None,
+        "elevenlabs",
+        "en",
+        None,
+        200,
+        "Missing API key",
+        id="elevenlabs-key-required",
+    ),
     # With key -> ok
-    monkeypatch.setenv("ELEVENLABS_API_KEY", "XYZ")
-    adapter = get_tts_adapter("elevenlabs", lang="en", voice="Rachel", rate=200)
-    assert hasattr(adapter, "synthesize")
+    pytest.param(
+        _ELEVENLABS,
+        "XYZ",
+        "elevenlabs",
+        "en",
+        "Rachel",
+        200,
+        None,
+        id="elevenlabs-with-key",
+    ),
+    pytest.param(
+        None,
+        None,
+        "nope",
+        "en",
+        None,
+        200,
+        "Unsupported engine: nope",
+        id="invalid-engine",
+    ),
+]
 
 
-def test_invalid_engine_raises():
-    try:
-        get_tts_adapter("nope", lang="en", voice=None, rate=200)
-        assert False, "Expected ValueError"
-    except ValueError:
-        pass
+@pytest.mark.parametrize(
+    "install, api_key, engine, lang, voice, rate, error", GET_TTS_ADAPTER_CASES
+)
+def test_get_tts_adapter(
+    install, api_key, engine, lang, voice, rate, error, monkeypatch
+):
+    if install is not None:
+        install(monkeypatch)
+    if api_key is None:
+        monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("ELEVENLABS_API_KEY", api_key)
+
+    if error is not None:
+        with pytest.raises(ValueError, match=error):
+            get_tts_adapter(engine, lang=lang, voice=voice, rate=rate)
+    else:
+        adapter = get_tts_adapter(engine, lang=lang, voice=voice, rate=rate)
+        assert hasattr(adapter, "synthesize")

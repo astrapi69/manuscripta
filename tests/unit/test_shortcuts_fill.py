@@ -63,29 +63,16 @@ def test_has_any_option(extras, names, expected):
     assert sc._has_any_option(extras, names) is expected
 
 
-def test_split_valid_invalid_separates_flags():
-    valid, invalid = sc._split_valid_invalid_options(
-        ["--format=pdf", "--bogus", "--cover", "x.jpg", "--nope", "--epub2"],
-        sc.FULL_EXPORT_ALLOWED_OPTS,
-    )
-    assert "--format=pdf" in valid
-    assert "--cover" in valid and "x.jpg" in valid
-    assert "--epub2" in valid
-    assert "--bogus" in invalid
-    assert "--nope" in invalid
-
-
-def test_split_valid_invalid_handles_no_value_flag_at_end():
-    # A flag with no value and nothing after should just go into the right bucket.
-    valid, invalid = sc._split_valid_invalid_options(
-        ["--epub2"], sc.FULL_EXPORT_ALLOWED_OPTS
-    )
-    assert valid == ["--epub2"]
-    assert invalid == []
-
-
 # Each row: the passthrough tokens, the ones to forward, the unknown ones.
 SPLIT_CASES = [
+    pytest.param(
+        ["--format=pdf", "--bogus", "--cover", "x.jpg", "--nope", "--epub2"],
+        ["--format=pdf", "--cover", "x.jpg", "--epub2"],
+        ["--bogus", "--nope"],
+        id="separates-flags",
+    ),
+    # A flag with no value and nothing after should just go into the right bucket.
+    pytest.param(["--epub2"], ["--epub2"], [], id="handles-no-value-flag-at-end"),
     pytest.param(
         ["manuscript", "--lang", "de", "-x", "--epub2"],
         ["--lang", "de", "--epub2"],
@@ -149,14 +136,7 @@ def test_list_allowed_opts_prints_both_lists(capsys):
     assert "--book-type" in out
 
 
-# --- export() and format-specific wrappers ------------------------------
-
-
-def test_export_forwards_format_and_cover(capture_full):
-    sc.export("pdf", "c.jpg", "--lang", "de")
-    assert capture_full[0][:2] == ["--format", "pdf"]
-    assert "--cover" in capture_full[0] and "c.jpg" in capture_full[0]
-    assert "--lang" in capture_full[0] and "de" in capture_full[0]
+# --- export() ------------------------------------------------------------
 
 
 # Each row: the passthrough tokens and the token the abort message must name.
@@ -189,30 +169,50 @@ def test_export_unknown_option_aborts_with_status_2(extra, named, capture_full, 
     assert capture_full == []
 
 
-# Each row: the passthrough tokens, what the forwarded argv must contain and
-# what it must not.
+# Each row: the cover, the passthrough tokens, what the forwarded argv must
+# contain and what it must not.
 FORWARD_CASES = [
     pytest.param(
-        ("--", "--lang", "de"), ["--lang", "de"], ["--"], id="bare-double-dash-dropped"
+        "c.jpg",
+        ("--lang", "de"),
+        ["--cover", "c.jpg", "--lang", "de"],
+        [],
+        id="format-and-cover",
     ),
     pytest.param(
+        None,
+        ("--", "--lang", "de"),
+        ["--lang", "de"],
+        ["--"],
+        id="bare-double-dash-dropped",
+    ),
+    pytest.param(
+        None,
         ("--source-dir=/tmp/book", "--no-strict-images"),
         ["--source-dir=/tmp/book", "--no-strict-images"],
         [],
         id="cli-layer-options-forwarded",
     ),
     pytest.param(
+        None,
         ("--resource-path", "assets", "--strict-images"),
         ["--resource-path", "assets", "--strict-images"],
         [],
         id="cli-layer-option-with-value",
     ),
+    pytest.param(
+        None,
+        ("--strict-opts", "--epub2"),
+        ["--epub2"],
+        ["--strict-opts"],
+        id="strict-opts-not-forwarded-as-option",
+    ),
 ]
 
 
-@pytest.mark.parametrize("extra, present, absent", FORWARD_CASES)
-def test_export_forwards(extra, present, absent, capture_full):
-    sc.export("pdf", None, *extra)
+@pytest.mark.parametrize("cover, extra, present, absent", FORWARD_CASES)
+def test_export_forwards(cover, extra, present, absent, capture_full):
+    sc.export("pdf", cover, *extra)
     argv = capture_full[0]
     assert argv[:2] == ["--format", "pdf"]
     for tok in present:
@@ -221,163 +221,262 @@ def test_export_forwards(extra, present, absent, capture_full):
         assert tok not in argv
 
 
-def test_export_strict_opts_not_forwarded_as_option(capture_full):
-    sc.export("pdf", None, "--strict-opts", "--epub2")
-    assert "--strict-opts" not in capture_full[0]
+# --- the wrappers: the argv each one forwards -----------------------------
 
+ALL_FORMATS = "pdf,epub,docx,markdown,html"
+DEFAULT_COVER = "assets/covers/cover.jpg"
 
-@pytest.mark.parametrize(
-    "func, fmt",
-    [
-        (sc.export_pdf, "pdf"),
-        (sc.export_epub, "epub"),
-        (sc.export_docx, "docx"),
-        (sc.export_markdown, "markdown"),
-        (sc.export_html, "html"),
-    ],
-)
-def test_format_wrappers_forward_correct_format(func, fmt, capture_full):
-    func()  # uses sys.argv when extra is empty
-    assert capture_full[0][:2] == ["--format", fmt]
-
-
-@pytest.mark.parametrize(
-    "func, fmt",
-    [
-        (sc.export_pdf, "pdf"),
-        (sc.export_epub, "epub"),
-        (sc.export_docx, "docx"),
-        (sc.export_markdown, "markdown"),
-        (sc.export_html, "html"),
-    ],
-)
-def test_format_wrappers_passthrough_extras(func, fmt, capture_full):
-    func("--lang", "de")
-    assert "--lang" in capture_full[0] and "de" in capture_full[0]
-
-
-# --- _export_all_formats / export_all_formats(_with_cover) ---------------
-
-
-def test_export_all_formats_without_cover(capture_full):
-    sc.export_all_formats("--lang", "en")
-    argv = capture_full[0]
-    assert argv[:2] == ["--format", "pdf,epub,docx,markdown,html"]
-    assert "--cover" not in argv
-    assert "--lang" in argv
-
-
-def test_export_all_formats_with_cover(capture_full):
-    sc.export_all_formats_with_cover()
-    argv = capture_full[0]
-    assert argv[:2] == ["--format", "pdf,epub,docx,markdown,html"]
-    assert "--cover" in argv
-    assert any("cover.jpg" in a for a in argv)
-
-
-# --- export_epub2 / export_epub_with_cover / export_epub2_with_cover ----
-
-
-def test_export_epub2_sets_flag(capture_full):
-    sc.export_epub2("--lang", "de")
-    argv = capture_full[0]
-    assert "--epub2" in argv
-    assert "--lang" in argv and "de" in argv
-
-
-def test_export_epub_with_cover_uses_default_cover(capture_full):
-    sc.export_epub_with_cover()
-    argv = capture_full[0]
-    assert "--format" in argv and "epub" in argv
-    assert "--cover" in argv
-    assert any("cover.jpg" in a for a in argv)
-
-
-def test_export_epub2_with_cover(capture_full):
-    sc.export_epub2_with_cover()
-    argv = capture_full[0]
-    assert "--epub2" in argv
-    assert "--cover" in argv
-
-
-# --- print-version wrappers ----------------------------------------------
-
-
-def test_export_print_version_epub(capture_print):
-    sc.export_print_version_epub("--lang", "de")
-    argv = capture_print[0]
-    assert "--lang" in argv and "de" in argv
-
-
-def test_export_print_version_paperback(capture_print):
-    sc.export_print_version_paperback()
-    argv = capture_print[0]
-    assert "--book-type" in argv and "paperback" in argv
-
-
-def test_export_print_version_hardcover(capture_print):
-    sc.export_print_version_hardcover()
-    argv = capture_print[0]
-    assert "--book-type" in argv and "hardcover" in argv
-
-
-def test_export_print_version_paperback_safe(capture_print):
-    sc.export_print_version_paperback_safe()
-    argv = capture_print[0]
-    assert "--book-type" in argv and "paperback" in argv
-    assert "--skip-images" in argv
-
-
-def test_export_print_version_hardcover_safe(capture_print):
-    sc.export_print_version_hardcover_safe()
-    argv = capture_print[0]
-    assert "--book-type" in argv and "hardcover" in argv
-    assert "--skip-images" in argv
-
-
-def test_export_print_version_safe_honors_user_image_flag(capture_print):
+# Each row: the wrapper, its passthrough tokens, the target it runs and the
+# exact argv it forwards. A wrapper called without extras reads sys.argv[1:],
+# which the shortcut_argv fixture keeps empty.
+WRAPPER_ARGV_CASES = [
+    # The format wrappers set --format ...
+    pytest.param(
+        sc.export_pdf,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", "pdf"],
+        id="format-wrappers-forward-correct-format-pdf",
+    ),
+    pytest.param(
+        sc.export_epub,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", "epub"],
+        id="format-wrappers-forward-correct-format-epub",
+    ),
+    pytest.param(
+        sc.export_docx,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", "docx"],
+        id="format-wrappers-forward-correct-format-docx",
+    ),
+    pytest.param(
+        sc.export_markdown,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", "markdown"],
+        id="format-wrappers-forward-correct-format-markdown",
+    ),
+    pytest.param(
+        sc.export_html,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", "html"],
+        id="format-wrappers-forward-correct-format-html",
+    ),
+    # ... and pass the extras through
+    pytest.param(
+        sc.export_pdf,
+        ("--lang", "de"),
+        sc.FULL_EXPORT,
+        ["--format", "pdf", "--lang", "de"],
+        id="format-wrappers-passthrough-extras-pdf",
+    ),
+    pytest.param(
+        sc.export_epub,
+        ("--lang", "de"),
+        sc.FULL_EXPORT,
+        ["--format", "epub", "--lang", "de"],
+        id="format-wrappers-passthrough-extras-epub",
+    ),
+    pytest.param(
+        sc.export_docx,
+        ("--lang", "de"),
+        sc.FULL_EXPORT,
+        ["--format", "docx", "--lang", "de"],
+        id="format-wrappers-passthrough-extras-docx",
+    ),
+    pytest.param(
+        sc.export_markdown,
+        ("--lang", "de"),
+        sc.FULL_EXPORT,
+        ["--format", "markdown", "--lang", "de"],
+        id="format-wrappers-passthrough-extras-markdown",
+    ),
+    pytest.param(
+        sc.export_html,
+        ("--lang", "de"),
+        sc.FULL_EXPORT,
+        ["--format", "html", "--lang", "de"],
+        id="format-wrappers-passthrough-extras-html",
+    ),
+    # _export_all_formats / export_all_formats(_with_cover)
+    pytest.param(
+        sc.export_all_formats,
+        ("--lang", "en"),
+        sc.FULL_EXPORT,
+        ["--format", ALL_FORMATS, "--lang", "en"],
+        id="export-all-formats-without-cover",
+    ),
+    pytest.param(
+        sc.export_all_formats_with_cover,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", ALL_FORMATS, "--cover", DEFAULT_COVER],
+        id="export-all-formats-with-cover",
+    ),
+    # export_epub2 / export_epub_with_cover / export_epub2_with_cover
+    pytest.param(
+        sc.export_epub2,
+        ("--lang", "de"),
+        sc.FULL_EXPORT,
+        ["--epub2", "--lang", "de"],
+        id="export-epub2-sets-flag",
+    ),
+    pytest.param(
+        sc.export_epub_with_cover,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", "epub", "--cover", DEFAULT_COVER],
+        id="export-epub-with-cover-uses-default-cover",
+    ),
+    pytest.param(
+        sc.export_epub2_with_cover,
+        (),
+        sc.FULL_EXPORT,
+        ["--epub2", "--cover", DEFAULT_COVER],
+        id="export-epub2-with-cover",
+    ),
+    # The print-version wrappers
+    pytest.param(
+        sc.export_print_version_epub,
+        ("--lang", "de"),
+        sc.PRINT_VERSION,
+        ["--lang", "de"],
+        id="export-print-version-epub",
+    ),
+    pytest.param(
+        sc.export_print_version_paperback,
+        (),
+        sc.PRINT_VERSION,
+        ["--book-type", "paperback"],
+        id="export-print-version-paperback",
+    ),
+    pytest.param(
+        sc.export_print_version_hardcover,
+        (),
+        sc.PRINT_VERSION,
+        ["--book-type", "hardcover"],
+        id="export-print-version-hardcover",
+    ),
+    pytest.param(
+        sc.export_print_version_paperback_safe,
+        (),
+        sc.PRINT_VERSION,
+        ["--book-type", "paperback", "--skip-images"],
+        id="export-print-version-paperback-safe",
+    ),
+    pytest.param(
+        sc.export_print_version_hardcover_safe,
+        (),
+        sc.PRINT_VERSION,
+        ["--book-type", "hardcover", "--skip-images"],
+        id="export-print-version-hardcover-safe",
+    ),
     # If user already passed --keep-relative-paths, safe wrappers must not
     # also inject --skip-images (the two are mutually exclusive).
-    sc.export_print_version_paperback_safe("--keep-relative-paths")
-    argv = capture_print[0]
-    assert "--keep-relative-paths" in argv
-    assert "--skip-images" not in argv
-
-
-# The options print_version_build.py consumes itself (its parser, pinned by
-# test_print_version_allow_list_matches_its_parser)
-@pytest.mark.parametrize("opt", ["--dry-run", "--restore", "--exact-name"])
-def test_export_print_version_forwards_its_own_option(opt, capture_print):
-    sc.export_print_version_epub(opt)
-    assert opt in capture_print[0]
-
-
-# --- export_safe + wrappers ---------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "func, fmt",
-    [
-        (sc.export_pdf_safe, "pdf"),
-        (sc.export_epub_safe, "epub"),
-        (sc.export_docx_safe, "docx"),
-        (sc.export_markdown_safe, "markdown"),
-        (sc.export_html_safe, "html"),
-    ],
-)
-def test_safe_wrappers_inject_skip_images(func, fmt, capture_full):
-    func()
-    argv = capture_full[0]
-    assert argv[:2] == ["--format", fmt]
-    assert "--skip-images" in argv
-
-
-def test_safe_wrapper_does_not_inject_when_user_passed_flag(capture_full):
-    sc.export_pdf_safe("--keep-relative-paths")
-    argv = capture_full[0]
-    assert "--keep-relative-paths" in argv
+    pytest.param(
+        sc.export_print_version_paperback_safe,
+        ("--keep-relative-paths",),
+        sc.PRINT_VERSION,
+        ["--book-type", "paperback", "--keep-relative-paths"],
+        id="export-print-version-safe-honors-user-image-flag",
+    ),
+    pytest.param(
+        sc.export_print_version_hardcover_safe,
+        ("--skip-images",),
+        sc.PRINT_VERSION,
+        ["--book-type", "hardcover", "--skip-images"],
+        id="export-print-version-safe-does-not-double-skip-images",
+    ),
+    # The options print_version_build.py consumes itself (its parser, pinned by
+    # test_print_version_allow_list_matches_its_parser)
+    pytest.param(
+        sc.export_print_version_epub,
+        ("--dry-run",),
+        sc.PRINT_VERSION,
+        ["--dry-run"],
+        id="export-print-version-forwards-its-own-option-dry-run",
+    ),
+    pytest.param(
+        sc.export_print_version_epub,
+        ("--restore",),
+        sc.PRINT_VERSION,
+        ["--restore"],
+        id="export-print-version-forwards-its-own-option-restore",
+    ),
+    pytest.param(
+        sc.export_print_version_epub,
+        ("--exact-name",),
+        sc.PRINT_VERSION,
+        ["--exact-name"],
+        id="export-print-version-forwards-its-own-option-exact-name",
+    ),
+    # export_safe + wrappers
+    pytest.param(
+        sc.export_pdf_safe,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", "pdf", "--skip-images"],
+        id="safe-wrappers-inject-skip-images-pdf",
+    ),
+    pytest.param(
+        sc.export_epub_safe,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", "epub", "--skip-images"],
+        id="safe-wrappers-inject-skip-images-epub",
+    ),
+    pytest.param(
+        sc.export_docx_safe,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", "docx", "--skip-images"],
+        id="safe-wrappers-inject-skip-images-docx",
+    ),
+    pytest.param(
+        sc.export_markdown_safe,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", "markdown", "--skip-images"],
+        id="safe-wrappers-inject-skip-images-markdown",
+    ),
+    pytest.param(
+        sc.export_html_safe,
+        (),
+        sc.FULL_EXPORT,
+        ["--format", "html", "--skip-images"],
+        id="safe-wrappers-inject-skip-images-html",
+    ),
     # Should not double up.
-    assert "--skip-images" not in argv
+    pytest.param(
+        sc.export_pdf_safe,
+        ("--keep-relative-paths",),
+        sc.FULL_EXPORT,
+        ["--format", "pdf", "--keep-relative-paths"],
+        id="safe-wrapper-does-not-inject-when-user-passed-flag",
+    ),
+    pytest.param(
+        sc.export_epub_safe,
+        ("--skip-images",),
+        sc.FULL_EXPORT,
+        ["--format", "epub", "--skip-images"],
+        id="safe-wrapper-does-not-double-skip-images",
+    ),
+]
+
+
+@pytest.mark.parametrize("func, extra, target, argv", WRAPPER_ARGV_CASES)
+def test_wrappers_forward_their_argv(
+    func, extra, target, argv, capture_full, capture_print
+):
+    func(*extra)
+    captured = {sc.FULL_EXPORT: capture_full, sc.PRINT_VERSION: capture_print}
+    assert captured.pop(target) == [argv]
+    # The other runner is not called.
+    assert list(captured.values()) == [[]]
 
 
 # --- every wrapper: --help / -h and unknown options ----------------------
@@ -559,70 +658,82 @@ def _record_call(name: str, monkeypatch) -> list[tuple]:
     return calls
 
 
-def test_main_export_dispatches_to_export(monkeypatch):
-    calls = _record_call("export", monkeypatch)
-    sc.main(["export", "--format", "pdf"])
-    assert calls
-    args, _ = calls[0]
-    assert args[0] == "pdf"
+# Each row: the main() arguments, the shortcut it dispatches to and the
+# positional arguments it passes (for export: format, cover, *extras)
+MAIN_DISPATCH_CASES = [
+    pytest.param(
+        ["export", "--format", "pdf"],
+        "export",
+        ("pdf", None),
+        id="export-dispatches-to-export",
+    ),
+    pytest.param(["epub2"], "export_epub2", (), id="epub2"),
+    pytest.param(
+        ["epub2-with-cover"], "export_epub2_with_cover", (), id="epub2-with-cover"
+    ),
+    pytest.param(
+        ["print-version", "--book-type", "paperback"],
+        "export_print_version_paperback",
+        (),
+        id="print-version-paperback",
+    ),
+    pytest.param(
+        ["print-version", "--book-type", "hardcover"],
+        "export_print_version_hardcover",
+        (),
+        id="print-version-hardcover",
+    ),
+    pytest.param(
+        ["print-version"],
+        "export_print_version_epub",
+        (),
+        id="print-version-default-ebook",
+    ),
+    pytest.param(["safe", "--format", "pdf"], "export_safe", ("pdf",), id="safe"),
+    # "--" must have been stripped from the passthrough
+    pytest.param(
+        ["export", "--format", "pdf", "--", "--lang", "de"],
+        "export",
+        ("pdf", None, "--lang", "de"),
+        id="strips-leading-double-dash-from-passthrough",
+    ),
+    pytest.param(
+        ["export", "--format", "pdf", "--strict-opts"],
+        "export",
+        ("pdf", None, "--strict-opts"),
+        id="strict-opts-is-forwarded",
+    ),
+    pytest.param(
+        ["export", "--format", "pdf", "--cover", "c.jpg", "--", "--lang", "de"],
+        "export",
+        ("pdf", "c.jpg", "--lang", "de"),
+        id="export-passes-the-cover",
+    ),
+    pytest.param(
+        ["print-version", "--", "--lang", "de"],
+        "export_print_version_epub",
+        ("--lang", "de"),
+        id="print-version-passes-the-passthrough",
+    ),
+    pytest.param(
+        ["safe", "--format", "epub", "--", "--keep-relative-paths"],
+        "export_safe",
+        ("epub", "--keep-relative-paths"),
+        id="safe-passes-the-passthrough",
+    ),
+]
 
 
-def test_main_epub2(monkeypatch):
-    calls = _record_call("export_epub2", monkeypatch)
-    sc.main(["epub2"])
-    assert calls
-
-
-def test_main_epub2_with_cover(monkeypatch):
-    calls = _record_call("export_epub2_with_cover", monkeypatch)
-    sc.main(["epub2-with-cover"])
-    assert calls
-
-
-def test_main_print_version_paperback(monkeypatch):
-    calls = _record_call("export_print_version_paperback", monkeypatch)
-    sc.main(["print-version", "--book-type", "paperback"])
-    assert calls
-
-
-def test_main_print_version_hardcover(monkeypatch):
-    calls = _record_call("export_print_version_hardcover", monkeypatch)
-    sc.main(["print-version", "--book-type", "hardcover"])
-    assert calls
-
-
-def test_main_print_version_default_ebook(monkeypatch):
-    calls = _record_call("export_print_version_epub", monkeypatch)
-    sc.main(["print-version"])
-    assert calls
-
-
-def test_main_safe(monkeypatch):
-    calls = _record_call("export_safe", monkeypatch)
-    sc.main(["safe", "--format", "pdf"])
-    assert calls
+@pytest.mark.parametrize("argv, shortcut, args", MAIN_DISPATCH_CASES)
+def test_main_dispatches(argv, shortcut, args, monkeypatch):
+    calls = _record_call(shortcut, monkeypatch)
+    sc.main(argv)
+    assert calls == [(args, {})]
 
 
 def test_main_list_allowed_opts(capsys):
     sc.main(["list-allowed-opts"])
     assert "full_export_book.py" in capsys.readouterr().out
-
-
-def test_main_strips_leading_double_dash_from_passthrough(monkeypatch):
-    calls = _record_call("export", monkeypatch)
-    sc.main(["export", "--format", "pdf", "--", "--lang", "de"])
-    args, _ = calls[0]
-    # args = (format, cover, *extras) — "--" must have been stripped
-    extras = args[2:]
-    assert "--" not in extras
-    assert "--lang" in extras
-
-
-def test_main_strict_opts_is_forwarded(monkeypatch):
-    calls = _record_call("export", monkeypatch)
-    sc.main(["export", "--format", "pdf", "--strict-opts"])
-    args, _ = calls[0]
-    assert "--strict-opts" in args[2:]
 
 
 # Each row: the main() arguments and the command line the help names

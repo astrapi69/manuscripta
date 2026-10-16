@@ -6,46 +6,32 @@ pytestmark = pytest.mark.unit
 import manuscripta.export.validation as vf
 
 
-def test_pdf_success(monkeypatch, tmp_path, capsys):
+# Each row: the file exists?, pdfinfo on PATH?, what run_cmd returns (None: it
+# must not run), the exit status, the texts the output carries
+PDF_CASES = [
+    pytest.param(
+        True, True, (0, "Title: X\nPages: 12\n", ""), 0, ["Pages: 12"], id="success"
+    ),
+    pytest.param(True, True, (1, "", "broken"), 1, ["broken"], id="failure"),
+    pytest.param(True, False, None, 127, ["`pdfinfo` not found"], id="no-pdfinfo"),
+    pytest.param(True, True, (124, "", "timeout"), 124, ["timed out"], id="timeout"),
+    pytest.param(False, True, None, 2, ["PDF file not found"], id="missing"),
+]
+
+
+@pytest.mark.parametrize("exists, has_pdfinfo, result, rc, texts", PDF_CASES)
+def test_pdf(monkeypatch, tmp_path, capsys, exists, has_pdfinfo, result, rc, texts):
     p = tmp_path / "a.pdf"
-    p.write_text("x")
-    monkeypatch.setattr(vf, "require_cmd", lambda _: True)
-    monkeypatch.setattr(
-        vf, "run_cmd", lambda cmd, timeout=None: (0, "Title: X\nPages: 12\n", "")
-    )
-    rc = vf.validate_pdf(str(p), timeout=1)
-    assert rc == 0
+    if exists:
+        p.write_text("x")
+    monkeypatch.setattr(vf, "require_cmd", lambda _: has_pdfinfo)
+
+    def run_cmd(cmd, timeout=None):
+        assert result is not None, "pdfinfo must not run"
+        return result
+
+    monkeypatch.setattr(vf, "run_cmd", run_cmd)
+    assert vf.validate_pdf(str(p), timeout=1) == rc
     out = capsys.readouterr().out
-    assert "Pages: 12" in out
-
-
-def test_pdf_failure(monkeypatch, tmp_path, capsys):
-    p = tmp_path / "a.pdf"
-    p.write_text("x")
-    monkeypatch.setattr(vf, "require_cmd", lambda _: True)
-    monkeypatch.setattr(vf, "run_cmd", lambda cmd, timeout=None: (1, "", "broken"))
-    rc = vf.validate_pdf(str(p))
-    assert rc == 1
-    assert "broken" in capsys.readouterr().out
-
-
-def test_pdf_no_pdfinfo(monkeypatch, tmp_path):
-    p = tmp_path / "a.pdf"
-    p.write_text("x")
-    monkeypatch.setattr(vf, "require_cmd", lambda _: False)
-    rc = vf.validate_pdf(str(p))
-    assert rc == 127
-
-
-def test_pdf_timeout(monkeypatch, tmp_path):
-    p = tmp_path / "a.pdf"
-    p.write_text("x")
-    monkeypatch.setattr(vf, "require_cmd", lambda _: True)
-    monkeypatch.setattr(vf, "run_cmd", lambda cmd, timeout=None: (124, "", "timeout"))
-    rc = vf.validate_pdf(str(p))
-    assert rc == 124
-
-
-def test_pdf_missing(tmp_path):
-    rc = vf.validate_pdf(str(tmp_path / "no.pdf"))
-    assert rc == 2
+    for text in texts:
+        assert text in out

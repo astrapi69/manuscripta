@@ -131,45 +131,52 @@ class TestProcessFileEncodingContract:
             _locale.setlocale(_locale.LC_ALL, saved)
 
 
+# Each row: the chapters to write into manuscript/chapters (name → text), the
+# directories main walks (under tmp_path) and the count the summary line
+# reports. {img} is the absolute path of assets/pic.png. The contract
+# sentence and the mutant a row kills stay in the comment above it.
+MAIN_WALK_CASES = [
+    # A missing directory is skipped; directories after it are still
+    # processed (``continue``, not abort).
+    # Kills main __mutmut_4 (``continue`` → ``break``: the walk stops at the
+    # first missing directory and the later directory's file is never
+    # converted).
+    pytest.param(
+        {"ch1.md": "![x]({img})\n"},
+        ["does-not-exist", "manuscript/chapters"],
+        1,
+        id="missing-dir-is-skipped-not-fatal",
+    ),
+    # The summary counts every changed file, not just the last one.
+    # Kills main __mutmut_8 (``changed += 1 if …`` → ``changed = 1 if …``:
+    # the counter is overwritten per file and reports at most 1 — or 0,
+    # depending on iteration order).
+    pytest.param(
+        {"ch1.md": "![x]({img})\n", "ch2.md": "![y]({img})\n"},
+        ["manuscript/chapters"],
+        2,
+        id="update-count-accumulates-across-files",
+    ),
+]
+
+
 class TestMainWalkerContract:
-    def test_missing_dir_is_skipped_not_fatal(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    @pytest.mark.parametrize("chapters, directories, updated", MAIN_WALK_CASES)
+    def test_main_walk(
+        self,
+        chapters,
+        directories,
+        updated,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys,
     ):
-        """A missing directory is skipped; directories after it are
-        still processed (``continue``, not abort).
-
-        Kills main __mutmut_4 (``continue`` → ``break``: the walk stops
-        at the first missing directory and the later directory's file
-        is never converted).
-        """
         assets, md_dir = _layout(tmp_path, monkeypatch)
         img = assets / "pic.png"
         img.write_bytes(b"\x89")
-        (md_dir / "ch1.md").write_text(f"![x]({img})\n", encoding="utf-8")
-
-        missing = tmp_path / "does-not-exist"
-        monkeypatch.setattr(mod, "MD_DIRECTORIES", [missing, md_dir])
-
-        mod.main()
-        assert "Files updated: 1" in capsys.readouterr().out
-
-    def test_update_count_accumulates_across_files(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
-    ):
-        """The summary counts every changed file, not just the last
-        one.
-
-        Kills main __mutmut_8 (``changed += 1 if …`` → ``changed = 1
-        if …``: the counter is overwritten per file and reports at most
-        1 — or 0, depending on iteration order).
-        """
-        assets, md_dir = _layout(tmp_path, monkeypatch)
-        img = assets / "pic.png"
-        img.write_bytes(b"\x89")
-        (md_dir / "ch1.md").write_text(f"![x]({img})\n", encoding="utf-8")
-        (md_dir / "ch2.md").write_text(f"![y]({img})\n", encoding="utf-8")
-
-        monkeypatch.setattr(mod, "MD_DIRECTORIES", [md_dir])
+        for name, text in chapters.items():
+            (md_dir / name).write_text(text.format(img=img), encoding="utf-8")
+        monkeypatch.setattr(mod, "MD_DIRECTORIES", [tmp_path / d for d in directories])
 
         mod.main()
-        assert "Files updated: 2" in capsys.readouterr().out
+        assert f"Files updated: {updated}" in capsys.readouterr().out

@@ -42,63 +42,100 @@ ES_H1_NO_ANCHOR = "# ✦ Capítulo 16: Ideas – Semillas de riqueza mental\n\nC
 # ----------------------------
 
 
-def test_load_mapping_json_dict(tmp_path: Path):
-    mf = tmp_path / "mapping.json"
-    data = {"11-chapter.md": "07-chapter.md", "14-chapter.md": "08-chapter.md"}
-    mf.write_text(json.dumps(data), encoding="utf-8")
-
-    mapping = load_mapping_file(mf)
-    assert mapping["11-chapter.md"] == "07-chapter.md"
-    assert mapping["14-chapter.md"] == "08-chapter.md"
+def json_file(data):
+    """A writer storing ``data`` as JSON."""
+    return lambda path: path.write_text(json.dumps(data), encoding="utf-8")
 
 
-def test_load_mapping_json_list(tmp_path: Path):
-    mf = tmp_path / "mapping.json"
-    data = [{"src": "16-chapter.md", "tgt": "09-chapter.md"}]
-    mf.write_text(json.dumps(data), encoding="utf-8")
-    mapping = load_mapping_file(mf)
-    assert mapping["16-chapter.md"] == "09-chapter.md"
+def csv_file(*rows):
+    """A writer storing ``rows`` as CSV."""
+
+    def write(path):
+        with path.open("w", newline="", encoding="utf-8") as fh:
+            csv.writer(fh).writerows(rows)
+
+    return write
 
 
-def test_load_mapping_csv_with_header(tmp_path: Path):
-    mf = tmp_path / "mapping.csv"
-    with mf.open("w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
-        w.writerow(["src", "tgt"])
-        w.writerow(["07-chapter.md", "10-chapter.md"])
-    mapping = load_mapping_file(mf)
-    assert mapping["07-chapter.md"] == "10-chapter.md"
+def yaml_file(data):
+    """A writer storing ``data`` as YAML."""
+
+    def write(path):
+        import yaml  # type: ignore
+
+        path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    return write
 
 
-def test_load_mapping_csv_no_header(tmp_path: Path):
-    mf = tmp_path / "mapping.csv"
-    with mf.open("w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
-        w.writerow(["08-chapter.md", "14-chapter.md"])
-    mapping = load_mapping_file(mf)
-    assert mapping["08-chapter.md"] == "14-chapter.md"
+# Each row: the mapping file's name, the writer filling it, the mapping loaded
+LOAD_MAPPING_CASES = [
+    pytest.param(
+        "mapping.json",
+        json_file({"11-chapter.md": "07-chapter.md", "14-chapter.md": "08-chapter.md"}),
+        {"11-chapter.md": "07-chapter.md", "14-chapter.md": "08-chapter.md"},
+        id="json-dict",
+    ),
+    pytest.param(
+        "mapping.json",
+        json_file([{"src": "16-chapter.md", "tgt": "09-chapter.md"}]),
+        {"16-chapter.md": "09-chapter.md"},
+        id="json-list",
+    ),
+    pytest.param(
+        "mapping.csv",
+        csv_file(["src", "tgt"], ["07-chapter.md", "10-chapter.md"]),
+        {"07-chapter.md": "10-chapter.md"},
+        id="csv-with-header",
+    ),
+    pytest.param(
+        "mapping.csv",
+        csv_file(["08-chapter.md", "14-chapter.md"]),
+        {"08-chapter.md": "14-chapter.md"},
+        id="csv-no-header",
+    ),
+    pytest.param(
+        "mapping.yaml",
+        yaml_file([{"src": "21-chapter.md", "tgt": "15-chapter.md"}]),
+        {"21-chapter.md": "15-chapter.md"},
+        id="yaml-list",
+        marks=pytest.mark.skipif(
+            not pytest.importorskip("yaml"), reason="PyYAML not installed"
+        ),
+    ),
+]
 
 
-@pytest.mark.skipif(not pytest.importorskip("yaml"), reason="PyYAML not installed")
-def test_load_mapping_yaml_list(tmp_path: Path):
-    import yaml  # type: ignore
-
-    mf = tmp_path / "mapping.yaml"
-    data = [{"src": "21-chapter.md", "tgt": "15-chapter.md"}]
-    mf.write_text(yaml.safe_dump(data), encoding="utf-8")
-    mapping = load_mapping_file(mf)
-    assert mapping["21-chapter.md"] == "15-chapter.md"
+@pytest.mark.parametrize("name, fill, expected", LOAD_MAPPING_CASES)
+def test_load_mapping_file(name, fill, expected, tmp_path: Path):
+    mf = tmp_path / name
+    fill(mf)
+    assert load_mapping_file(mf) == expected
 
 
-def test_parse_inline_map_ok():
-    m = parse_inline_map(["11-chapter.md:07-chapter.md", "14-chapter.md:08-chapter.md"])
-    assert m["11-chapter.md"] == "07-chapter.md"
-    assert m["14-chapter.md"] == "08-chapter.md"
+# Each row: the src:tgt items, the mapping parsed, the ValueError message
+# (None: the items parse)
+PARSE_INLINE_MAP_CASES = [
+    pytest.param(
+        ["11-chapter.md:07-chapter.md", "14-chapter.md:08-chapter.md"],
+        {"11-chapter.md": "07-chapter.md", "14-chapter.md": "08-chapter.md"},
+        None,
+        id="ok",
+    ),
+    pytest.param([" a : b "], {"a": "b"}, None, id="strips-whitespace"),
+    pytest.param(["broken_entry_without_colon"], None, "Use 'src:tgt'", id="invalid"),
+    pytest.param(["a:"], None, "Empty src/tgt", id="empty-target"),
+    pytest.param([":b"], None, "Empty src/tgt", id="empty-source"),
+]
 
 
-def test_parse_inline_map_invalid():
-    with pytest.raises(ValueError):
-        parse_inline_map(["broken_entry_without_colon"])
+@pytest.mark.parametrize("items, mapping, error", PARSE_INLINE_MAP_CASES)
+def test_parse_inline_map(items, mapping, error):
+    if error is None:
+        assert parse_inline_map(items) == mapping
+    else:
+        with pytest.raises(ValueError, match=error):
+            parse_inline_map(items)
 
 
 # ----------------------------
@@ -125,43 +162,35 @@ def test_resolve_mapping_merges_and_detects_collisions(tmp_path: Path):
 # Header & Anchor Normalization
 # ----------------------------
 
-
-def test_update_header_and_anchor_es(tmp_path: Path):
-    f = tmp_path / "11-chapter.md"
-    write_chapter(f, ES_H1)
-    update_header_and_anchor(f, 7, lang="es", dry_run=False)
-    out = f.read_text(encoding="utf-8")
-    assert out.startswith("# ✦ Capítulo 7:"), out
-    assert "{#-chapter-7}" in out
-
-
-def test_update_header_and_anchor_de(tmp_path: Path):
-    f = tmp_path / "09-chapter.md"
-    write_chapter(f, DE_H1)
-    update_header_and_anchor(f, 16, lang="de", dry_run=False)
-    out = f.read_text(encoding="utf-8")
-    assert out.startswith("# ✦ Kapitel 16:"), out
-    assert "{#-chapter-16}" in out
-
-
-def test_update_header_and_anchor_en_autodetect(tmp_path: Path):
-    f = tmp_path / "07-chapter.md"
-    write_chapter(f, EN_H1)
+# Each row: the chapter's text, the new number, the language (None: autodetected
+# from the header), the start of the H1 afterwards, the anchor it must carry
+UPDATE_HEADER_CASES = [
+    pytest.param(ES_H1, 7, "es", "# ✦ Capítulo 7:", "{#-chapter-7}", id="es"),
+    pytest.param(DE_H1, 16, "de", "# ✦ Kapitel 16:", "{#-chapter-16}", id="de"),
     # No lang provided -> autodetect EN from header
-    update_header_and_anchor(f, 10, lang=None, dry_run=False)
-    out = f.read_text(encoding="utf-8")
-    assert out.startswith("# ✦ Chapter 10:"), out
-    assert "{#-chapter-10}" in out
-
-
-def test_update_header_anchor_fallback_anchor_only(tmp_path: Path):
-    f = tmp_path / "16-chapter.md"
-    write_chapter(f, ES_H1_NO_ANCHOR)
+    pytest.param(
+        EN_H1, 10, None, "# ✦ Chapter 10:", "{#-chapter-10}", id="en-autodetect"
+    ),
     # update should add anchor {#-chapter-9} and adjust number in H1
-    update_header_and_anchor(f, 9, lang="es", dry_run=False)
+    pytest.param(
+        ES_H1_NO_ANCHOR,
+        9,
+        "es",
+        "# ✦ Capítulo 9:",
+        "{#-chapter-9}",
+        id="fallback-anchor-only",
+    ),
+]
+
+
+@pytest.mark.parametrize("content, new_num, lang, start, anchor", UPDATE_HEADER_CASES)
+def test_update_header_and_anchor(content, new_num, lang, start, anchor, tmp_path):
+    f = tmp_path / "chapter.md"
+    write_chapter(f, content)
+    update_header_and_anchor(f, new_num, lang=lang, dry_run=False)
     out = f.read_text(encoding="utf-8")
-    assert out.startswith("# ✦ Capítulo 9:"), out
-    assert "{#-chapter-9}" in out
+    assert out.startswith(start), out
+    assert anchor in out
 
 
 # ----------------------------
@@ -232,9 +261,15 @@ def test_two_phase_rename_dry_run(tmp_path: Path):
 # Autodetect language
 # ----------------------------
 
+# Each row: a chapter's text and the language its header names (None: none)
+AUTODETECT_LANG_CASES = [
+    pytest.param(ES_H1, "es", id="es"),
+    pytest.param(DE_H1, "de", id="de"),
+    pytest.param(EN_H1, "en", id="en"),
+    pytest.param("no matching header", None, id="no-matching-header"),
+]
 
-def test_autodetect_lang():
-    assert autodetect_lang_by_header(ES_H1) == "es"
-    assert autodetect_lang_by_header(DE_H1) == "de"
-    assert autodetect_lang_by_header(EN_H1) == "en"
-    assert autodetect_lang_by_header("no matching header") is None
+
+@pytest.mark.parametrize("text, lang", AUTODETECT_LANG_CASES)
+def test_autodetect_lang(text, lang):
+    assert autodetect_lang_by_header(text) == lang

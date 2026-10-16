@@ -56,6 +56,58 @@ def _make_project(
     return root
 
 
+def _project_missing_image(image_name: str):
+    """Builder for a project whose chapter references ``image_name`` but
+    whose assets/ does not ship it."""
+    return lambda tmp_path: _make_project(
+        tmp_path, with_image=False, image_name=image_name
+    )
+
+
+def _unicode_project(tmp_path: Path) -> Path:
+    """Non-ASCII chapter filename, image filename and content."""
+    from helpers.png import write_png  # type: ignore[import-not-found]
+    from helpers.project import scaffold  # type: ignore[import-not-found]
+
+    scaffold(tmp_path, title="Λόγος — Élan", lang="de")
+    img_name = "Bücher.png"
+    write_png(tmp_path / "assets" / img_name)
+    (tmp_path / "manuscript" / "chapters" / "Kapitel-α.md").write_text(
+        f"# Καλημέρα\n\nÜber die Bedeutung der Bücher.\n\n![]({img_name})\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def _absolute_image_project(tmp_path: Path) -> Path:
+    """The chapter references an image by absolute path outside source_dir."""
+    from helpers.png import write_png  # type: ignore[import-not-found]
+    from helpers.project import scaffold  # type: ignore[import-not-found]
+
+    scaffold(tmp_path, title="Absolute Book")
+    external = tmp_path / "external"
+    external.mkdir()
+    image_abs = (external / "external.png").resolve()
+    write_png(image_abs)
+    (tmp_path / "manuscript" / "chapters" / "ch1.md").write_text(
+        f"# Chapter\n\n![ext]({image_abs})\n", encoding="utf-8"
+    )
+    return tmp_path
+
+
+def _mixed_images_project(tmp_path: Path) -> Path:
+    """One valid image and one missing image in a single chapter."""
+    from helpers.png import write_png  # type: ignore[import-not-found]
+    from helpers.project import scaffold  # type: ignore[import-not-found]
+
+    scaffold(tmp_path, title="Mixed")
+    write_png(tmp_path / "assets" / "present.png")
+    (tmp_path / "manuscript" / "chapters" / "ch1.md").write_text(
+        "# Ch\n\n![ok](present.png)\n\n![bad](absent.png)\n", encoding="utf-8"
+    )
+    return tmp_path
+
+
 def _stub_validators(monkeypatch):
     """Disable background validation threads — they aren't under test and
     pulling epubcheck off the network would break the 30 s budget."""
@@ -127,18 +179,8 @@ def test_real_pandoc_plain_invocation_direct(tmp_path):
 
 
 # =========================================================================
-# Stderr parsing — at least 3 tests
+# Stderr parsing: a Pandoc failure surfaces as a library error
 # =========================================================================
-
-
-def test_stderr_unresolved_resource_warning_raises_image_error(tmp_path, monkeypatch):
-    """Pandoc emits ``Could not fetch resource`` → library surfaces
-    ManuscriptaImageError with the unresolved path in .unresolved."""
-    _stub_validators(monkeypatch)
-    project = _make_project(tmp_path, with_image=False, image_name="missing.png")
-    with pytest.raises(ManuscriptaImageError) as excinfo:
-        _export_epub(project, strict_images=True)
-    assert "missing.png" in excinfo.value.unresolved
 
 
 def test_stderr_malformed_metadata_yaml_raises_pandoc_error(tmp_path, monkeypatch):
@@ -161,39 +203,144 @@ def test_stderr_malformed_metadata_yaml_raises_pandoc_error(tmp_path, monkeypatc
         )
 
 
-def test_stderr_successful_build_with_warnings_parses_but_does_not_raise(
-    tmp_path, monkeypatch, caplog
-):
-    """Pandoc run with a missing image + strict_images=False: the
-    warning is parsed and surfaced via logging, and the build completes
-    (output file produced)."""
+# =========================================================================
+# Resource-path construction (the v0.7.0 failure modes): strict builds
+# that must succeed, missing images under strict_images, and the same
+# under lenient mode. Add a row to pin a new layout.
+# =========================================================================
+
+
+# Each row: a builder that lays the project out under tmp_path and returns its
+# root, and the directory under tmp_path to run from (None: stay put). Every
+# row builds epub with strict_images=True and must produce output/book.epub.
+STRICT_EPUB_BUILDS = [
+    # (i) source_dir passed, invoked from a cwd OUTSIDE the project →
+    # resources resolve correctly, no spurious warning, build succeeds.
+    pytest.param(
+        lambda tmp_path: _make_project(tmp_path / "book"),
+        "elsewhere",
+        id="rp-i-source-dir-resolves-from-cwd-outside-project",
+    ),
+    # Historically fragile; pin before regression.
+    pytest.param(_unicode_project, None, id="unicode-in-content-and-filenames"),
+    # Path containing spaces and parentheses — LaTeX's classic failure
+    # surface, but Pandoc html/epub paths also historically mishandle it.
+    pytest.param(
+        lambda tmp_path: _make_project(tmp_path / "My Book (Draft v2)"),
+        None,
+        id="source-dir-with-spaces-and-parens",
+    ),
+    # Pandoc handles absolute paths natively; library must not mangle
+    # them, and --resource-path handling must not interfere.
+    pytest.param(_absolute_image_project, None, id="absolute-path-image-reference"),
+]
+
+
+@pytest.mark.parametrize("build, run_from", STRICT_EPUB_BUILDS)
+def test_strict_epub_build_succeeds(build, run_from, tmp_path, monkeypatch):
     _stub_validators(monkeypatch)
-    project = _make_project(tmp_path, with_image=False, image_name="ghost.png")
+    project = build(tmp_path)
+    if run_from is not None:
+        cwd = tmp_path / run_from
+        cwd.mkdir()
+        monkeypatch.chdir(cwd)
+    _export_epub(project, strict_images=True)
+    assert (project / "output" / "book.epub").exists()
+
+
+# Each row: a builder that lays the project out under tmp_path and returns its
+# root, the paths ManuscriptaImageError.unresolved must list. Every row builds
+# epub with strict_images=True and must leave no output/book.epub behind.
+STRICT_MISSING_IMAGE_CASES = [
+    # Pandoc emits ``Could not fetch resource`` → library surfaces
+    # ManuscriptaImageError with the unresolved path in .unresolved.
+    pytest.param(
+        _project_missing_image("missing.png"),
+        ["missing.png"],
+        id="stderr-unresolved-resource-warning-raises-image-error",
+    ),
+    # (iii) strict_images=True + missing image → ManuscriptaImageError
+    # with .unresolved populated.
+    pytest.param(
+        _project_missing_image("absent.png"),
+        ["absent.png"],
+        id="rp-iii-strict-images-missing-raises-with-unresolved-list",
+    ),
+    # .unresolved must name only the missing path, never the valid one.
+    pytest.param(
+        _mixed_images_project,
+        ["absent.png"],
+        id="mixed-present-and-missing-images-lists-only-missing",
+    ),
+    # v0.8.0 contract: a strict-images failure must not leave a partial
+    # output file behind (half-built artifacts lie about success).
+    pytest.param(
+        _project_missing_image("phantom.png"),
+        ["phantom.png"],
+        id="failed-build-deletes-partial-output",
+    ),
+]
+
+
+@pytest.mark.parametrize("build, unresolved", STRICT_MISSING_IMAGE_CASES)
+def test_strict_missing_image_raises_image_error(
+    build, unresolved, tmp_path, monkeypatch
+):
+    _stub_validators(monkeypatch)
+    project = build(tmp_path)
+    out = project / "output" / "book.epub"
+    with pytest.raises(ManuscriptaImageError) as excinfo:
+        _export_epub(project, strict_images=True)
+    assert excinfo.value.unresolved == unresolved
+    assert not out.exists(), f"Partial artifact left at {out}"
+
+
+# Each row: a builder that lays the project out under tmp_path and returns its
+# root, the image the warning must name. Every row builds epub with
+# strict_images=False: the build completes, the warning is logged and the
+# Pandoc stderr lands in export.log.
+LENIENT_MISSING_IMAGE_CASES = [
+    # Pandoc run with a missing image + strict_images=False: the
+    # warning is parsed and surfaced via logging, and the build completes
+    # (output file produced).
+    pytest.param(
+        _project_missing_image("ghost.png"),
+        "ghost.png",
+        id="stderr-successful-build-with-warnings-parses-but-does-not-raise",
+    ),
+    # (iv) strict_images=False + missing image → warning logged, build
+    # completes.
+    pytest.param(
+        _project_missing_image("vanished.png"),
+        "vanished.png",
+        id="rp-iv-lenient-images-missing-logs-and-completes",
+    ),
+    # When the build succeeds but emits warnings, the stderr text must
+    # land in ``export.log`` — the only durable artifact for post-hoc
+    # debugging.
+    pytest.param(
+        _project_missing_image("poltergeist.png"),
+        "poltergeist.png",
+        id="pandoc-stderr-is-teed-to-export-log",
+    ),
+]
+
+
+@pytest.mark.parametrize("build, warned", LENIENT_MISSING_IMAGE_CASES)
+def test_lenient_missing_image_warns_and_completes(
+    build, warned, tmp_path, monkeypatch, caplog
+):
+    _stub_validators(monkeypatch)
+    project = build(tmp_path)
     with caplog.at_level(logging.WARNING, logger="manuscripta.export.book"):
         _export_epub(project, strict_images=False)
     # Output produced.
-    assert any((project / "output").glob("*.epub"))
-    # Warning surfaced.
-    assert any("ghost.png" in r.getMessage() for r in caplog.records)
-
-
-# =========================================================================
-# Resource-path construction (the v0.7.0 failure modes) — at least 4 tests
-# =========================================================================
-
-
-def test_rp_i_source_dir_resolves_from_cwd_outside_project(tmp_path, monkeypatch):
-    """(i) source_dir passed, invoked from a cwd OUTSIDE the project →
-    resources resolve correctly, no spurious warning, build succeeds."""
-    _stub_validators(monkeypatch)
-    project = _make_project(tmp_path / "book")
-
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    monkeypatch.chdir(elsewhere)
-
-    _export_epub(project, strict_images=True)
     assert (project / "output" / "book.epub").exists()
+    # Warning surfaced.
+    assert any(warned in r.getMessage() for r in caplog.records)
+    log = project / "export.log"
+    assert log.exists()
+    assert warned in log.read_text(encoding="utf-8")
 
 
 def test_rp_ii_missing_subdirs_raises_layout_error_naming_all(tmp_path, monkeypatch):
@@ -208,29 +355,6 @@ def test_rp_ii_missing_subdirs_raises_layout_error_naming_all(tmp_path, monkeypa
     assert set(err.missing) == {"config", "assets"}
     msg = str(err)
     assert "config" in msg and "assets" in msg
-
-
-def test_rp_iii_strict_images_missing_raises_with_unresolved_list(
-    tmp_path, monkeypatch
-):
-    """(iii) strict_images=True + missing image → ManuscriptaImageError
-    with .unresolved populated."""
-    _stub_validators(monkeypatch)
-    project = _make_project(tmp_path, with_image=False, image_name="absent.png")
-    with pytest.raises(ManuscriptaImageError) as excinfo:
-        _export_epub(project, strict_images=True)
-    assert excinfo.value.unresolved == ["absent.png"]
-
-
-def test_rp_iv_lenient_images_missing_logs_and_completes(tmp_path, monkeypatch, caplog):
-    """(iv) strict_images=False + missing image → warning logged, build
-    completes."""
-    _stub_validators(monkeypatch)
-    project = _make_project(tmp_path, with_image=False, image_name="vanished.png")
-    with caplog.at_level(logging.WARNING, logger="manuscripta.export.book"):
-        _export_epub(project, strict_images=False)
-    assert (project / "output" / "book.epub").exists()
-    assert any("vanished.png" in r.getMessage() for r in caplog.records)
 
 
 def test_rp_extra_resource_paths_accepted(tmp_path, monkeypatch):
@@ -261,47 +385,6 @@ def test_rp_extra_resource_paths_accepted(tmp_path, monkeypatch):
 
 
 # =========================================================================
-# Unicode / whitespace fragility — at least 2 tests
-# =========================================================================
-
-
-def test_unicode_in_content_and_filenames(tmp_path, monkeypatch):
-    """Non-ASCII chapter filename, non-ASCII image filename, non-ASCII
-    content. Historically fragile; pin before regression."""
-    _stub_validators(monkeypatch)
-
-    from helpers.png import write_png  # type: ignore[import-not-found]
-    from helpers.project import scaffold  # type: ignore[import-not-found]
-
-    scaffold(tmp_path, title="Λόγος — Élan", lang="de")
-    img_name = "Bücher.png"
-    write_png(tmp_path / "assets" / img_name)
-    (tmp_path / "manuscript" / "chapters" / "Kapitel-α.md").write_text(
-        f"# Καλημέρα\n\nÜber die Bedeutung der Bücher.\n\n![]({img_name})\n",
-        encoding="utf-8",
-    )
-
-    _export_epub(tmp_path, strict_images=True)
-    assert (tmp_path / "output" / "book.epub").exists()
-
-
-def test_source_dir_with_spaces_and_parens(tmp_path, monkeypatch):
-    """Path containing spaces and parentheses — LaTeX's classic failure
-    surface, but Pandoc html/epub paths also historically mishandle it.
-    Pin it."""
-    _stub_validators(monkeypatch)
-    project = tmp_path / "My Book (Draft v2)"
-    _make_project(project)
-    _export_epub(project, strict_images=True)
-    assert (project / "output" / "book.epub").exists()
-
-
-# =========================================================================
-# Absolute-path image references — at least 1 test
-# =========================================================================
-
-
-# =========================================================================
 # Additional integration coverage
 # =========================================================================
 
@@ -321,23 +404,6 @@ def test_explicit_output_path_overrides_derived_location(tmp_path, monkeypatch):
     )
     assert explicit.exists()
     assert not (project / "output" / "ignored.html").exists()
-
-
-def test_mixed_present_and_missing_images_lists_only_missing(tmp_path, monkeypatch):
-    """One valid image + one missing image, strict mode: exception's
-    .unresolved must name only the missing path, never the valid one."""
-    _stub_validators(monkeypatch)
-    from helpers.png import write_png  # type: ignore[import-not-found]
-    from helpers.project import scaffold  # type: ignore[import-not-found]
-
-    scaffold(tmp_path, title="Mixed")
-    write_png(tmp_path / "assets" / "present.png")
-    (tmp_path / "manuscript" / "chapters" / "ch1.md").write_text(
-        "# Ch\n\n![ok](present.png)\n\n![bad](absent.png)\n", encoding="utf-8"
-    )
-    with pytest.raises(ManuscriptaImageError) as excinfo:
-        _export_epub(tmp_path, strict_images=True)
-    assert excinfo.value.unresolved == ["absent.png"]
 
 
 def test_multi_chapter_section_order_preserved_in_output(tmp_path, monkeypatch):
@@ -365,49 +431,3 @@ def test_multi_chapter_section_order_preserved_in_output(tmp_path, monkeypatch):
     i2 = html.find("Chapter Marker 2")
     i3 = html.find("Chapter Marker 3")
     assert 0 < i1 < i2 < i3, f"Chapter order lost: {i1} {i2} {i3}"
-
-
-def test_pandoc_stderr_is_teed_to_export_log(tmp_path, monkeypatch):
-    """When the build succeeds but emits warnings, the stderr text must
-    land in ``export.log`` — the only durable artifact for post-hoc
-    debugging."""
-    _stub_validators(monkeypatch)
-    project = _make_project(tmp_path, with_image=False, image_name="poltergeist.png")
-    _export_epub(project, strict_images=False)
-    log = project / "export.log"
-    assert log.exists()
-    content = log.read_text(encoding="utf-8")
-    assert "poltergeist.png" in content
-
-
-def test_failed_build_deletes_partial_output(tmp_path, monkeypatch):
-    """v0.8.0 contract: a strict-images failure must not leave a partial
-    output file behind (half-built artifacts lie about success)."""
-    _stub_validators(monkeypatch)
-    project = _make_project(tmp_path, with_image=False, image_name="phantom.png")
-    out = project / "output" / "book.epub"
-    with pytest.raises(ManuscriptaImageError):
-        _export_epub(project, strict_images=True)
-    assert not out.exists(), f"Partial artifact left at {out}"
-
-
-def test_absolute_path_image_reference(tmp_path, monkeypatch):
-    """Markdown references image by absolute path outside source_dir.
-    Pandoc handles absolute paths natively; library must not mangle
-    them, and --resource-path handling must not interfere."""
-    _stub_validators(monkeypatch)
-
-    from helpers.png import write_png  # type: ignore[import-not-found]
-    from helpers.project import scaffold  # type: ignore[import-not-found]
-
-    scaffold(tmp_path, title="Absolute Book")
-    external = tmp_path / "external"
-    external.mkdir()
-    image_abs = (external / "external.png").resolve()
-    write_png(image_abs)
-    (tmp_path / "manuscript" / "chapters" / "ch1.md").write_text(
-        f"# Chapter\n\n![ext]({image_abs})\n", encoding="utf-8"
-    )
-    # Strict images on — must not raise, absolute path must resolve.
-    _export_epub(tmp_path, strict_images=True)
-    assert (tmp_path / "output" / "book.epub").exists()
