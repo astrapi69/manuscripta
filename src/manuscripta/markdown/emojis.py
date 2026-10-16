@@ -12,20 +12,14 @@ DEFAULT_SUFFIX = "-final.md"
 DEFAULT_ENCODING = "utf-8"
 
 
-# Fallback: local emoji_map.py next to this script (optional)
 def _load_default_map() -> Dict[str, str]:
+    """The bundled manuscripta.data.emoji_map.EMOJI_MAP as a copy; an empty
+    map when it cannot be imported."""
     try:
         from manuscripta.data.emoji_map import EMOJI_MAP  # type: ignore
-
-        return dict(EMOJI_MAP)
     except Exception:
-        try:
-            # If not a package, try sibling import
-            from manuscripta.data.emoji_map import EMOJI_MAP  # type: ignore
-
-            return dict(EMOJI_MAP)
-        except Exception:
-            return {}
+        return {}
+    return dict(EMOJI_MAP)
 
 
 def load_mapping_from_module(module_path: Path | None) -> Dict[str, str]:

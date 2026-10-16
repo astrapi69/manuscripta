@@ -134,8 +134,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument(
         "--resource-path",
         action="append",
-        default=defaults.get("resource_path", []),
-        help="Resource path(s); may be passed multiple times.",
+        default=None,
+        help="Resource path(s); may be passed multiple times "
+        "(replaces the configured list).",
     )
     p.add_argument(
         "--lang",
@@ -197,6 +198,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
 
     args = p.parse_args(argv)
+
+    # The configured list applies only when the command line gives none:
+    # as an argparse default, append would extend it with the CLI values.
+    if args.resource_path is None:
+        args.resource_path = list(defaults.get("resource_path", []))
 
     if args.print_config:
         print("Resolved config:")

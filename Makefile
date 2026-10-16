@@ -101,14 +101,29 @@ mutation-check: mutation ## Run mutation tests + enforce per-module thresholds (
 mutation-report: ## Print a human-readable report of surviving mutants
 	poetry run mutmut results
 
-mutation-fast: ## Dev loop — mutate only modules changed since main
-	@CHANGED=$$(git diff --name-only origin/main...HEAD -- 'src/manuscripta/**/*.py' | tr '\n' ' '); \
-	if [ -z "$$CHANGED" ]; then \
-		echo "No Python sources changed vs origin/main; nothing to mutate."; \
+# mutmut 3.x filters by fnmatch glob over MUTANT NAMES (manuscripta.a.b.*),
+# not file paths, so each changed in-scope file is mapped to its pattern
+# (src/manuscripta/a/b.py -> manuscripta.a.b.*; a package's __init__.py ->
+# manuscripta.a.*). Any filtered run resets every other in-scope module to
+# "not checked", which check_mutation_thresholds.py fails on by design.
+mutation-fast: ## Dev loop — mutate only the in-scope modules changed since main (resets the other modules' results; run `make mutation` before `make mutation-check`)
+	@CHANGED=$$(git diff --name-only origin/main...HEAD -- 'src/manuscripta/**/*.py'); \
+	PATTERNS=""; \
+	for f in $$CHANGED; do \
+		if grep -q "\"$$f\"" pyproject.toml; then \
+			PATTERNS="$$PATTERNS $$(echo "$$f" | sed -e 's#^src/##' -e 's#/__init__\.py$$##' -e 's#\.py$$##' -e 's#/#.#g' -e 's#$$#.*#')"; \
+		else \
+			echo "Skipping $$f: not in [tool.mutmut] paths_to_mutate."; \
+		fi; \
+	done; \
+	if [ -z "$$PATTERNS" ]; then \
+		echo "No in-scope Python sources changed vs origin/main; nothing to mutate."; \
 		exit 0; \
 	fi; \
-	echo "Mutating only: $$CHANGED"; \
-	poetry run mutmut run $$CHANGED
+	echo "Mutating only:$$PATTERNS"; \
+	echo "NOTICE: a filtered run resets every other in-scope module's results to 'not checked';"; \
+	echo "        run 'make mutation' before 'make mutation-check' (the threshold check fails on unchecked mutants)."; \
+	set -f; poetry run mutmut run $$PATTERNS
 
 # ---------------------------------------------------------------------------
 # CI

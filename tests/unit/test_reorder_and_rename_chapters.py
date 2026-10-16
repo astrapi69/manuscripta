@@ -1,7 +1,10 @@
 # tests/test_reorder_and_rename_chapters.py
 import json
 import csv
+import locale
+import re
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -28,6 +31,21 @@ import manuscripta.project.reorder as reorder
 def write_chapter(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+@contextmanager
+def c_locale(monkeypatch):
+    """The C locale for the block: its codec is ASCII, so a file read or
+    written with the locale default instead of UTF-8 cannot carry ✦ or an
+    umlaut."""
+    saved = locale.setlocale(locale.LC_ALL)
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("LANG", "C")
+    locale.setlocale(locale.LC_ALL, "C")
+    try:
+        yield
+    finally:
+        locale.setlocale(locale.LC_ALL, saved)
 
 
 ES_H1 = (
@@ -145,6 +163,13 @@ PARSE_INLINE_MAP_CASES = [
         id="ok",
     ),
     pytest.param([" a : b "], {"a": "b"}, None, id="strips-whitespace"),
+    # The first colon separates src from tgt; a target keeps any later one
+    pytest.param(
+        ["11-chapter.md:07-chapter: Ideas.md"],
+        {"11-chapter.md": "07-chapter: Ideas.md"},
+        None,
+        id="first-colon-splits-target-keeps-later-ones",
+    ),
     pytest.param(["broken_entry_without_colon"], None, "Use 'src:tgt'", id="invalid"),
     pytest.param(["a:"], None, "Empty src/tgt", id="empty-target"),
     pytest.param([":b"], None, "Empty src/tgt", id="empty-source"),
@@ -210,6 +235,15 @@ UPDATE_HEADER_CASES = [
         "# Intro {#-chapter-5}",
         "{#-chapter-5}",
         id="anchor-only-when-h1-lacks-the-prefix",
+    ),
+    # Neither --lang nor a recognisable prefix: the anchor is still renumbered
+    pytest.param(
+        "# Intro {#-chapter-3}\n\nTexto…\n",
+        5,
+        None,
+        "# Intro {#-chapter-5}",
+        "{#-chapter-5}",
+        id="anchor-only-without-lang-when-no-prefix-is-detected",
     ),
 ]
 
@@ -298,6 +332,10 @@ AUTODETECT_LANG_CASES = [
     pytest.param(DE_H1, "de", id="de"),
     pytest.param(EN_H1, "en", id="en"),
     pytest.param("no matching header", None, id="no-matching-header"),
+    # The language word is recognised whatever its case
+    pytest.param("# ✦ CAPÍTULO 3: Ideas\n", "es", id="es-uppercase"),
+    pytest.param("# ✦ kapitel 2: Klarheit\n", "de", id="de-lowercase"),
+    pytest.param("# ✦ CHAPTER 1: One\n", "en", id="en-uppercase"),
 ]
 
 
@@ -445,6 +483,15 @@ UPDATE_HEADER_WRITES = [
         "[OK] chapter.md: header/anchor -> chapter 3 (lang=de)\n",
         id="trailing-blank-lines-kept",
     ),
+    # The prefix is recognised whatever its case and rewritten canonically
+    pytest.param(
+        "# ✦ KAPITEL 1: Klarheit\n",
+        2,
+        None,
+        "# ✦ Kapitel 2: Klarheit {#-chapter-2}\n",
+        "[OK] chapter.md: header/anchor -> chapter 2 (lang=de)\n",
+        id="uppercase-prefix-detected-and-rewritten-canonically",
+    ),
 ]
 
 
@@ -520,6 +567,43 @@ def test_update_header_leaves_empty_file_alone(tmp_path: Path, capsys):
     assert capsys.readouterr().out == ""
 
 
+def test_update_header_reads_and_writes_utf8_under_c_locale(tmp_path, monkeypatch):
+    """The chapter is read and written as UTF-8 whatever the locale: under
+    LC_ALL=C the locale codec is ASCII and cannot carry ✦ or the umlauts."""
+    f = tmp_path / "chapter.md"
+    f.write_bytes("# ✦ Kapitel 1: Grüße\n\nBär…\n".encode("utf-8"))
+    with c_locale(monkeypatch):
+        update_header_and_anchor(f, 2, lang=None, dry_run=False)
+    assert f.read_bytes() == "# ✦ Kapitel 2: Grüße {#-chapter-2}\n\nBär…\n".encode(
+        "utf-8"
+    )
+
+
+# Each row: a mapping file's name and the writer filling it with the entry
+# Grüße.md -> Bär.md, spelled in UTF-8 (not escaped to ASCII)
+UTF8_MAPPING_FILES = [
+    pytest.param(
+        "mapping.json",
+        text_file(json.dumps({"Grüße.md": "Bär.md"}, ensure_ascii=False)),
+        id="json",
+    ),
+    pytest.param("mapping.csv", csv_file(["Grüße.md", "Bär.md"]), id="csv"),
+    pytest.param(
+        "mapping.yaml", text_file("Grüße.md: Bär.md\n"), id="yaml", marks=NEEDS_YAML
+    ),
+]
+
+
+@pytest.mark.parametrize("name, fill", UTF8_MAPPING_FILES)
+def test_load_mapping_file_reads_utf8_under_c_locale(name, fill, tmp_path, monkeypatch):
+    """A mapping file is read as UTF-8 whatever the locale: under LC_ALL=C
+    the locale codec is ASCII and cannot carry the umlauts in the names."""
+    mf = tmp_path / name
+    fill(mf)
+    with c_locale(monkeypatch):
+        assert load_mapping_file(mf) == {"Grüße.md": "Bär.md"}
+
+
 def test_resolve_mapping_requires_a_mapping():
     with pytest.raises(ValueError, match="No mapping provided"):
         _resolve_mapping(None, [])
@@ -557,9 +641,10 @@ def head_of(path: Path):
 
 
 # Each row: the chapter files (name -> text; bytes: written raw), the arguments
-# after the program name ({base}: the chapters dir, {map}: a JSON mapping file
-# 11-chapter.md -> 07-chapter.md), the exit code, the chapters afterwards
-# (name -> first line; None: not UTF-8), the stdout lines, the stderr
+# after the program name ({base}: the chapters dir manuscript/chapters below
+# the working directory, {map}: a JSON mapping file 11-chapter.md ->
+# 07-chapter.md), the exit code, the chapters afterwards (path below the
+# chapters dir -> first line; None: not UTF-8), the stdout lines, the stderr
 MAIN_RUNS = [
     pytest.param(
         {},
@@ -673,13 +758,110 @@ MAIN_RUNS = [
         "",
         id="undecodable-chapter-renamed-but-warned",
     ),
+    # Without --base-dir the chapters are looked for in manuscript/chapters
+    pytest.param(
+        {"11-chapter.md": ES_H1},
+        ["--map", "11-chapter.md:07-chapter.md"],
+        0,
+        {
+            "07-chapter.md": "# ✦ Capítulo 7: Creatividad – La moneda renovable {#-chapter-7}",
+        },
+        ["[OK] 07-chapter.md: header/anchor -> chapter 7 (lang=es)", DONE],
+        "",
+        id="base-dir-defaults-to-manuscript-chapters",
+    ),
+    # Two sources mapped onto one target: a configuration error, nothing moves
+    pytest.param(
+        {"11-chapter.md": ES_H1, "14-chapter.md": ES_H1_14},
+        [
+            "--base-dir",
+            "{base}",
+            "--map",
+            "11-chapter.md:07-chapter.md",
+            "--map",
+            "14-chapter.md:07-chapter.md",
+        ],
+        1,
+        {"11-chapter.md": head_of_text(ES_H1), "14-chapter.md": head_of_text(ES_H1_14)},
+        [],
+        "[ERROR] Target filename collision in mapping. Make targets unique.\n",
+        id="colliding-targets-are-a-configuration-error",
+    ),
+    # A target may name directories that do not exist yet, at any depth
+    pytest.param(
+        {"11-chapter.md": ES_H1},
+        [
+            "--base-dir",
+            "{base}",
+            "--map",
+            "11-chapter.md:part-2/chapters/07-chapter.md",
+        ],
+        0,
+        {
+            "part-2/chapters/07-chapter.md": "# ✦ Capítulo 7: Creatividad – La moneda renovable {#-chapter-7}",
+        },
+        ["[OK] 07-chapter.md: header/anchor -> chapter 7 (lang=es)", DONE],
+        "",
+        id="target-directories-are-created",
+    ),
+    # A target without a chapter number skips only that chapter
+    pytest.param(
+        {"11-chapter.md": ES_H1, "14-chapter.md": ES_H1_14},
+        [
+            "--base-dir",
+            "{base}",
+            "--map",
+            "11-chapter.md:intro.md",
+            "--map",
+            "14-chapter.md:08-chapter.md",
+        ],
+        0,
+        {
+            "intro.md": head_of_text(ES_H1),
+            "08-chapter.md": "# ✦ Capítulo 8: Ideas – Semillas de riqueza mental {#-chapter-8}",
+        },
+        [
+            "[WARN] Could not infer chapter number from filename: intro.md",
+            "[OK] 08-chapter.md: header/anchor -> chapter 8 (lang=es)",
+            DONE,
+        ],
+        "",
+        id="target-without-number-skips-only-that-chapter",
+    ),
+    # --lang forces the pattern instead of auto-detecting it per file: an H1
+    # in another language does not match it and gets only its anchor renumbered
+    pytest.param(
+        {"11-chapter.md": EN_H1},
+        [
+            "--base-dir",
+            "{base}",
+            "--lang",
+            "es",
+            "--map",
+            "11-chapter.md:08-chapter.md",
+        ],
+        0,
+        {
+            "08-chapter.md": "# ✦ Chapter 7: Presence – The Lost Art of Being Rich Now {#-chapter-8}",
+        },
+        ["[OK] 08-chapter.md: header/anchor -> chapter 8 (lang=es)", DONE],
+        "",
+        id="lang-forces-the-pattern-instead-of-auto-detecting",
+    ),
 ]
+
+
+def chapters_dir(tmp_path: Path, monkeypatch) -> Path:
+    """The chapters dir manuscript/chapters below the working directory."""
+    base = tmp_path / "manuscript" / "chapters"
+    base.mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    return base
 
 
 @pytest.mark.parametrize("files, args, code, heads, lines, err", MAIN_RUNS)
 def test_main(files, args, code, heads, lines, err, tmp_path, monkeypatch, capsys):
-    base = tmp_path / "chapters"
-    base.mkdir()
+    base = chapters_dir(tmp_path, monkeypatch)
     for name, content in files.items():
         raw = content if isinstance(content, bytes) else content.encode("utf-8")
         (base / name).write_bytes(raw)
@@ -696,4 +878,97 @@ def test_main(files, args, code, heads, lines, err, tmp_path, monkeypatch, capsy
     out, stderr = capsys.readouterr()
     assert out.splitlines() == [fill(line) for line in lines]
     assert stderr == fill(err)
-    assert {p.name: head_of(p) for p in base.iterdir()} == heads
+    assert {
+        p.relative_to(base).as_posix(): head_of(p)
+        for p in base.rglob("*")
+        if p.is_file()
+    } == heads
+
+
+# Each row: the arguments after the program name ({base}: the chapters dir
+# holding 11-chapter.md), the option argparse's usage error names; the parser
+# rejects the run (exit status 2) before anything is renamed
+MAIN_USAGE_ERRORS = [
+    pytest.param(
+        [
+            "--base-dir",
+            "{base}",
+            "--lang",
+            "fr",
+            "--map",
+            "11-chapter.md:07-chapter.md",
+        ],
+        "--lang",
+        id="unknown-language-is-rejected-by-the-parser",
+    ),
+]
+
+
+@pytest.mark.parametrize("args, option", MAIN_USAGE_ERRORS)
+def test_main_usage_errors(args, option, tmp_path, monkeypatch, capsys):
+    base = chapters_dir(tmp_path, monkeypatch)
+    write_chapter(base / "11-chapter.md", ES_H1)
+    argv = [a.replace("{base}", str(base)) for a in args]
+    monkeypatch.setattr(sys, "argv", ["reorder-chapters", *argv])
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+    assert exit_info.value.code == 2
+    assert option in capsys.readouterr().err
+    assert sorted(p.name for p in base.iterdir()) == ["11-chapter.md"]
+
+
+def help_output(monkeypatch, capsys) -> str:
+    """The --help page, rendered wide enough that no entry wraps."""
+    monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.setattr(sys, "argv", ["reorder-chapters", "--help"])
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+    assert exit_info.value.code == 0
+    return capsys.readouterr().out
+
+
+def option_help_text(help_out: str, flag: str) -> str:
+    """The help text argparse attached to the listing entry of ``flag`` (""
+    when the entry carries none)."""
+    sections = re.split(
+        r"^(?:positional arguments|options):$", help_out, maxsplit=1, flags=re.M
+    )
+    lines = sections[1].splitlines()
+    for i, line in enumerate(lines):
+        entry = line.strip()
+        if re.match(re.escape(flag) + r"(?=[\s,]|$)", entry):
+            parts = re.split(r"\s{2,}", entry, maxsplit=1)
+            if len(parts) > 1:
+                return parts[1]
+            # a wide invocation pushes its text onto a deeper-indented line;
+            # without text the next line is the next entry, indented alike
+            following = lines[i + 1] if i + 1 < len(lines) else ""
+            deeper = indentation(following) > indentation(line)
+            return following.strip() if deeper else ""
+    raise AssertionError(f"{flag} is not listed")
+
+
+def indentation(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+# Each row: an option whose --help entry must carry some help text; what the
+# text says is not asserted (TESTING.md §14.8.1)
+OPTIONS_WITH_HELP = [
+    pytest.param("--base-dir", id="base-dir"),
+    pytest.param("--map-file", id="map-file"),
+    pytest.param("--map", id="map"),
+    pytest.param("--lang", id="lang"),
+    pytest.param("--dry-run", id="dry-run"),
+]
+
+
+@pytest.mark.parametrize("flag", OPTIONS_WITH_HELP)
+def test_every_option_has_help_text(flag, monkeypatch, capsys):
+    assert option_help_text(help_output(monkeypatch, capsys), flag) != ""
+
+
+def test_help_has_a_description_paragraph(monkeypatch, capsys):
+    out = help_output(monkeypatch, capsys)
+    paragraphs = [p.strip() for p in out.split("\n\n") if p.strip()]
+    assert not paragraphs[1].startswith(("positional arguments:", "options:"))

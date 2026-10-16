@@ -36,8 +36,12 @@ def test_default_map_is_empty_when_the_bundled_module_cannot_be_imported(monkeyp
 
 def test_without_any_mapping_loading_fails(monkeypatch):
     monkeypatch.setitem(sys.modules, MAP_MODULE, None)
-    with pytest.raises(RuntimeError, match="No emoji mapping available"):
+    with pytest.raises(RuntimeError) as exc:
         repl.load_mapping_from_module(None)
+    assert str(exc.value) == (
+        "No emoji mapping available. "
+        "Provide --map or ensure emoji_map.py is importable."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -68,42 +72,44 @@ def test_load_mapping_from_module(text, mapping, tmp_path):
     assert type(loaded) is dict
 
 
-# Each row: the name and text of the --map module (None: the file is missing),
-# the exception raised, the text its message carries
+# Each row: the name and text of the --map module, the message of the
+# RuntimeError (MODULE stands for the module's path)
 MAP_MODULE_REJECTS = [
     pytest.param(
         "map.txt",
         "EMOJI_MAP = {}",
-        RuntimeError,
-        "Cannot import map module from",
+        "Cannot import map module from MODULE",
         id="unknown-suffix-has-no-loader",
     ),
     pytest.param(
         "map.py",
         "OTHER = {}",
-        RuntimeError,
-        "does not define EMOJI_MAP",
+        "MODULE does not define EMOJI_MAP",
         id="module-without-emoji-map",
     ),
     pytest.param(
         "map.py",
         "EMOJI_MAP = [('🔥', '+')]",
-        RuntimeError,
         "EMOJI_MAP must be a dict[str, str]",
         id="emoji-map-not-a-dict",
     ),
-    pytest.param("map.py", None, FileNotFoundError, "map.py", id="missing-module-file"),
 ]
 
 
-@pytest.mark.parametrize("name, text, error, message", MAP_MODULE_REJECTS)
-def test_load_mapping_from_module_rejects(name, text, error, message, tmp_path):
+@pytest.mark.parametrize("name, text, message", MAP_MODULE_REJECTS)
+def test_load_mapping_from_module_rejects(name, text, message, tmp_path):
     module = tmp_path / name
-    if text is not None:
-        module.write_text(text, encoding="utf-8")
-    with pytest.raises(error) as exc:
+    module.write_text(text, encoding="utf-8")
+    with pytest.raises(RuntimeError) as exc:
         repl.load_mapping_from_module(module)
-    assert message in str(exc.value)
+    assert str(exc.value) == message.replace("MODULE", str(module))
+
+
+def test_load_mapping_from_module_requires_the_file(tmp_path):
+    module = tmp_path / "map.py"
+    with pytest.raises(FileNotFoundError) as exc:
+        repl.load_mapping_from_module(module)
+    assert exc.value.filename == str(module)
 
 
 # ---------------------------------------------------------------------------

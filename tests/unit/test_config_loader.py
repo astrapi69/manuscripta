@@ -4,6 +4,8 @@ working directory (the book repository root)."""
 
 from __future__ import annotations
 
+import locale
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,20 @@ from manuscripta.config.loader import (
     load_voice_settings,
     load_yaml,
 )
+
+
+@contextmanager
+def c_locale(monkeypatch):
+    """LC_ALL=C for the block: the locale codec is ASCII and can carry no
+    non-ASCII text, so a read that relies on it fails."""
+    saved = locale.setlocale(locale.LC_ALL)
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("LANG", "C")
+    locale.setlocale(locale.LC_ALL, "C")
+    try:
+        yield
+    finally:
+        locale.setlocale(locale.LC_ALL, saved)
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +62,27 @@ def test_load_yaml(text, loaded, tmp_path):
     assert load_yaml(path) == loaded
 
 
+# Each row: the text of a YAML file whose top-level node is no mapping, the
+# type name load_yaml's ValueError reports
+NON_MAPPING_DOCUMENTS = [
+    pytest.param("- a\n- b\n", "list", id="sequence"),
+    pytest.param("[]\n", "list", id="empty-sequence"),
+    pytest.param("just text\n", "str", id="scalar-string"),
+    pytest.param("42\n", "int", id="scalar-number"),
+]
+
+
+@pytest.mark.parametrize("text, kind", NON_MAPPING_DOCUMENTS)
+def test_load_yaml_rejects_a_non_mapping_document(text, kind, tmp_path):
+    path = tmp_path / "settings.yaml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError) as exc:
+        load_yaml(path)
+    assert str(exc.value) == (
+        f"{path}: the top-level YAML node must be a mapping, not {kind}"
+    )
+
+
 def test_load_yaml_is_safe_and_rejects_python_tags(tmp_path):
     path = tmp_path / "settings.yaml"
     path.write_text("cmd: !!python/object/apply:os.system ['true']\n", encoding="utf-8")
@@ -56,6 +93,15 @@ def test_load_yaml_is_safe_and_rejects_python_tags(tmp_path):
 def test_load_yaml_requires_the_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_yaml(tmp_path / "missing.yaml")
+
+
+def test_load_yaml_reads_utf8_under_c_locale(tmp_path, monkeypatch):
+    """The file is read as UTF-8 whatever the locale: under LC_ALL=C the
+    locale codec is ASCII and cannot carry the umlauts."""
+    path = tmp_path / "settings.yaml"
+    path.write_bytes("title: Grüße\n".encode("utf-8"))
+    with c_locale(monkeypatch):
+        assert load_yaml(path) == {"title": "Grüße"}
 
 
 # ---------------------------------------------------------------------------

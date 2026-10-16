@@ -7,6 +7,7 @@ guard."""
 from __future__ import annotations
 
 import logging
+import re
 import runpy
 import sys
 from pathlib import Path
@@ -29,6 +30,10 @@ PROG = "create-chapters"
 NO_PLACEHOLDER = (
     "Error: `--name-pattern` must include a '{num}' placeholder "
     "(e.g. '{num:02d}-chapter.md')."
+)
+FOREIGN_FIELD = (
+    "Error: `--name-pattern` '{number}.md' cannot be formatted with num=1 "
+    "(KeyError: 'number'); use a '{num}' placeholder (e.g. '{num:02d}-chapter.md')."
 )
 
 
@@ -94,11 +99,67 @@ def test_pattern_to_regex(pattern, matches, rejects):
     assert [name for name in rejects if rx.match(name)] == []
 
 
-def test_pattern_with_an_incomplete_placeholder_fails_at_detection(tmp_path):
-    # "{number}" passes the "{num" check but is no placeholder; without a
-    # start the detection of the next number is where it is rejected.
+# Each row: a name pattern without the '{num}' or '{num:...}' token, which the
+# conversion rejects (a '{num!r}' conversion formats but is no token)
+PATTERNS_WITHOUT_TOKEN = [
+    pytest.param("chapter.md", id="no-placeholder"),
+    pytest.param("{num!r}.md", id="conversion-is-not-the-token"),
+]
+
+
+@pytest.mark.parametrize("pattern", PATTERNS_WITHOUT_TOKEN)
+def test_pattern_to_regex_requires_the_token(pattern):
     with pytest.raises(ValueError, match="must contain a '{num}' placeholder"):
-        create_chapter_files(tmp_path, total=1, start=None, name_pattern="{number}.md")
+        _pattern_to_regex(pattern)
+
+
+# ---------------------------------------------------------------------------
+# _ensure_valid_pattern (through create_chapter_files)
+# ---------------------------------------------------------------------------
+# Each row: a name pattern create_chapter_files rejects up front (with or
+# without a start, nothing is created), the error text
+REJECTED_PATTERNS = [
+    pytest.param(
+        "chapter.md",
+        "`--name-pattern` must include a '{num}' placeholder",
+        id="no-placeholder",
+    ),
+    pytest.param(
+        "{{num}}.md",
+        "`--name-pattern` must include a '{num}' placeholder",
+        id="escaped-braces-are-no-placeholder",
+    ),
+    pytest.param(
+        "{number}.md",
+        "`--name-pattern` '{number}.md' cannot be formatted with num=1 "
+        "(KeyError: 'number')",
+        id="foreign-field",
+    ),
+    pytest.param(
+        "{}.md",
+        "`--name-pattern` '{}.md' cannot be formatted with num=1 (IndexError:",
+        id="positional-field",
+    ),
+    pytest.param(
+        "{num:zz}.md",
+        "`--name-pattern` '{num:zz}.md' cannot be formatted with num=1 (ValueError:",
+        id="bad-format-spec",
+    ),
+    pytest.param(
+        "{num}-{.md",
+        "`--name-pattern` '{num}-{.md' cannot be formatted with num=1 (ValueError:",
+        id="unbalanced-brace",
+    ),
+]
+
+
+@pytest.mark.parametrize("pattern, text", REJECTED_PATTERNS)
+@pytest.mark.parametrize("start", [1, None], ids=["with-start", "without-start"])
+def test_rejected_patterns(pattern, text, start, tmp_path):
+    with pytest.raises(ValueError) as exc:
+        create_chapter_files(tmp_path, total=1, start=start, name_pattern=pattern)
+    assert str(exc.value).startswith(text)
+    assert names_in(chapters_of(tmp_path)) is None
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +189,55 @@ def test_detect_next_start(entries, start, tmp_path):
     if entries is not None:
         seed(chapter_dir, entries)
     assert _detect_next_start(chapter_dir, DEFAULT_PATTERN) == start
+
+
+# ---------------------------------------------------------------------------
+# create_chapter_files over an existing chapter directory
+# ---------------------------------------------------------------------------
+# Each row: the files already in manuscript/chapters (name -> text), the
+# start, the total, the names created (returned), the directory afterwards
+# (name -> text). The documented errors are the three ValueErrors, so an
+# existing directory or file is none, and a chapter's text is never destroyed
+EXISTING_DIRECTORY_RUNS = [
+    pytest.param(
+        {"01-chapter.md": "", "02-chapter.md": ""},
+        None,
+        2,
+        ["03-chapter.md", "04-chapter.md"],
+        {
+            "01-chapter.md": "",
+            "02-chapter.md": "",
+            "03-chapter.md": "",
+            "04-chapter.md": "",
+        },
+        id="continues-after-the-existing-files",
+    ),
+    pytest.param(
+        {"01-chapter.md": "# Keep me\n"},
+        1,
+        2,
+        ["01-chapter.md", "02-chapter.md"],
+        {"01-chapter.md": "# Keep me\n", "02-chapter.md": ""},
+        id="an-explicit-start-over-an-existing-file-keeps-its-text",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "existing, start, total, created, after", EXISTING_DIRECTORY_RUNS
+)
+def test_create_chapter_files_in_an_existing_directory(
+    existing, start, total, created, after, tmp_path
+):
+    chapter_dir = chapters_of(tmp_path)
+    chapter_dir.mkdir(parents=True)
+    for name, text in existing.items():
+        (chapter_dir / name).write_text(text, encoding="utf-8")
+    paths = create_chapter_files(tmp_path, total=total, start=start)
+    assert [p.name for p in paths] == created
+    assert {
+        p.name: p.read_text(encoding="utf-8") for p in chapter_dir.iterdir()
+    } == after
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +299,53 @@ def test_parser_rejects(argv, text, capsys):
     assert text in capsys.readouterr().err
 
 
+def help_output(monkeypatch, capsys) -> str:
+    """The --help page, rendered wide enough that no entry wraps."""
+    monkeypatch.setenv("COLUMNS", "200")
+    with pytest.raises(SystemExit) as exc:
+        _parse_args(["--help"])
+    assert exc.value.code == 0
+    return capsys.readouterr().out
+
+
+def option_help_text(help_out: str, flag: str) -> str:
+    """The help text argparse attached to the listing entry of ``flag`` (""
+    when the entry carries none); an entry too long for its column carries
+    the text on the indented line below."""
+    lines = help_out.split("options:\n", 1)[1].splitlines()
+    for line, below in zip(lines, lines[1:] + [""]):
+        entry = line.strip()
+        if entry != flag and not entry.startswith(flag + " "):
+            continue
+        parts = re.split(r"\s{2,}", entry, maxsplit=1)
+        if len(parts) > 1:
+            return parts[1]
+        return below.strip() if below.startswith(" " * 20) else ""
+    raise AssertionError(f"{flag} is not listed")
+
+
+# Each row: an option whose --help entry must carry some help text; what the
+# text says is not asserted (TESTING.md §14.8.1: presence, not wording)
+OPTIONS_WITH_HELP = [
+    pytest.param("--project-dir", id="project-dir"),
+    pytest.param("--total", id="total"),
+    pytest.param("--start", id="start"),
+    pytest.param("--name-pattern", id="name-pattern"),
+    pytest.param("--dry-run", id="dry-run"),
+]
+
+
+@pytest.mark.parametrize("flag", OPTIONS_WITH_HELP)
+def test_every_option_has_help_text(flag, monkeypatch, capsys):
+    assert option_help_text(help_output(monkeypatch, capsys), flag) != ""
+
+
+def test_help_has_a_description_paragraph(monkeypatch, capsys):
+    out = help_output(monkeypatch, capsys)
+    paragraphs = [p.strip() for p in out.split("\n\n") if p.strip()]
+    assert not paragraphs[1].startswith(("positional arguments:", "options:"))
+
+
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
@@ -240,6 +397,22 @@ MAIN_RUNS = [
         None,
         [NO_PLACEHOLDER],
         id="pattern-without-placeholder-exits-2",
+    ),
+    pytest.param(
+        ["--total", "1", "--start", "1", "--name-pattern", "{number}.md"],
+        2,
+        None,
+        [FOREIGN_FIELD],
+        id="pattern-with-a-foreign-field-exits-2",
+    ),
+    # '{num!r}' formats (so the pattern is accepted up front) but is no
+    # '{num}' token, which the detection of the next number rejects
+    pytest.param(
+        ["--total", "1", "--dry-run", "--name-pattern", "{num!r}.md"],
+        2,
+        None,
+        ["Error: Pattern must contain a '{num}' placeholder."],
+        id="pattern-that-formats-without-the-token-exits-2-at-detection",
     ),
 ]
 

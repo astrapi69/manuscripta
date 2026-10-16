@@ -232,6 +232,13 @@ paths_to_mutate = [
     "src/manuscripta/project/init.py",
     "src/manuscripta/project/metadata.py",
     "src/manuscripta/utils/pandoc_batch.py",
+    # Round-3 graduates (2026-10-16): the five modules that left the §12
+    # debt table in round 2, entering after survivor triage per §14.5.
+    "src/manuscripta/project/chapters.py",
+    "src/manuscripta/markdown/bullet_points.py",
+    "src/manuscripta/markdown/emojis.py",
+    "src/manuscripta/config/loader.py",
+    "src/manuscripta/utils/git_cache.py",
     # src/manuscripta/audiobook/tts/retry.py removed — insufficient
     # mutable surface per ADR-0002 §"Score formula treatment of
     # trampoline-induced equivalence". All three mutmut-3.x mutants
@@ -300,13 +307,19 @@ default = 75
 # TESTING.md §14.5); unbold_headers and reorder at the default tier with
 # their measured scores noted, to be raised to 85 once triaged.
 "src/manuscripta/markdown/german_quotes.py" = 85
-"src/manuscripta/markdown/unbold_headers.py" = 75
+"src/manuscripta/markdown/unbold_headers.py" = 85
 "src/manuscripta/paths/img_tags.py" = 85
 "src/manuscripta/utils/bulk_extension.py" = 85
-"src/manuscripta/project/reorder.py" = 75
+"src/manuscripta/project/reorder.py" = 85
 "src/manuscripta/project/init.py" = 85
 "src/manuscripta/project/metadata.py" = 85
 "src/manuscripta/utils/pandoc_batch.py" = 85
+# Round-3 graduates (2026-10-16), pure-transform tier after survivor triage.
+"src/manuscripta/project/chapters.py" = 85
+"src/manuscripta/markdown/bullet_points.py" = 85
+"src/manuscripta/markdown/emojis.py" = 85
+"src/manuscripta/config/loader.py" = 85
+"src/manuscripta/utils/git_cache.py" = 85
 # "src/manuscripta/audiobook/tts/retry.py" = 80 — removed alongside
 # its paths_to_mutate entry above (§14.8.3 insufficient mutable
 # surface). Restore this line to 80 when the module re-enters scope.

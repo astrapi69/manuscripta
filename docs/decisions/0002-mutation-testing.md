@@ -58,7 +58,7 @@ mutmut by default.
 > module exits the debt table, it is added to the mutation scope in
 > the same commit that removes it from `baseline-coverage.json`.
 
-**Current in-scope list (14 modules)**:
+**Current in-scope list (19 modules)**:
 
 | Module path | Threshold | Inclusion criterion satisfied |
 |---|---:|---|
@@ -69,13 +69,18 @@ mutmut by default.
 | `src/manuscripta/markdown/normalize_toc.py` | 85 % | CORE pure text transform |
 | `src/manuscripta/audiobook/tts/text_chunking.py` | 80 % | CORE pure string-splitting |
 | `src/manuscripta/markdown/german_quotes.py` | 85 % | CORE pure text transform; graduated from the §12 debt table 2026-10-16 at 100 % coverage, measured mutation score 90 % on entry |
-| `src/manuscripta/markdown/unbold_headers.py` | 75 % | CORE pure text transform; graduated 2026-10-16 (99 % coverage), measured 80 % on entry: default tier until its survivors are triaged, then 85 % |
-| `src/manuscripta/paths/img_tags.py` | 85 % | CORE pure path/text transform; graduated 2026-10-16 (99 % coverage), measured 79 % on entry and 99 % after the survivor triage (27 A rows, 21 B annotations, 3 C: the `--base-dir` default, see the issue) |
+| `src/manuscripta/markdown/unbold_headers.py` | 85 % | CORE pure text transform; graduated 2026-10-16 (99 % coverage), measured 80 % on entry and 100 % after the survivor triage (28 A rows, 32 B annotations) |
+| `src/manuscripta/paths/img_tags.py` | 85 % | CORE pure path/text transform; graduated 2026-10-16 (99 % coverage), measured 79 % on entry, 99 % after the survivor triage and 100 % once #28 fixed the `--base-dir` default (27 A rows, 21 B annotations) |
 | `src/manuscripta/utils/bulk_extension.py` | 85 % | CORE file renaming logic; graduated 2026-10-16 (99 % coverage), measured 74 % on entry and 100 % after the survivor triage (25 A rows, 34 B annotations) |
-| `src/manuscripta/project/reorder.py` | 75 % | CORE chapter renaming logic; graduated 2026-10-16 (98 %), measured 79 % on entry: default tier until triaged, then 85 % |
+| `src/manuscripta/project/reorder.py` | 85 % | CORE chapter renaming logic; graduated 2026-10-16 (98 %), measured 79 % on entry and 99 % after the survivor triage (41 A, 47 B, 5 C: CSV newline handling, the five-line H1 window, the single anchor renumber) |
 | `src/manuscripta/project/init.py` | 85 % | CORE project scaffolding and settings; graduated 2026-10-16 (100 % coverage), measured 65 % on entry and 93 % after the survivor triage (191 A rows, 32 B annotations, 57 C: template placeholder text and the logging format, see the specification gaps in TESTING.md) |
 | `src/manuscripta/project/metadata.py` | 85 % | CORE metadata fill; graduated 2026-10-16 (97 %), measured 66 % on entry and 100 % after triage (51 A, 5 B) |
 | `src/manuscripta/utils/pandoc_batch.py` | 85 % | CORE pandoc batch runner; graduated 2026-10-16 (94 %), measured 66 % on entry and 98 % after triage (135 A, 68 B, 9 C: the stubbed `subprocess.run` keyword arguments and two unspecified defaults, §14.2) |
+| `src/manuscripta/project/chapters.py` | 85 % | CORE chapter file creation; graduated in round 2 (98 % coverage), measured 80 % on entry and 100 % after triage in round 3 |
+| `src/manuscripta/markdown/bullet_points.py` | 85 % | CORE pure text transform; graduated in round 2 (100 %), measured 83 % on entry and 100 % after triage |
+| `src/manuscripta/markdown/emojis.py` | 85 % | CORE pure text transform; graduated in round 2 (99 %), measured 69 % on entry and 100 % after triage |
+| `src/manuscripta/config/loader.py` | 85 % | CORE YAML settings loader; graduated in round 2 (100 %), measured 83 % on entry and 100 % after triage |
+| `src/manuscripta/utils/git_cache.py` | 85 % | CORE by the §12 classification; wraps `git reflog` / `git gc` through a stubbed `subprocess.run`, 15 of its 72 mutants sit on that call (§14.2 noise, well under half), the rest is command assembly, output forwarding, the error path and the exit code; graduated in round 2 (100 %), measured 90 % on entry and 100 % after triage |
 
 (The list was seven modules at ADR acceptance. `audiobook/tts/retry.py`
 was removed during Phase 4b Pass 2 under the insufficient-surface
@@ -89,7 +94,7 @@ survivors are triaged per the response protocol.)
 
 | Module | Why excluded |
 |---|---|
-| `manuscripta.markdown.{bullet_points,emojis,links_to_plain,strip_links}`, `manuscripta.project.chapters`, `manuscripta.utils.git_cache`, `manuscripta.config.loader` | Eligible by category and no longer debt-tracked (round 2 of 2026-10-16 took bullet_points to 100 %, emojis 99 %, chapters 98 %, git_cache 100 %, loader 100 %); not yet measured. Add after a measured score and a survivor triage, as the 2026-10-16 entries were. |
+| `manuscripta.markdown.{links_to_plain,strip_links}` | Eligible by category (92 % and 94 % coverage); not yet measured. Add after a measured score and a survivor triage, as every 2026-10-16 entry was. |
 | `manuscripta.images.generate` | Graduated 2026-10-16 (99 %) but network-bound (DeepAI HTTP API); its tests mock `requests`, so mutation would measure the mocks (§14.2). Measured 73 %. Out of scope by shape. |
 | `manuscripta.project.shortcuts_init` | CLI_WRAPPER shape (argv dispatch). |
 | `manuscripta.project.tag_message`, `manuscripta.audiobook.generator`, `manuscripta.translation.{deepl,lmstudio}`, `manuscripta.audiobook.tts.edge_tts_adapter` | CLI_WRAPPER / NETWORK_INTEGRATION shapes (git subprocess, TTS engines and ffmpeg, HTTP clients). Covered at 98-100 % since #26 with stubbed `subprocess.run`, `requests` and adapters, and measured informally on 2026-10-16 at 76 %, 80 %, 79 %, 77 % and 74 %: mutation there measures the stubs, so they stay out by category. |

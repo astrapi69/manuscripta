@@ -22,6 +22,33 @@ from __future__ import annotations
 
 import pytest
 
+from manuscripta.export import book as _book
+
+# The module-level path globals that manuscripta.export.book._configure_paths
+# rewrites. main() and run_export() call it, so a test that drives either
+# leaves absolute paths into its own tmp_path behind, and a later test that
+# calls compile_book() appends to that LOG_FILE. The leak went unnoticed
+# while every pytest session shared one basetemp whose directories outlived
+# the session; mutmut's in-process sessions with a per-child basetemp (see
+# tests/conftest.py) made it a FileNotFoundError in compile_book.
+_BOOK_PATH_GLOBALS = (
+    "BOOK_DIR",
+    "OUTPUT_DIR",
+    "BACKUP_DIR",
+    "CONFIG_DIR",
+    "METADATA_FILE",
+    "EXPORT_SETTINGS_FILE",
+    "TOC_FILE",
+    "LOG_FILE",
+)
+
+
+@pytest.fixture(autouse=True)
+def _restore_book_path_globals(monkeypatch):
+    """Put manuscripta.export.book's path globals back after every unit test."""
+    for name in _BOOK_PATH_GLOBALS:
+        monkeypatch.setattr(_book, name, getattr(_book, name))
+
 
 def pytest_collection_modifyitems(items):
     for item in items:

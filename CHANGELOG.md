@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **`convert-img-tags`**: `--base-dir` defaults to the current working directory; it was the
+  package directory `src/manuscripta/` left over from the `scripts/` era, while the help promised
+  the repository root (#28).
+- **`create-chapters`**: a `--name-pattern` that cannot be formatted (`{number}`, `{}`, a bad
+  format spec) exits 2 with a clear error instead of a `KeyError` traceback (#31).
+- **`replace-md-bullet-points`**: thematic breaks (`***`, `* * *`, `---`, `___`) are left
+  untouched instead of becoming `• * *`; a missing path exits 1 (#31).
+- **Config loader**: a YAML settings file whose top level is not a mapping raises `ValueError`
+  naming the file instead of returning a list or a string (#31).
+- **`pandoc-batch`**: `--resource-path` on the command line replaces the configured list instead
+  of extending it (#31).
+- **Mutation gate**: `scripts/check_mutation_thresholds.py` counts mutants that no test ever
+  checked as not killed and fails naming the modules; `make mutation-fast` passes mutant-name
+  globs instead of file paths and warns that a filtered run resets the other modules (#29).
+
 ## [0.11.0] - 2026-10-16
 
 ### Added
