@@ -769,21 +769,21 @@ ratchet rule (§3) — current coverage may not drop below the baseline in
 
 | Module | Current | Target | Category |
 |---|---:|---:|---|
-| `manuscripta.project.init`            | 56 % | 90 % | CORE |
-| `manuscripta.project.reorder`         | 68 % | 90 % | CORE |
-| `manuscripta.project.chapters`        |  0 % | 90 % | CORE |
-| `manuscripta.project.metadata`        |  0 % | 90 % | CORE |
-| `manuscripta.project.shortcuts_init`  |  0 % | 90 % | CORE |
-| `manuscripta.markdown.unbold_headers` | 52 % | 85 % | CORE |
+| `manuscripta.project.chapters`        | 76 % | 90 % | CORE |
 | `manuscripta.markdown.bullet_points`  | 72 % | 85 % | CORE |
 | `manuscripta.markdown.emojis`         | 79 % | 85 % | CORE |
-| `manuscripta.markdown.german_quotes`  | 84 % | 85 % | CORE |
-| `manuscripta.paths.img_tags`          | 72 % | 85 % | CORE |
-| `manuscripta.utils.bulk_extension`    | 72 % | 85 % | CORE |
-| `manuscripta.utils.pandoc_batch`      | 80 % | 85 % | CORE |
 | `manuscripta.utils.git_cache`         | 74 % | 85 % | CORE |
-| `manuscripta.images.generate`         |  0 % | 85 % | CORE |
 | `manuscripta.config.loader`           |  0 % | 90 % | CORE |
+
+Graduated on 2026-10-16 with #26 (line coverage of the package 70 % →
+94 %): `project.init` (100 %), `project.reorder` (98 %),
+`project.metadata` (97 %), `project.shortcuts_init` (95 %),
+`markdown.unbold_headers` (99 %), `markdown.german_quotes` (100 %),
+`paths.img_tags` (99 %), `utils.bulk_extension` (99 %),
+`utils.pandoc_batch` (94 %) and `images.generate` (99 %). Per ADR-0002's
+debt-graduation rule the CORE transforms among them entered the mutation
+scope in the same change (§14.1); the rest are listed with their measured
+scores in ADR-0002's exclusion table.
 
 CI policy on these modules:
 
@@ -795,6 +795,13 @@ CI policy on these modules:
   enforces the full Phase 2 target from that commit forward.
 - No merge may lower a module's recorded baseline. Only the target
   itself may be adjusted, and only via ADR.
+
+Note (2026-10-16): `scripts/check_coverage_thresholds.py` and
+`[tool.manuscripta.coverage_thresholds]` referenced above no longer
+exist in the tree. The drop guard that runs today is Codecov's project
+status on the package total (`codecov.yml`, `target: auto`, uploaded by
+`.github/workflows/tests.yml` since #20); the per-module ratchet in
+`baseline-coverage.json` is maintained by hand with the table above.
 
 ### Known environmental test flakiness — RESOLVED
 
@@ -925,8 +932,9 @@ this section is the consumer-facing how-to.
 Mutation runs over **CORE pure-logic modules only**, and only over
 modules that are **not currently tracked as coverage debt** in §12.
 
-The six modules currently in scope (seven at the start of Phase 4b;
-`audiobook/tts/retry.py` was removed during Pass 2 — see §14.8.3):
+The eleven modules currently in scope (seven at the start of Phase 4b;
+`audiobook/tts/retry.py` was removed during Pass 2 — see §14.8.3; five
+debt graduates joined on 2026-10-16):
 
 | Module | Threshold | Why qualifies |
 |---|---:|---|
@@ -936,6 +944,15 @@ The six modules currently in scope (seven at the start of Phase 4b;
 | `src/manuscripta/images/convert.py` | 85 % | markdown→HTML transform |
 | `src/manuscripta/markdown/normalize_toc.py` | 85 % | pure text transform |
 | `src/manuscripta/audiobook/tts/text_chunking.py` | 80 % | pure string-splitting |
+| `src/manuscripta/markdown/german_quotes.py` | 85 % | pure text transform; graduated from §12 (entered at 90 %) |
+| `src/manuscripta/markdown/unbold_headers.py` | 75 % | pure text transform; graduated (entered at 80 %, raise to 85 after survivor triage) |
+| `src/manuscripta/paths/img_tags.py` | 85 % | pure path/text transform; graduated (measured 79 % on entry, 99 % after survivor triage) |
+| `src/manuscripta/utils/bulk_extension.py` | 85 % | file renaming logic; graduated (measured 74 % on entry, 100 % after survivor triage) |
+| `src/manuscripta/project/reorder.py` | 75 % | chapter renaming logic; graduated (entered at 79 %, raise to 85 after survivor triage) |
+
+The whole scope is about 3100 mutants and ran in 1 minute locally on
+2026-10-16 (mutmut 3.5.0, 22 mutants/s), well inside the 45-minute
+nightly budget.
 
 The thresholds live in `[tool.manuscripta.mutation_thresholds]` in
 `pyproject.toml` (single source of truth).

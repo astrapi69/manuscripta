@@ -8,7 +8,7 @@ from pathlib import Path, PurePath
 import os
 import re
 
-from manuscripta.paths.img_tags import convert_markdown_tree, main
+from manuscripta.paths.img_tags import build_img_tag, convert_markdown_tree, main
 
 
 def write(p: Path, text: str):
@@ -164,6 +164,12 @@ WITHOUT_IS_RELATIVE_TO = [
         '<img src="{outside}" alt="skip">',
         id="outside-assets-untouched",
     ),
+    pytest.param(
+        '<img src="{assets}" alt="a">\n<img src="{assets}" alt="b">',
+        (1, 2),
+        '<img src="{rel}" alt="a">\n<img src="{rel}" alt="b">',
+        id="every-tag-under-assets-counted",
+    ),
 ]
 
 
@@ -236,3 +242,156 @@ def test_main(flags, code, line, after, tmp_path, monkeypatch, capsys):
     assert run_main() == code
     assert capsys.readouterr().out == line + "\n"
     assert md.read_text(encoding="utf-8") == after.format(**names)
+
+
+# Each row: the attributes of a tag, the tag rebuilt from them (src first, alt
+# second, the rest in alphabetical order, a space only when there are any)
+BUILT_TAGS = [
+    pytest.param({}, "<img>", id="no-attributes"),
+    pytest.param({"src": "a.png"}, '<img src="a.png">', id="src-only"),
+    pytest.param(
+        {"width": "1", "alt": "x", "class": "c", "src": "a.png"},
+        '<img src="a.png" alt="x" class="c" width="1">',
+        id="src-alt-then-alphabetical",
+    ),
+]
+
+
+@pytest.mark.parametrize("attrs, tag", BUILT_TAGS)
+def test_build_img_tag(attrs, tag):
+    assert build_img_tag(attrs) == tag
+
+
+# Each row: the chapter ({rel}/{abs}: the image's relative and absolute path),
+# to absolute?, the counts returned, the chapter afterwards
+MIXED_CHAPTERS = [
+    pytest.param(
+        '<img alt="no source">\n<img src="{rel}">\n',
+        True,
+        (1, 1),
+        '<img alt="no source">\n<img src="{abs}">\n',
+        id="tag-without-src-kept-verbatim-beside-a-converted-one",
+    ),
+    pytest.param(
+        '<img src="{abs}" alt="a">\n<img src="{abs}" alt="b">\n',
+        False,
+        (1, 2),
+        '<img src="{rel}" alt="a">\n<img src="{rel}" alt="b">\n',
+        id="every-tag-under-assets-counted-to-relative",
+    ),
+]
+
+
+@pytest.mark.parametrize("before, to_absolute, counts, after", MIXED_CHAPTERS)
+def test_mixed_chapters(before, to_absolute, counts, after, tmp_path):
+    md, img = layout(tmp_path)
+    names = dict(rel=os.path.relpath(img, start=md.parent), abs=img)
+    write(md, before.format(**names))
+    assert convert_markdown_tree(tmp_path, to_absolute=to_absolute) == counts
+    assert md.read_text(encoding="utf-8") == after.format(**names)
+
+
+# Each row: the directory under the project holding the chapter, the
+# md_directories argument (None: the defaults manuscript/chapters,
+# front-matter and back-matter; {base}: the project), the counts returned
+SCANNED_DIRECTORIES = [
+    pytest.param("manuscript/chapters", None, (1, 1), id="default-chapters"),
+    pytest.param("manuscript/front-matter", None, (1, 1), id="default-front-matter"),
+    pytest.param("manuscript/back-matter", None, (1, 1), id="default-back-matter"),
+    pytest.param("manuscript/appendix", None, (0, 0), id="not-a-default-directory"),
+    pytest.param("docs", ["docs"], (1, 1), id="explicit-relative-directory"),
+    pytest.param("docs", ["{base}/docs"], (1, 1), id="explicit-absolute-directory"),
+]
+
+
+@pytest.mark.parametrize("directory, md_directories, counts", SCANNED_DIRECTORIES)
+def test_scanned_directories(directory, md_directories, counts, tmp_path):
+    img = tmp_path / "assets" / "pic.png"
+    write(img, "binary")
+    md = tmp_path / directory / "01.md"
+    rel = os.path.relpath(img, start=md.parent)
+    write(md, f'<img src="{rel}">\n')
+    if md_directories is not None:
+        md_directories = [
+            Path(d.replace("{base}", str(tmp_path))) for d in md_directories
+        ]
+    assert convert_markdown_tree(tmp_path, md_directories, to_absolute=True) == counts
+    after = f'<img src="{img}">\n' if counts == (1, 1) else f'<img src="{rel}">\n'
+    assert md.read_text(encoding="utf-8") == after
+
+
+def test_counts_accumulate_across_files(tmp_path):
+    img = tmp_path / "assets" / "pic.png"
+    write(img, "binary")
+    chapters = tmp_path / "manuscript" / "chapters"
+    for name, tags in (("01.md", 1), ("02.md", 2)):
+        rel = os.path.relpath(img, start=chapters)
+        write(chapters / name, f'<img src="{rel}">\n' * tags)
+    assert convert_markdown_tree(tmp_path, to_absolute=True) == (2, 3)
+    for name, tags in (("01.md", 1), ("02.md", 2)):
+        assert (chapters / name).read_text(encoding="utf-8") == (
+            f'<img src="{img}">\n' * tags
+        )
+
+
+def test_utf8_round_trip_under_c_locale(tmp_path, monkeypatch):
+    """The chapter is read and written as UTF-8 whatever the locale: under
+    LC_ALL=C the locale codec is ASCII and cannot carry the umlauts."""
+    import locale
+
+    saved = locale.setlocale(locale.LC_ALL)
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("LANG", "C")
+    locale.setlocale(locale.LC_ALL, "C")
+    try:
+        md, img = layout(tmp_path)
+        rel = os.path.relpath(img, start=md.parent)
+        md.parent.mkdir(parents=True, exist_ok=True)
+        md.write_bytes(f'Grüße\n<img src="{rel}" alt="Bär">\n'.encode("utf-8"))
+        assert convert_markdown_tree(tmp_path, to_absolute=True) == (1, 1)
+        after = f'Grüße\n<img src="{img}" alt="Bär">\n'
+        assert md.read_bytes().decode("utf-8") == after
+    finally:
+        locale.setlocale(locale.LC_ALL, saved)
+
+
+def help_output(monkeypatch, capsys) -> str:
+    """The --help page, rendered wide enough that no entry wraps."""
+    monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.setattr(sys, "argv", ["convert-img-tags", "--help"])
+    assert run_main() == 0
+    return capsys.readouterr().out
+
+
+def option_help_text(help_out: str, flag: str) -> str:
+    """The help text argparse attached to the listing entry of ``flag`` (""
+    when the entry carries none)."""
+    sections = re.split(
+        r"^(?:positional arguments|options):$", help_out, maxsplit=1, flags=re.M
+    )
+    for line in sections[1].splitlines():
+        entry = line.strip()
+        if entry.startswith(flag):
+            parts = re.split(r"\s{2,}", entry, maxsplit=1)
+            return parts[1] if len(parts) > 1 else ""
+    raise AssertionError(f"{flag} is not listed")
+
+
+# Each row: an option whose --help entry must carry some help text; what the
+# text says is not asserted
+OPTIONS_WITH_HELP = [
+    pytest.param("--to-absolute", id="to-absolute"),
+    pytest.param("--to-relative", id="to-relative"),
+    pytest.param("--base-dir", id="base-dir"),
+]
+
+
+@pytest.mark.parametrize("flag", OPTIONS_WITH_HELP)
+def test_every_option_has_help_text(flag, monkeypatch, capsys):
+    assert option_help_text(help_output(monkeypatch, capsys), flag) != ""
+
+
+def test_help_has_a_description_paragraph(monkeypatch, capsys):
+    out = help_output(monkeypatch, capsys)
+    paragraphs = [p.strip() for p in out.split("\n\n") if p.strip()]
+    assert not paragraphs[1].startswith(("positional arguments:", "options:"))

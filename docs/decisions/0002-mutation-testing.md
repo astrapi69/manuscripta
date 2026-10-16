@@ -58,7 +58,7 @@ mutmut by default.
 > module exits the debt table, it is added to the mutation scope in
 > the same commit that removes it from `baseline-coverage.json`.
 
-**Current in-scope list (6 modules)**:
+**Current in-scope list (11 modules)**:
 
 | Module path | Threshold | Inclusion criterion satisfied |
 |---|---:|---|
@@ -68,20 +68,33 @@ mutmut by default.
 | `src/manuscripta/images/convert.py` | 85 % | CORE markdown→HTML transform |
 | `src/manuscripta/markdown/normalize_toc.py` | 85 % | CORE pure text transform |
 | `src/manuscripta/audiobook/tts/text_chunking.py` | 80 % | CORE pure string-splitting |
+| `src/manuscripta/markdown/german_quotes.py` | 85 % | CORE pure text transform; graduated from the §12 debt table 2026-10-16 at 100 % coverage, measured mutation score 90 % on entry |
+| `src/manuscripta/markdown/unbold_headers.py` | 75 % | CORE pure text transform; graduated 2026-10-16 (99 % coverage), measured 80 % on entry: default tier until its survivors are triaged, then 85 % |
+| `src/manuscripta/paths/img_tags.py` | 85 % | CORE pure path/text transform; graduated 2026-10-16 (99 % coverage), measured 79 % on entry and 99 % after the survivor triage (27 A rows, 21 B annotations, 3 C: the `--base-dir` default, see the issue) |
+| `src/manuscripta/utils/bulk_extension.py` | 85 % | CORE file renaming logic; graduated 2026-10-16 (99 % coverage), measured 74 % on entry and 100 % after the survivor triage (25 A rows, 34 B annotations) |
+| `src/manuscripta/project/reorder.py` | 75 % | CORE chapter renaming logic; graduated 2026-10-16 (98 %), measured 79 % on entry: default tier until triaged, then 85 % |
 
 (The list was seven modules at ADR acceptance. `audiobook/tts/retry.py`
 was removed during Phase 4b Pass 2 under the insufficient-surface
-tier; see the Excluded table below.)
+tier; five debt graduates joined on 2026-10-16 after #26 raised the
+package's line coverage from 70 % to 94 %. The five entered with their
+measured scores recorded here; a module below the tier of its shape
+enters at the 75 % default and is raised, never lowered, once its
+survivors are triaged per the response protocol.)
 
 **Excluded with explicit rationale**:
 
 | Module | Why excluded |
 |---|---|
-| `manuscripta.markdown.german_quotes` | CORE shape but currently debt-tracked at 84 % (target 85 %). Re-add when graduated. |
-| `manuscripta.markdown.{unbold_headers,bullet_points,emojis,links_to_plain,strip_links}` | All eligible by category; not in initial scope to keep the baseline run time bounded. Add in a follow-up after the response protocol has been exercised. |
-| `manuscripta.paths.img_tags` | CORE shape but debt-tracked at 72 %. |
+| `manuscripta.markdown.{bullet_points,emojis,links_to_plain,strip_links}` | Eligible by category; `bullet_points` (72 %) and `emojis` (79 %) are still debt-tracked, the other two were not in the initial scope to keep the run time bounded. Add once the response protocol has been exercised on the 2026-10-16 graduates. |
+| `manuscripta.project.init` | CORE, graduated 2026-10-16 (100 % coverage) but measured 65 % mutation score on entry (273 survivors of 789, mostly in the interactive clean-up and settings resolution branches). Enters the scope once triaged to the 75 % default. |
+| `manuscripta.project.metadata` | CORE, graduated 2026-10-16 (97 %) but measured 66 % (56 survivors of 166). Enters once triaged. |
+| `manuscripta.utils.pandoc_batch` | Graduated 2026-10-16 (94 %) but measured 66 % (212 survivors of 625); subprocess-heavy, so a large share of survivors sit in the pandoc command wrapper that §14.2 warns about. Triage first, then decide. |
+| `manuscripta.images.generate` | Graduated 2026-10-16 (99 %) but network-bound (DeepAI HTTP API); its tests mock `requests`, so mutation would measure the mocks (§14.2). Measured 73 %. Out of scope by shape. |
+| `manuscripta.project.{chapters,shortcuts_init}` | `chapters` still debt-tracked at 76 % (target 90 %); `shortcuts_init` is a CLI_WRAPPER shape (argv dispatch). |
 | `manuscripta.config.loader` | CORE shape but debt-tracked at 0 % (no tests). |
-| `manuscripta.utils.*` | Mix of debt and unrelated utilities. |
+| `manuscripta.utils.git_cache` | Debt-tracked at 74 %. |
+| `manuscripta.project.tag_message`, `manuscripta.audiobook.generator`, `manuscripta.translation.{deepl,lmstudio}`, `manuscripta.audiobook.tts.edge_tts_adapter` | CLI_WRAPPER / NETWORK_INTEGRATION shapes (git subprocess, TTS engines and ffmpeg, HTTP clients). Covered at 98-100 % since #26 with stubbed `subprocess.run`, `requests` and adapters, and measured informally on 2026-10-16 at 76 %, 80 %, 79 %, 77 % and 74 %: mutation there measures the stubs, so they stay out by category. |
 | `manuscripta.audiobook.tts.retry` | Insufficient mutable surface per §14.8.3 — all three mutmut-3.x mutants are trampoline-equivalent (default-value changes on `with_retry`'s signature; the wrapper forwards concrete args, so the mutant defaults are never consulted). Re-add when the module grows additional testable surface OR when a future mutmut release exposes default-argument mutations. Annotations retained in `.mutmut/equivalent.yaml` as audit history. |
 | Everything CLI_WRAPPER or NETWORK_INTEGRATION (per ADR-0003) | Out of scope by category. |
 
