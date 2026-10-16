@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.11.0] - 2026-10-16
 
 ### Added
 - **`--backup` / `--no-backup` for `fix-german-quotes`, `fix-english-quotes`, `fix-french-quotes` and
