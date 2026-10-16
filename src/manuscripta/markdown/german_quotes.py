@@ -469,13 +469,18 @@ def replace_english_double_quotes(
 
     changed = False
 
-    # Match pairs: U+201C followed by U+201D
-    used_close = set()
-    for op in open_positions:
-        for ci, cp in enumerate(close_positions):
-            if cp > op and ci not in used_close:
+    # Match pairs: each U+201D takes the nearest unused U+201C before it.
+    # The nearest, not the earliest: after the straight-quote stage a German
+    # line reads „Straight“ and “English”, and the “ that closes the first
+    # pair must not be taken for the opener of the second.
+    used_open: set[int] = set()
+    used_close: set[int] = set()
+    for ci, cp in enumerate(close_positions):
+        for op in reversed(open_positions):
+            if op < cp and op not in used_open:
                 chars[op] = style.open_double
                 chars[cp] = style.close_double
+                used_open.add(op)
                 used_close.add(ci)
                 changed = True
                 break
