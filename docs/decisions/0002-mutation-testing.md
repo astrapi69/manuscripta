@@ -67,7 +67,7 @@ mutmut by default.
 | `src/manuscripta/paths/to_relative.py` | 85 % | CORE pure path/text transform |
 | `src/manuscripta/images/convert.py` | 85 % | CORE markdown→HTML transform |
 | `src/manuscripta/markdown/normalize_toc.py` | 85 % | CORE pure text transform |
-| `src/manuscripta/audiobook/tts/text_chunking.py` | 80 % | CORE pure string-splitting |
+| `src/manuscripta/audiobook/tts/text_chunking.py` | 85 % | CORE pure string-splitting (80 % until the 2026-10-16 amendment, raised at a measured 100 %) |
 | `src/manuscripta/markdown/german_quotes.py` | 85 % | CORE pure text transform; graduated from the §12 debt table 2026-10-16 at 100 % coverage, measured mutation score 90 % on entry |
 | `src/manuscripta/markdown/unbold_headers.py` | 85 % | CORE pure text transform; graduated 2026-10-16 (99 % coverage), measured 80 % on entry and 100 % after the survivor triage (28 A rows, 32 B annotations) |
 | `src/manuscripta/paths/img_tags.py` | 85 % | CORE pure path/text transform; graduated 2026-10-16 (99 % coverage), measured 79 % on entry, 99 % after the survivor triage and 100 % once #28 fixed the `--base-dir` default (27 A rows, 21 B annotations) |
@@ -478,6 +478,34 @@ generates the necessary observable contracts. Pre-refuted.
   ceiling, not the floor's complement.
 - Mutation as a fifth pyramid layer. Mutation is orthogonal.
 - Threshold reduction without ADR.
+
+## Amendment 2026-10-16: the nightly turns red, the floor is 85 %
+
+Two changes to the Decision above, both made once every CORE module of
+the package was in scope (nineteen modules, see the table) and every
+one of them measured at or above 85 %:
+
+1. **The nightly workflow fails on a threshold regression.** The
+   "never merge-blocking" rationale stands: pull requests do not run
+   the mutation workflow and the coverage gate stays the merge
+   contract. But a workflow that is green by construction publishes
+   no floor. The last step of `.github/workflows/mutation.yml` now
+   exits 1 when `scripts/check_mutation_thresholds.py` reported a
+   module below its threshold, after the audit is committed and the
+   tracking issue is open (every step runs with `if: always()`). A
+   green run therefore means: every module in scope scored at least
+   its threshold on the runner, and no module's threshold is below
+   the `default`.
+2. **`default` is 85 %, `text_chunking` 85 %.** The 75 % default tier
+   and the 80 % chunking tier were entry tiers for modules whose
+   survivors had not been triaged; after round 3 no module uses them
+   (text_chunking measures 100 %). Thresholds only ever rose here; the
+   policy that lowering one needs an ADR is unchanged.
+
+The outside reading of this: awesome-references/awesome-well-tested
+awards Gold to "a mutation run that CI performs and fails below a
+threshold". With this amendment that description is true of the
+nightly, and the floor it can read is `default = 85`.
 
 ## Links
 

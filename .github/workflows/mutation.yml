@@ -212,19 +212,27 @@ jobs:
                          "${{ github.repository }}" \
                          "${{ github.run_id }}")"
 
-      # Final exit: succeed unless something genuinely broke (e.g. mutmut
-      # itself crashed). Threshold-only regressions don't fail the workflow,
-      # per ADR-0002 "never merge-blocking" — the audit + the issue are the
-      # output, not a red X.
+      # Final exit: red when a module sits below its threshold (ADR-0002
+      # amendment of 2026-10-16) and when the infrastructure broke. The audit
+      # and the issue are already written by then, every step above runs
+      # with if: always(). Pull requests never run this workflow, so a red
+      # nightly gates nothing; it is the floor somebody else's machine
+      # verified: a green run means every module scored at least the
+      # `default` of [tool.manuscripta.mutation_thresholds] in pyproject.toml.
       - name: Workflow exit
         if: always()
         run: |
           echo "mutmut_rc=${{ steps.mutation.outputs.mutmut_rc }}"
           echo "threshold_rc=${{ steps.thresholds.outputs.thr_rc }}"
           # Non-numeric or truly-broken mutmut → fail. Surviving-mutant exit
-          # codes (1/non-zero with audit produced) → succeed.
+          # codes (1/non-zero with audit produced) are judged by the threshold
+          # step, not here.
           if [ -z "${{ steps.mutation.outputs.mutmut_rc }}" ]; then
             echo "mutmut step did not produce an exit code — workflow infrastructure broken"
+            exit 1
+          fi
+          if [ "${{ steps.thresholds.outputs.thr_rc }}" != "0" ]; then
+            echo "threshold regression — see docs/audits/current-mutation.md and the mutation issue"
             exit 1
           fi
           exit 0
