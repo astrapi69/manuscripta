@@ -231,8 +231,9 @@ English quotes are already the target; German `„...“` are left alone.
 `fix-french-quotes` and `fix-spanish-quotes` convert straight double quotes to guillemets,
 French `« ... »` with a no-break space (U+00A0) inside, Spanish `«...»` without, and set that
 spacing for the guillemets already in the text. Straight single quotes and apostrophes are
-converted as in English (`l’homme`, `‘significado’`). English `“...”` stay as they are, since
-both languages use them as the second level. Only guillemets that pair up in a paragraph are
+converted as in English (`l’homme`, `‘significado’`). A top-level English `“...”` pair becomes
+guillemets as well; one inside `«...»` stays, since both languages use it as the second level.
+Only guillemets that pair up in a paragraph are
 respaced: a lone one, such as the marker in `### » Title`, and one next to a hard line break keep
 their spacing. `fix-french-quotes` also puts a no-break space before `; : ! ?` (`Quoi ?`),
 except where the mark is markup or no punctuation: URLs, times (`10:30`), footnote definitions

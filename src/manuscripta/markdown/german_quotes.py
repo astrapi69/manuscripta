@@ -30,11 +30,13 @@ fix-french-quotes, fix-spanish-quotes:
   Single: ‘ ’ and apostrophe ’, as in English
 
   Converted: straight double quotes, straight single quotes (as in
-  English, so l'homme becomes l’homme) and the space inside every
-  guillemet, existing ones included. English and German typographic
-  quotes are left alone: “ ” is the second level in both languages.
-  fix-french-quotes also sets a no-break space before ; : ! ? (see
-  space_punctuation), so it covers French spacing as a whole.
+  English, so l'homme becomes l’homme), top-level English typographic
+  double quotes (“realidad” becomes «realidad») and the space inside
+  every guillemet, existing ones included. An English pair inside an
+  open « » pair stays: “ ” is the second level in both languages.
+  German typographic quotes are left alone. fix-french-quotes also
+  sets a no-break space before ; : ! ? (see space_punctuation), so it
+  covers French spacing as a whole.
 
 Quotes are paired per block, not per line: a paragraph, a list item, a
 heading or a table row is converted as a whole, so a quotation that a
@@ -106,7 +108,8 @@ class QuoteStyle:
     open_single: str
     close_single: str
     # Convert English typographic quotes (U+201C/U+201D, U+2018/U+2019).
-    # Off for English, where they already are the target.
+    # Off for English, where they already are the target. A guillemet style
+    # converts only the top-level pairs: one nested inside « » stays.
     convert_english_typographic: bool
     # Convert straight single quotes and apostrophes. Off for German, where
     # a straight ' cannot be told apart from an apostrophe.
@@ -144,7 +147,7 @@ FRENCH = QuoteStyle(
     close_double=GUILLEMET_CLOSE,
     open_single=EN_OPEN_SINGLE,
     close_single=EN_CLOSE_SINGLE,
-    convert_english_typographic=False,
+    convert_english_typographic=True,
     convert_straight_single=True,
     guillemet_space=FR_GUILLEMET_SPACE,
     punctuation_space=FR_PUNCTUATION_SPACE,
@@ -156,7 +159,7 @@ SPANISH = QuoteStyle(
     close_double=GUILLEMET_CLOSE,
     open_single=EN_OPEN_SINGLE,
     close_single=EN_CLOSE_SINGLE,
-    convert_english_typographic=False,
+    convert_english_typographic=True,
     convert_straight_single=True,
     guillemet_space="",
 )
@@ -369,57 +372,97 @@ def replace_straight_double_quotes(
     return "".join(chars)
 
 
+def _nests_english_double(style: QuoteStyle) -> bool:
+    """Whether an English “…” pair inside the double quotes of ``style`` is a
+    nested quotation that stays.
+
+    That needs the style's own double quotes to differ from the English
+    ones, so that an open pair can be tracked: true for the guillemets of
+    French and Spanish, which use “…” as their second level. German “ is
+    the English opener, so there every pair converts.
+    """
+    own = {style.open_double, style.close_double}
+    return not own & {EN_OPEN_DOUBLE, EN_CLOSE_DOUBLE}
+
+
+def _converts_english_single(style: QuoteStyle) -> bool:
+    """Whether the English single-quote stage can change anything for ``style``.
+
+    False for a style whose single quotes are the English ones (French and
+    Spanish): ‘…’ is already the target there.
+    """
+    return (style.open_single, style.close_single) != (
+        EN_OPEN_SINGLE,
+        EN_CLOSE_SINGLE,
+    )
+
+
 def replace_english_double_quotes(
-    line: str, protected: list[tuple[int, int]], stats: dict
+    line: str,
+    protected: list[tuple[int, int]],
+    stats: dict,
+    style: QuoteStyle = GERMAN,
 ) -> str:
     """
-    Replace English typographic double quotation marks with German ones.
+    Replace English typographic double quotation marks with those of ``style``.
 
     Only active when U+201D (EN_CLOSE_DOUBLE) is present.
     U+201C is ambiguous (= DE_CLOSE_DOUBLE), so it is only treated as
     EN_OPEN_DOUBLE when a matching U+201D follows.
 
     Strategy:
-    - U+201C...U+201D pairs -> U+201E...U+201C (German)
-    - Standalone U+201D -> U+201C
+    - U+201C...U+201D pairs -> open_double...close_double of ``style``
+      (German „...“, guillemets «...»)
+    - Standalone U+201D -> close_double of ``style``
+
+    For a style whose double quotes differ from the English ones (the
+    guillemets of French and Spanish) an English pair inside an open pair
+    of the style's own quotes is a nested quotation and stays: «Dijo “no”»
+    keeps its “no”, while a top-level “realidad” becomes «realidad».
     """
     chars = list(line)
+    nested = _nests_english_double(style)
+
+    # The candidates: U+201D closers and U+201C openers outside protected
+    # regions and, for a nesting style, outside its own open pairs.
+    close_positions: list[int] = []
+    open_positions: list[int] = []
+    depth = 0
+    for i, ch in enumerate(chars):
+        if is_protected(i, protected):
+            continue
+        if nested and ch == style.open_double:
+            depth += 1
+        elif nested and ch == style.close_double:
+            depth = max(depth - 1, 0)
+        elif depth:
+            continue
+        elif ch == EN_CLOSE_DOUBLE:
+            close_positions.append(i)
+        elif ch == EN_OPEN_DOUBLE:
+            open_positions.append(i)
 
     # Only act when U+201D is present at all
-    close_positions = []
-    for i, ch in enumerate(chars):
-        if ch == EN_CLOSE_DOUBLE and not is_protected(i, protected):
-            close_positions.append(i)
-
     if not close_positions:
         return line
-
-    # Find U+201C positions as potential openers
-    open_positions = []
-    for i, ch in enumerate(chars):
-        if ch == EN_OPEN_DOUBLE and not is_protected(i, protected):
-            open_positions.append(i)
 
     changed = False
 
     # Match pairs: U+201C followed by U+201D
     used_close = set()
-    used_open = set()
     for op in open_positions:
         for ci, cp in enumerate(close_positions):
             if cp > op and ci not in used_close:
-                # Pair found: U+201C -> U+201E, U+201D -> U+201C
-                chars[op] = DE_OPEN_DOUBLE
-                chars[cp] = DE_CLOSE_DOUBLE
+                chars[op] = style.open_double
+                chars[cp] = style.close_double
                 used_close.add(ci)
-                used_open.add(open_positions.index(op))
                 changed = True
                 break
 
-    # Convert remaining standalone U+201D to U+201C
+    # Convert remaining standalone U+201D to the closing quote
     for ci, cp in enumerate(close_positions):
         if ci not in used_close:
-            chars[cp] = DE_CLOSE_DOUBLE
+            chars[cp] = style.close_double
             changed = True
 
     if changed:
@@ -429,16 +472,24 @@ def replace_english_double_quotes(
 
 
 def replace_english_single_quotes(
-    line: str, protected: list[tuple[int, int]], stats: dict
+    line: str,
+    protected: list[tuple[int, int]],
+    stats: dict,
+    style: QuoteStyle = GERMAN,
 ) -> str:
     """
-    Replace English typographic single quotation marks with German ones.
+    Replace English typographic single quotation marks with those of ``style``.
 
     U+2018 (') -> DE_CLOSE_SINGLE (stays, is identical)
     U+2019 (') -> must be handled context-dependently.
 
-    Strategy: U+2018...U+2019 pairs -> U+201A...U+2018 (German)
+    Strategy: U+2018...U+2019 pairs -> open_single...close_single of
+    ``style`` (German ‚...‘). Nothing to do for a style whose single
+    quotes are the English ones (French and Spanish).
     """
+    if not _converts_english_single(style):
+        return line
+
     chars = list(line)
 
     open_positions = []
@@ -461,8 +512,8 @@ def replace_english_single_quotes(
         for ci, cp in enumerate(close_positions):
             if cp > op and ci not in used_close:
                 # Pair found
-                chars[op] = DE_OPEN_SINGLE
-                chars[cp] = DE_CLOSE_SINGLE
+                chars[op] = style.open_single
+                chars[cp] = style.close_single
                 used_close.add(ci)
                 changed = True
                 break
@@ -702,12 +753,12 @@ def process_block(
         protected = mask_protected_regions(text)
 
         # 2. English typographic double quotation marks
-        text = replace_english_double_quotes(text, protected, stats)
+        text = replace_english_double_quotes(text, protected, stats, style)
 
         protected = mask_protected_regions(text)
 
         # 3. English typographic single quotation marks
-        text = replace_english_single_quotes(text, protected, stats)
+        text = replace_english_single_quotes(text, protected, stats, style)
 
     if style.convert_straight_single:
         protected = mask_protected_regions(text)
@@ -921,9 +972,13 @@ def print_stats(stats: dict, style: QuoteStyle = GERMAN):
         rows.append(
             ("English typographic double:", f"{stats['english_double']} correction(s)")
         )
-        rows.append(
-            ("English typographic single:", f"{stats['english_single']} correction(s)")
-        )
+        if _converts_english_single(style):
+            rows.append(
+                (
+                    "English typographic single:",
+                    f"{stats['english_single']} correction(s)",
+                )
+            )
     if style.convert_straight_single:
         rows.append(
             (f"Straight ' -> {style.name}:", f"{stats['straight_single']} mark(s)")

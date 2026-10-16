@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file.
   `--source-dir`, `--resource-path`, `--strict-images` and `--no-strict-images` (the README
   example `export-pdf --source-dir=...` was dropped before) and `--restore` / `--exact-name` for
   `print-version-build`; the stale `--scripts-dir` and `--no-restore` are gone (#18).
+- **`fix-french-quotes` and `fix-spanish-quotes` convert English `“...”`**: a top-level English
+  typographic pair becomes `« ... »` / `«...»` like a straight one; a pair nested inside
+  guillemets stays as the second level. Before, every `“...”` was left as it was, so the Spanish
+  edition of eternity-ebook kept three English pairs next to its guillemets (#16).
 
 ## [0.10.0] - 2026-10-06
 
