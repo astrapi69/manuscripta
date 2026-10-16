@@ -41,81 +41,46 @@ def make_questionary_mock():
 # ask_confirm
 # ===========================================================================
 
+# Each row: the answers typed at the input() fallback (the last one is
+# accepted), the default, the result
+CONFIRM_FALLBACK_CASES = [
+    pytest.param(["y"], False, True, id="yes-y"),
+    pytest.param(["yes"], False, True, id="yes-yes"),
+    pytest.param(["Y"], False, True, id="yes-Y"),
+    pytest.param(["YES"], False, True, id="yes-YES"),
+    pytest.param(["Yes"], False, True, id="yes-Yes"),
+    pytest.param(["j"], False, True, id="german-yes-j"),
+    pytest.param(["ja"], False, True, id="german-yes-ja"),
+    pytest.param(["J"], False, True, id="german-yes-J"),
+    pytest.param(["JA"], False, True, id="german-yes-JA"),
+    pytest.param(["Ja"], False, True, id="german-yes-Ja"),
+    pytest.param(["n"], False, False, id="no-n"),
+    pytest.param(["no"], False, False, id="no-no"),
+    pytest.param(["N"], False, False, id="no-N"),
+    pytest.param(["NO"], False, False, id="no-NO"),
+    pytest.param(["No"], False, False, id="no-No"),
+    pytest.param(["nein"], False, False, id="german-no-nein"),
+    pytest.param(["NEIN"], False, False, id="german-no-NEIN"),
+    pytest.param(["Nein"], False, False, id="german-no-Nein"),
+    pytest.param([""], False, False, id="empty-returns-default-false"),
+    pytest.param([""], True, True, id="empty-returns-default-true"),
+    # Nonsense input loops, then accepts valid input.
+    pytest.param(["x", "maybe", "y"], False, True, id="invalid-then-valid"),
+    pytest.param(["abc", "n"], False, False, id="invalid-then-no"),
+    pytest.param(["true"], False, True, id="true-string"),
+    pytest.param(["false"], False, False, id="false-string"),
+    pytest.param(["1"], False, True, id="numeric-1"),
+    pytest.param(["0"], False, False, id="numeric-0"),
+]
+
 
 class TestAskConfirmFallback:
     """Tests for ask_confirm without questionary (input() fallback)."""
 
-    @pytest.mark.parametrize("user_input", ["y", "yes", "Y", "YES", "Yes"])
-    def test_yes_variants(self, user_input):
-        with patch("builtins.input", return_value=user_input):
-            assert mtm.ask_confirm("Continue?") is True
-
-    @pytest.mark.parametrize("user_input", ["j", "ja", "J", "JA", "Ja"])
-    def test_german_yes_variants(self, user_input):
-        with patch("builtins.input", return_value=user_input):
-            assert mtm.ask_confirm("Weiter?") is True
-
-    @pytest.mark.parametrize("user_input", ["n", "no", "N", "NO", "No"])
-    def test_no_variants(self, user_input):
-        with patch("builtins.input", return_value=user_input):
-            assert mtm.ask_confirm("Continue?") is False
-
-    @pytest.mark.parametrize("user_input", ["nein", "NEIN", "Nein"])
-    def test_german_no_variants(self, user_input):
-        with patch("builtins.input", return_value=user_input):
-            assert mtm.ask_confirm("Weiter?") is False
-
-    def test_empty_returns_default_false(self):
-        with patch("builtins.input", return_value=""):
-            assert mtm.ask_confirm("Continue?", default=False) is False
-
-    def test_empty_returns_default_true(self):
-        with patch("builtins.input", return_value=""):
-            assert mtm.ask_confirm("Continue?", default=True) is True
-
-    def test_invalid_then_valid(self):
-        """Nonsense input loops, then accepts valid input."""
-        with patch("builtins.input", side_effect=["x", "maybe", "y"]):
-            assert mtm.ask_confirm("Continue?") is True
-
-    def test_invalid_then_no(self):
-        with patch("builtins.input", side_effect=["abc", "n"]):
-            assert mtm.ask_confirm("Continue?") is False
-
-    def test_true_and_false_strings(self):
-        with patch("builtins.input", return_value="true"):
-            assert mtm.ask_confirm("Continue?") is True
-        with patch("builtins.input", return_value="false"):
-            assert mtm.ask_confirm("Continue?") is False
-
-    def test_numeric_1_and_0(self):
-        with patch("builtins.input", return_value="1"):
-            assert mtm.ask_confirm("Continue?") is True
-        with patch("builtins.input", return_value="0"):
-            assert mtm.ask_confirm("Continue?") is False
-
-
-class TestAskConfirmQuestionary:
-    """Tests for ask_confirm with questionary."""
-
-    def test_questionary_true(self, monkeypatch):
-        mock_q = make_questionary_mock()
-        mock_q.confirm.return_value = mock_q._chain(True)
-        monkeypatch.setattr(mtm, "questionary", mock_q)
-        assert mtm.ask_confirm("Continue?") is True
-
-    def test_questionary_false(self, monkeypatch):
-        mock_q = make_questionary_mock()
-        mock_q.confirm.return_value = mock_q._chain(False)
-        monkeypatch.setattr(mtm, "questionary", mock_q)
-        assert mtm.ask_confirm("Continue?") is False
-
-    def test_questionary_none_aborts(self, monkeypatch):
-        mock_q = make_questionary_mock()
-        mock_q.confirm.return_value = mock_q._chain(None)
-        monkeypatch.setattr(mtm, "questionary", mock_q)
-        with pytest.raises(SystemExit, match="Aborted"):
-            mtm.ask_confirm("Continue?")
+    @pytest.mark.parametrize("answers, default, expected", CONFIRM_FALLBACK_CASES)
+    def test_fallback(self, answers, default, expected):
+        with patch("builtins.input", side_effect=answers):
+            assert mtm.ask_confirm("Continue?", default=default) is expected
 
 
 # ===========================================================================
@@ -124,84 +89,51 @@ class TestAskConfirmQuestionary:
 
 CHOICES = ["Alpha", "Beta", "Gamma"]
 
+# Each row: the answers typed at the input() fallback (the last one is
+# accepted), the default, the choice returned
+CHOICE_FALLBACK_CASES = [
+    pytest.param(["1"], None, "Alpha", id="select-by-number"),
+    pytest.param(["3"], None, "Gamma", id="select-last-by-number"),
+    pytest.param(["Beta"], None, "Beta", id="select-by-exact-text"),
+    pytest.param([""], "Beta", "Beta", id="empty-returns-default"),
+    pytest.param(["0", "5", "99", "2"], None, "Beta", id="out-of-range-then-valid"),
+    pytest.param(["xyz", "2"], None, "Beta", id="nonsense-then-valid"),
+    # Empty input without default should loop, not return.
+    pytest.param(["", "1"], None, "Alpha", id="empty-without-default-loops"),
+    pytest.param(["-1", "1"], None, "Alpha", id="negative-number-loops"),
+]
+
 
 class TestAskChoiceFallback:
     """Tests for ask_choice without questionary."""
 
-    def test_select_by_number(self):
-        with patch("builtins.input", return_value="1"):
-            assert mtm.ask_choice("Pick:", CHOICES) == "Alpha"
-
-    def test_select_last_by_number(self):
-        with patch("builtins.input", return_value="3"):
-            assert mtm.ask_choice("Pick:", CHOICES) == "Gamma"
-
-    def test_select_by_exact_text(self):
-        with patch("builtins.input", return_value="Beta"):
-            assert mtm.ask_choice("Pick:", CHOICES) == "Beta"
-
-    def test_empty_returns_default(self):
-        with patch("builtins.input", return_value=""):
-            assert mtm.ask_choice("Pick:", CHOICES, default="Beta") == "Beta"
-
-    def test_out_of_range_then_valid(self):
-        with patch("builtins.input", side_effect=["0", "5", "99", "2"]):
-            assert mtm.ask_choice("Pick:", CHOICES) == "Beta"
-
-    def test_nonsense_then_valid(self):
-        with patch("builtins.input", side_effect=["xyz", "2"]):
-            assert mtm.ask_choice("Pick:", CHOICES) == "Beta"
-
-    def test_empty_without_default_loops(self):
-        """Empty input without default should loop, not return."""
-        with patch("builtins.input", side_effect=["", "1"]):
-            assert mtm.ask_choice("Pick:", CHOICES, default=None) == "Alpha"
-
-    def test_negative_number_loops(self):
-        with patch("builtins.input", side_effect=["-1", "1"]):
-            assert mtm.ask_choice("Pick:", CHOICES) == "Alpha"
-
-
-class TestAskChoiceQuestionary:
-    """Tests for ask_choice with questionary."""
-
-    def test_questionary_returns_value(self, monkeypatch):
-        mock_q = make_questionary_mock()
-        mock_q.select.return_value = mock_q._chain("Beta")
-        monkeypatch.setattr(mtm, "questionary", mock_q)
-        assert mtm.ask_choice("Pick:", CHOICES) == "Beta"
-
-    def test_questionary_none_aborts(self, monkeypatch):
-        mock_q = make_questionary_mock()
-        mock_q.select.return_value = mock_q._chain(None)
-        monkeypatch.setattr(mtm, "questionary", mock_q)
-        with pytest.raises(SystemExit, match="Aborted"):
-            mtm.ask_choice("Pick:", CHOICES)
+    @pytest.mark.parametrize("answers, default, expected", CHOICE_FALLBACK_CASES)
+    def test_fallback(self, answers, default, expected):
+        with patch("builtins.input", side_effect=answers):
+            assert mtm.ask_choice("Pick:", CHOICES, default=default) == expected
 
 
 # ===========================================================================
 # ask_text
 # ===========================================================================
 
+# Each row: the answer typed at the input() fallback, the default, the text
+# returned
+TEXT_FALLBACK_CASES = [
+    pytest.param("hello", None, "hello", id="returns-user-input"),
+    pytest.param("", "world", "world", id="empty-returns-default"),
+    pytest.param("", None, "", id="empty-no-default-returns-empty"),
+    pytest.param("  trimmed  ", None, "trimmed", id="strips-whitespace"),
+]
+
 
 class TestAskTextFallback:
     """Tests for ask_text without questionary."""
 
-    def test_returns_user_input(self):
-        with patch("builtins.input", return_value="hello"):
-            assert mtm.ask_text("Name:") == "hello"
-
-    def test_empty_returns_default(self):
-        with patch("builtins.input", return_value=""):
-            assert mtm.ask_text("Name:", default="world") == "world"
-
-    def test_empty_no_default_returns_empty(self):
-        with patch("builtins.input", return_value=""):
-            assert mtm.ask_text("Name:") == ""
-
-    def test_strips_whitespace(self):
-        with patch("builtins.input", return_value="  trimmed  "):
-            assert mtm.ask_text("Name:") == "trimmed"
+    @pytest.mark.parametrize("answer, default, expected", TEXT_FALLBACK_CASES)
+    def test_fallback(self, answer, default, expected):
+        with patch("builtins.input", return_value=answer):
+            assert mtm.ask_text("Name:", default=default) == expected
 
     def test_validate_called(self):
         validator = MagicMock()
@@ -218,55 +150,85 @@ class TestAskTextFallback:
                 mtm.ask_text("Tag:", validate=bad_validator)
 
 
-class TestAskTextQuestionary:
-    """Tests for ask_text with questionary."""
+# ===========================================================================
+# ask_* with questionary
+# ===========================================================================
 
-    def test_questionary_returns_value(self, monkeypatch):
+# Each row: the helper, the questionary method it calls, the helper's
+# arguments, the answer questionary returns, the result
+QUESTIONARY_ANSWERS = [
+    pytest.param(
+        mtm.ask_confirm, "confirm", ("Continue?",), True, True, id="confirm-true"
+    ),
+    pytest.param(
+        mtm.ask_confirm, "confirm", ("Continue?",), False, False, id="confirm-false"
+    ),
+    pytest.param(
+        mtm.ask_choice,
+        "select",
+        ("Pick:", CHOICES),
+        "Beta",
+        "Beta",
+        id="choice-returns-value",
+    ),
+    pytest.param(
+        mtm.ask_text, "text", ("Name:",), "answer", "answer", id="text-returns-value"
+    ),
+]
+
+# Each row: the helper, the questionary method it calls, the helper's arguments;
+# questionary answers None (Ctrl-C) and the helper aborts
+QUESTIONARY_ABORTS = [
+    pytest.param(mtm.ask_confirm, "confirm", ("Continue?",), id="confirm-none-aborts"),
+    pytest.param(mtm.ask_choice, "select", ("Pick:", CHOICES), id="choice-none-aborts"),
+    pytest.param(mtm.ask_text, "text", ("Name:",), id="text-none-aborts"),
+]
+
+
+class TestQuestionary:
+    """Tests for ask_confirm, ask_choice and ask_text with questionary."""
+
+    @pytest.mark.parametrize(
+        "helper, method, args, answer, expected", QUESTIONARY_ANSWERS
+    )
+    def test_returns_answer(self, helper, method, args, answer, expected, monkeypatch):
         mock_q = make_questionary_mock()
-        mock_q.text.return_value = mock_q._chain("answer")
+        getattr(mock_q, method).return_value = mock_q._chain(answer)
         monkeypatch.setattr(mtm, "questionary", mock_q)
-        assert mtm.ask_text("Name:") == "answer"
+        result = helper(*args)
+        assert result == expected
+        assert type(result) is type(expected)
 
-    def test_questionary_none_aborts(self, monkeypatch):
+    @pytest.mark.parametrize("helper, method, args", QUESTIONARY_ABORTS)
+    def test_none_aborts(self, helper, method, args, monkeypatch):
         mock_q = make_questionary_mock()
-        mock_q.text.return_value = mock_q._chain(None)
+        getattr(mock_q, method).return_value = mock_q._chain(None)
         monkeypatch.setattr(mtm, "questionary", mock_q)
         with pytest.raises(SystemExit, match="Aborted"):
-            mtm.ask_text("Name:")
+            helper(*args)
 
 
 # ===========================================================================
 # ask_int
 # ===========================================================================
 
+# Each row: the answers typed (the last one is accepted), the default, the
+# minimum, the number returned
+INT_CASES = [
+    pytest.param(["42"], 10, 0, 42, id="valid-number"),
+    pytest.param([""], 100, 0, 100, id="empty-returns-default"),
+    pytest.param(["abc", "xyz", "50"], 10, 0, 50, id="non-numeric-then-valid"),
+    pytest.param(["0", "-5", "3"], 10, 1, 3, id="below-minimum-then-valid"),
+    pytest.param(["1"], 10, 1, 1, id="minimum-exact"),
+    pytest.param(["3.14", "3"], 10, 0, 3, id="float-string-rejected"),
+    pytest.param(["0"], 10, 0, 0, id="zero-accepted-when-minimum-zero"),
+]
+
 
 class TestAskInt:
     """Tests for ask_int (always uses ask_text internally)."""
 
-    def test_valid_number(self):
-        with patch("builtins.input", return_value="42"):
-            assert mtm.ask_int("Count:", default=10) == 42
-
-    def test_empty_returns_default(self):
-        with patch("builtins.input", return_value=""):
-            assert mtm.ask_int("Count:", default=100) == 100
-
-    def test_non_numeric_then_valid(self):
-        with patch("builtins.input", side_effect=["abc", "xyz", "50"]):
-            assert mtm.ask_int("Count:", default=10) == 50
-
-    def test_below_minimum_then_valid(self):
-        with patch("builtins.input", side_effect=["0", "-5", "3"]):
-            assert mtm.ask_int("Count:", default=10, minimum=1) == 3
-
-    def test_minimum_exact(self):
-        with patch("builtins.input", return_value="1"):
-            assert mtm.ask_int("Count:", default=10, minimum=1) == 1
-
-    def test_float_string_rejected(self):
-        with patch("builtins.input", side_effect=["3.14", "3"]):
-            assert mtm.ask_int("Count:", default=10) == 3
-
-    def test_zero_accepted_when_minimum_zero(self):
-        with patch("builtins.input", return_value="0"):
-            assert mtm.ask_int("Count:", default=10, minimum=0) == 0
+    @pytest.mark.parametrize("answers, default, minimum, expected", INT_CASES)
+    def test_ask_int(self, answers, default, minimum, expected):
+        with patch("builtins.input", side_effect=answers):
+            assert mtm.ask_int("Count:", default=default, minimum=minimum) == expected

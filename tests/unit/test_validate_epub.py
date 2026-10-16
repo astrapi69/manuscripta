@@ -6,51 +6,32 @@ pytestmark = pytest.mark.unit
 import manuscripta.export.validation as vf
 
 
-class Dummy:
-    def __init__(self, rc=0, out="", err=""):
-        self.returncode = rc
-        self.stdout = out
-        self.stderr = err
+# Each row: the file exists?, epubcheck on PATH?, what run_cmd returns (None:
+# it must not run), the exit status, the texts the output carries
+EPUB_CASES = [
+    pytest.param(True, True, (0, "OK", ""), 0, ["is valid"], id="success"),
+    pytest.param(
+        True, True, (1, "problems", ""), 1, ["found issues", "problems"], id="issues"
+    ),
+    pytest.param(True, False, None, 127, ["epubcheck not found"], id="missing-binary"),
+    pytest.param(True, True, (124, "", "timeout"), 124, ["timed out"], id="timeout"),
+    pytest.param(False, True, None, 2, ["EPUB file not found"], id="missing-input"),
+]
 
 
-def test_epub_success(monkeypatch, tmp_path):
+@pytest.mark.parametrize("exists, has_epubcheck, result, rc, texts", EPUB_CASES)
+def test_epub(monkeypatch, tmp_path, capsys, exists, has_epubcheck, result, rc, texts):
     p = tmp_path / "b.epub"
-    p.write_text("x")
-    monkeypatch.setattr(vf, "require_cmd", lambda _: True)
-    monkeypatch.setattr(vf, "run_cmd", lambda cmd, timeout=None: (0, "OK", ""))
+    if exists:
+        p.write_text("x")
+    monkeypatch.setattr(vf, "require_cmd", lambda _: has_epubcheck)
 
-    rc = vf.validate_epub_with_epubcheck(str(p))
-    assert rc == 0
+    def run_cmd(cmd, timeout=None):
+        assert result is not None, "epubcheck must not run"
+        return result
 
-
-def test_epub_issues(monkeypatch, tmp_path, capsys):
-    p = tmp_path / "b.epub"
-    p.write_text("x")
-    monkeypatch.setattr(vf, "require_cmd", lambda _: True)
-    monkeypatch.setattr(vf, "run_cmd", lambda cmd, timeout=None: (1, "problems", ""))
-    rc = vf.validate_epub_with_epubcheck(str(p))
-    assert rc == 1
+    monkeypatch.setattr(vf, "run_cmd", run_cmd)
+    assert vf.validate_epub_with_epubcheck(str(p)) == rc
     out = capsys.readouterr().out
-    assert "found issues" in out and "problems" in out
-
-
-def test_epub_missing_binary(monkeypatch, tmp_path):
-    p = tmp_path / "b.epub"
-    p.write_text("x")
-    monkeypatch.setattr(vf, "require_cmd", lambda _: False)
-    rc = vf.validate_epub_with_epubcheck(str(p))
-    assert rc == 127
-
-
-def test_epub_timeout(monkeypatch, tmp_path):
-    p = tmp_path / "b.epub"
-    p.write_text("x")
-    monkeypatch.setattr(vf, "require_cmd", lambda _: True)
-    monkeypatch.setattr(vf, "run_cmd", lambda cmd, timeout=None: (124, "", "timeout"))
-    rc = vf.validate_epub_with_epubcheck(str(p))
-    assert rc == 124
-
-
-def test_epub_missing_input(tmp_path):
-    rc = vf.validate_epub_with_epubcheck(str(tmp_path / "no.epub"))
-    assert rc == 2
+    for text in texts:
+        assert text in out

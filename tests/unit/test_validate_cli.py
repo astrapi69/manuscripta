@@ -5,27 +5,31 @@ pytestmark = pytest.mark.unit
 import manuscripta.export.validation as vf
 
 
-def test_cli_autodetect_md(tmp_path, capsys):
-    p = tmp_path / "a.md"
-    p.write_text("x")
-    with pytest.raises(SystemExit) as ex:
-        vf.main([str(p)])
-    assert ex.value.code == 0
-    assert "Markdown exported" in capsys.readouterr().out
-
-
-def test_cli_forced_type_overrides_extension(tmp_path, monkeypatch):
-    p = tmp_path / "a.weird"
-    p.write_text("x")
+# Each row: the file name, the arguments after the path, the exit status, the
+# stream and a text it carries
+CLI_CASES = [
+    pytest.param("a.md", [], 0, "out", "Markdown exported", id="autodetect-md"),
     # force md; should work
-    with pytest.raises(SystemExit) as ex:
-        vf.main([str(p), "--type", "md"])
-    assert ex.value.code == 0
+    pytest.param(
+        "a.weird",
+        ["--type", "md"],
+        0,
+        "out",
+        "Markdown exported",
+        id="forced-type-overrides-extension",
+    ),
+    # argparse rejects the type before main runs
+    pytest.param(
+        "a.weird", ["--type", "xyz"], 2, "err", "invalid choice", id="unknown-type"
+    ),
+]
 
 
-def test_cli_unknown_type(tmp_path, capsys):
-    p = tmp_path / "a.weird"
+@pytest.mark.parametrize("name, argv_tail, code, stream, text", CLI_CASES)
+def test_cli(tmp_path, capsys, name, argv_tail, code, stream, text):
+    p = tmp_path / name
     p.write_text("x")
-    with pytest.raises(SystemExit):
-        vf.main([str(p), "--type", "xyz"])  # argparse will reject before main
-    # If we ever reach here, argparse would have exited with code 2
+    with pytest.raises(SystemExit) as ex:
+        vf.main([str(p), *argv_tail])
+    assert ex.value.code == code
+    assert text in getattr(capsys.readouterr(), stream)
