@@ -66,8 +66,23 @@ def respace(text: str, style) -> tuple[str, dict]:
 # ---------------------------------------------------------------------------
 # Styles
 # ---------------------------------------------------------------------------
+# The styles that write guillemets
+GUILLEMET_STYLES = [
+    pytest.param(FRENCH, id="french"),
+    pytest.param(SPANISH, id="spanish"),
+]
+
+# Each row: style, the space it sets inside guillemets (None: leaves it alone)
+GUILLEMET_SPACE_CASES = [
+    pytest.param(FRENCH, " ", id="french-space-is-the-no-break-space"),
+    pytest.param(SPANISH, "", id="spanish-has-no-space"),
+    pytest.param(GERMAN, None, id="german-leaves-guillemet-spacing-alone"),
+    pytest.param(ENGLISH, None, id="english-leaves-guillemet-spacing-alone"),
+]
+
+
 class TestStyles:
-    @pytest.mark.parametrize("style", [FRENCH, SPANISH])
+    @pytest.mark.parametrize("style", GUILLEMET_STYLES)
     def test_guillemets_and_english_single_quotes(self, style):
         assert (style.open_double, style.close_double) == ("«", "»")
         assert (style.open_single, style.close_single) == ("‘", "’")
@@ -75,194 +90,278 @@ class TestStyles:
         # the English-typographic stage runs for the top-level pairs (#16)
         assert style.convert_english_typographic
 
-    def test_french_space_is_the_no_break_space(self):
-        assert FRENCH.guillemet_space == " "
-
-    def test_spanish_has_no_space(self):
-        assert SPANISH.guillemet_space == ""
-
-    @pytest.mark.parametrize("style", [GERMAN, ENGLISH])
-    def test_german_and_english_leave_guillemet_spacing_alone(self, style):
-        assert style.guillemet_space is None
+    @pytest.mark.parametrize("style, space", GUILLEMET_SPACE_CASES)
+    def test_guillemet_space(self, style, space):
+        assert style.guillemet_space == space
 
 
 # ---------------------------------------------------------------------------
 # space_guillemets
 # ---------------------------------------------------------------------------
+# Each row: style, text, expected result, the guillemets whose spacing changed
+SPACING_CASES = [
+    # French gets one no-break space
+    pytest.param(FRENCH, f"{GO}texte{GC}", fr("texte"), 2, id="french-no-space"),
+    pytest.param(FRENCH, f"{GO} texte {GC}", fr("texte"), 2, id="french-spaces"),
+    pytest.param(
+        FRENCH,
+        f"{GO} texte {GC}",
+        fr("texte"),
+        0,
+        id="french-no-break-spaces-stay",
+    ),
+    pytest.param(
+        FRENCH,
+        f"{GO} texte {GC}",
+        fr("texte"),
+        2,
+        id="french-narrow-no-break-spaces",
+    ),
+    pytest.param(
+        FRENCH, f"{GO}  texte\t{GC}", fr("texte"), 2, id="french-runs-of-whitespace"
+    ),
+    # Spanish loses the space
+    pytest.param(
+        SPANISH, f"{GO}texto{GC}", es("texto"), 0, id="spanish-no-space-stays"
+    ),
+    pytest.param(SPANISH, f"{GO} texto {GC}", es("texto"), 2, id="spanish-spaces"),
+    pytest.param(
+        SPANISH,
+        f"{GO} texto {GC}",
+        es("texto"),
+        2,
+        id="spanish-no-break-spaces",
+    ),
+    pytest.param(
+        FRENCH,
+        f"{GO}{NB}juste{NB}{GC} et {GO}faux {GC}",
+        f"{fr('juste')} et {fr('faux')}",
+        2,
+        id="counts-changed-guillemets-only",
+    ),
+    pytest.param(
+        FRENCH,
+        fr("juste"),
+        fr("juste"),
+        0,
+        id="correct-text-is-unchanged-and-not-counted",
+    ),
+    pytest.param(
+        FRENCH,
+        f"ligne {GO}\nsuite\n{GC} fin",
+        f"ligne {GO}\nsuite\n{GC} fin",
+        0,
+        id="guillemet-at-a-line-break-keeps-its-spacing",
+    ),
+    # a guillemet at the block edge keeps its spacing
+    pytest.param(FRENCH, GO, GO, 0, id="opening-guillemet-alone"),
+    pytest.param(FRENCH, GC, GC, 0, id="closing-guillemet-alone"),
+    pytest.param(
+        FRENCH, f"x {GO}", f"x {GO}", 0, id="opening-guillemet-at-the-block-end"
+    ),
+    pytest.param(
+        FRENCH,
+        f"### {GC} Saltarse el refinamiento",
+        f"### {GC} Saltarse el refinamiento",
+        0,
+        id="french-heading-marker-keeps-its-space",
+    ),
+    pytest.param(
+        SPANISH,
+        f"### {GC} Saltarse el refinamiento",
+        f"### {GC} Saltarse el refinamiento",
+        0,
+        id="spanish-heading-marker-keeps-its-space",
+    ),
+    pytest.param(
+        FRENCH,
+        f"Suite {GC} et {GO}texte{GC}",
+        f"Suite {GC} et {fr('texte')}",
+        2,
+        id="lone-closing-guillemet-keeps-its-space",
+    ),
+    pytest.param(
+        FRENCH,
+        f"{GO} Le dialogue continue, sans fin",
+        f"{GO} Le dialogue continue, sans fin",
+        0,
+        id="unclosed-opening-guillemet-keeps-its-space",
+    ),
+    pytest.param(
+        SPANISH,
+        f"{GO}il dit {GO}non{GC} puis part{GC}",
+        f"{GO}il dit {GO}non{GC} puis part{GC}",
+        0,
+        id="spanish-nested-guillemets-stay",
+    ),
+    pytest.param(
+        FRENCH,
+        f"{GO}il dit {GO}non{GC} puis part{GC}",
+        fr(f"il dit {fr('non')} puis part"),
+        4,
+        id="french-nested-guillemets-are-spaced",
+    ),
+    pytest.param(
+        FRENCH,
+        f"`{GO}code{GC}` et {GO}texte{GC}",
+        f"`{GO}code{GC}` et {fr('texte')}",
+        2,
+        id="inline-code-is-protected",
+    ),
+    pytest.param(
+        GERMAN,
+        f"{GO} x {GC}",
+        f"{GO} x {GC}",
+        0,
+        id="style-without-guillemet-space-is-a-no-op",
+    ),
+    pytest.param(FRENCH, "", "", 0, id="empty-block"),
+]
+
+
 class TestSpaceGuillemets:
-    @pytest.mark.parametrize(
-        "text",
-        [
-            f"{GO}texte{GC}",
-            f"{GO} texte {GC}",
-            f"{GO} texte {GC}",
-            f"{GO} texte {GC}",
-            f"{GO}  texte\t{GC}",
-        ],
-    )
-    def test_french_gets_one_no_break_space(self, text):
-        assert respace(text, FRENCH)[0] == fr("texte")
-
-    @pytest.mark.parametrize(
-        "text",
-        [
-            f"{GO}texto{GC}",
-            f"{GO} texto {GC}",
-            f"{GO} texto {GC}",
-        ],
-    )
-    def test_spanish_loses_the_space(self, text):
-        assert respace(text, SPANISH)[0] == es("texto")
-
-    def test_counts_changed_guillemets_only(self):
-        text = f"{GO}{NB}juste{NB}{GC} et {GO}faux {GC}"
-        result, stats = respace(text, FRENCH)
-        assert result == f"{fr('juste')} et {fr('faux')}"
-        assert stats["guillemet_space"] == 2
-
-    def test_correct_text_is_unchanged_and_not_counted(self):
-        text = fr("juste")
-        result, stats = respace(text, FRENCH)
-        assert result == text
-        assert stats["guillemet_space"] == 0
-
-    def test_guillemet_at_a_line_break_keeps_its_spacing(self):
-        text = f"ligne {GO}\nsuite\n{GC} fin"
-        assert respace(text, FRENCH)[0] == text
-
-    def test_guillemet_at_the_block_edge_keeps_its_spacing(self):
-        assert respace(GO, FRENCH)[0] == GO
-        assert respace(GC, FRENCH)[0] == GC
-        assert respace(f"x {GO}", FRENCH)[0] == f"x {GO}"
-
-    @pytest.mark.parametrize("style", [FRENCH, SPANISH])
-    def test_heading_marker_keeps_its_space(self, style):
-        text = f"### {GC} Saltarse el refinamiento"
+    @pytest.mark.parametrize("style, text, expected, changed", SPACING_CASES)
+    def test_space_guillemets(self, style, text, expected, changed):
         result, stats = respace(text, style)
-        assert result == text
-        assert stats["guillemet_space"] == 0
-
-    def test_lone_closing_guillemet_keeps_its_space(self):
-        text = f"Suite {GC} et {GO}texte{GC}"
-        assert respace(text, FRENCH)[0] == f"Suite {GC} et {fr('texte')}"
-
-    def test_unclosed_opening_guillemet_keeps_its_space(self):
-        text = f"{GO} Le dialogue continue, sans fin"
-        assert respace(text, FRENCH)[0] == text
-
-    def test_nested_guillemets_are_spaced(self):
-        text = f"{GO}il dit {GO}non{GC} puis part{GC}"
-        assert respace(text, SPANISH)[0] == text
-        assert respace(text, FRENCH)[0] == fr(f"il dit {fr('non')} puis part")
-
-    def test_inline_code_is_protected(self):
-        text = f"`{GO}code{GC}` et {GO}texte{GC}"
-        assert respace(text, FRENCH)[0] == f"`{GO}code{GC}` et {fr('texte')}"
-
-    def test_style_without_guillemet_space_is_a_no_op(self):
-        text = f"{GO} x {GC}"
-        result, stats = respace(text, GERMAN)
-        assert result == text
-        assert stats["guillemet_space"] == 0
+        assert result == expected
+        assert stats["guillemet_space"] == changed
 
 
 # ---------------------------------------------------------------------------
 # process_file with the French and Spanish styles
 # ---------------------------------------------------------------------------
-class TestProcessFrench:
-    def test_straight_quotes_and_apostrophes(self):
-        result, stats, warnings = convert(
-            '"Bonjour", dit-il. "C\'est l\'heure."', FRENCH
-        )
-        assert result == f"{fr('Bonjour')}, dit-il. {fr(f'C{CS}est l{CS}heure.')}"
-        assert stats["straight_double"] == 2
-        assert stats["straight_single"] == 2
-        assert stats["guillemet_space"] == 4
-        assert warnings == []
+# Each row: style, text, expected result, the stats that must change, the
+# warnings
+PROCESS_CASES = [
+    pytest.param(
+        FRENCH,
+        '"Bonjour", dit-il. "C\'est l\'heure."',
+        f"{fr('Bonjour')}, dit-il. {fr(f'C{CS}est l{CS}heure.')}",
+        {"straight_double": 2, "straight_single": 2, "guillemet_space": 4},
+        [],
+        id="french-straight-quotes-and-apostrophes",
+    ),
+    pytest.param(
+        FRENCH,
+        'Il dit " oui ".',
+        f"Il dit {fr('oui')}.",
+        {"straight_double": 1, "guillemet_space": 2},
+        [],
+        id="spaces-typed-inside-straight-quotes-become-no-break-spaces",
+    ),
+    pytest.param(
+        FRENCH,
+        f'{GO} texte"',
+        fr("texte"),
+        {"straight_double": 1, "guillemet_space": 2},
+        [],
+        id="open-guillemet-takes-a-straight-closing-quote",
+    ),
+    pytest.param(
+        FRENCH,
+        'Il dit "oui\net non" ici.',
+        f"Il dit {GO}{NB}oui\net non{NB}{GC} ici.",
+        {"straight_double": 1, "guillemet_space": 2, "lines_changed": 2},
+        [],
+        id="quotation-split-by-a-hard-wrap",
+    ),
+    pytest.param(
+        FRENCH,
+        f'"Il a dit {EN_OPEN_DOUBLE}non{EN_CLOSE_DOUBLE}."',
+        fr(f"Il a dit {EN_OPEN_DOUBLE}non{EN_CLOSE_DOUBLE}."),
+        {"straight_double": 1, "english_double": 0},
+        [],
+        id="french-english-double-quotes-stay-as-second-level",
+    ),
+    pytest.param(
+        FRENCH,
+        f"{DE_OPEN_DOUBLE}Hallo{DE_CLOSE_DOUBLE}",
+        f"{DE_OPEN_DOUBLE}Hallo{DE_CLOSE_DOUBLE}",
+        {"lines_changed": 0},
+        [],
+        id="german-quotes-are-left-alone",
+    ),
+    pytest.param(
+        FRENCH,
+        f"{GO}'terme'{GC}",
+        fr(f"{OS}terme{CS}"),
+        {"straight_single": 2, "guillemet_space": 2},
+        [],
+        id="single-quote-after-a-guillemet-opens",
+    ),
+    pytest.param(
+        FRENCH,
+        '"Seul',
+        '"Seul',
+        {"straight_double": 0, "warnings": 1},
+        [
+            'Line 1: Asymmetric straight quotation mark (") '
+            '- 1 unpaired occurrence(s)\n  Context: "Seul'
+        ],
+        id="odd-straight-double-quote-warns",
+    ),
+    pytest.param(
+        FRENCH,
+        '---\ntitle: "Titre"\n---\n<img alt="x"> "y"',
+        f'---\ntitle: "Titre"\n---\n<img alt="x"> {fr("y")}',
+        {"straight_double": 1, "guillemet_space": 2},
+        [],
+        id="html-attribute-and-frontmatter-are-untouched",
+    ),
+    pytest.param(
+        FRENCH,
+        f"{GO}a{GC} {GO}b{GC}\n\nsans",
+        f"{fr('a')} {fr('b')}\n\nsans",
+        {"lines_changed": 1, "guillemet_space": 4},
+        [],
+        id="lines-changed-counts-lines-not-guillemets",
+    ),
+    pytest.param(
+        FRENCH,
+        f"{fr('Oui')}, dit-il, l{CS}homme.",
+        f"{fr('Oui')}, dit-il, l{CS}homme.",
+        {"lines_changed": 0},
+        [],
+        id="already-french-text-is-unchanged",
+    ),
+    pytest.param(
+        SPANISH,
+        '"Hola", dijo, "¿qué tal?" con \'significado\'',
+        f"{es('Hola')}, dijo, {es('¿qué tal?')} con {OS}significado{CS}",
+        {"straight_double": 2, "straight_single": 2, "guillemet_space": 0},
+        [],
+        id="spanish-straight-quotes-and-single-quotes",
+    ),
+    pytest.param(
+        SPANISH,
+        f"{GO} ya {GC} y {GO} esto {GC}",
+        f"{es('ya')} y {es('esto')}",
+        {"guillemet_space": 4},
+        [],
+        id="french-spacing-is-removed",
+    ),
+    pytest.param(
+        SPANISH,
+        f'"Dijo {EN_OPEN_DOUBLE}no{EN_CLOSE_DOUBLE}."',
+        es(f"Dijo {EN_OPEN_DOUBLE}no{EN_CLOSE_DOUBLE}."),
+        {"straight_double": 1, "english_double": 0},
+        [],
+        id="spanish-english-double-quotes-stay-as-second-level",
+    ),
+]
 
-    def test_spaces_typed_inside_straight_quotes_become_no_break_spaces(self):
-        assert convert('Il dit " oui ".', FRENCH)[0] == f"Il dit {fr('oui')}."
 
-    def test_open_guillemet_takes_a_straight_closing_quote(self):
-        assert convert(f'{GO} texte"', FRENCH)[0] == fr("texte")
-
-    def test_quotation_split_by_a_hard_wrap(self):
-        result, _, warnings = convert('Il dit "oui\net non" ici.', FRENCH)
-        assert result == f"Il dit {GO}{NB}oui\net non{NB}{GC} ici."
-        assert warnings == []
-
-    def test_english_double_quotes_stay_as_second_level(self):
-        text = f'"Il a dit {EN_OPEN_DOUBLE}non{EN_CLOSE_DOUBLE}."'
-        assert convert(text, FRENCH)[0] == fr(
-            f"Il a dit {EN_OPEN_DOUBLE}non{EN_CLOSE_DOUBLE}."
-        )
-
-    def test_german_quotes_are_left_alone(self):
-        text = f"{DE_OPEN_DOUBLE}Hallo{DE_CLOSE_DOUBLE}"
-        assert convert(text, FRENCH)[0] == text
-
-    def test_single_quote_after_a_guillemet_opens(self):
-        result, _, warnings = convert(f"{GO}'terme'{GC}", FRENCH)
-        assert result == fr(f"{OS}terme{CS}")
-        assert warnings == []
-
-    def test_odd_straight_double_quote_warns(self):
-        result, stats, warnings = convert('"Seul', FRENCH)
-        assert result == '"Seul'
-        assert len(warnings) == 1
-        assert stats["warnings"] == 1
-
-    def test_html_attribute_and_frontmatter_are_untouched(self):
-        text = '---\ntitle: "Titre"\n---\n<img alt="x"> "y"'
-        result, _, _ = convert(text, FRENCH)
-        assert result == f'---\ntitle: "Titre"\n---\n<img alt="x"> {fr("y")}'
-
-    def test_lines_changed_counts_lines_not_guillemets(self):
-        _, stats, _ = convert(f"{GO}a{GC} {GO}b{GC}\n\nsans", FRENCH)
-        assert stats["lines_changed"] == 1
-        assert stats["guillemet_space"] == 4
-
-    def test_already_french_text_is_unchanged(self):
-        text = f"{fr('Oui')}, dit-il, l{CS}homme."
-        result, stats, warnings = convert(text, FRENCH)
-        assert result == text
-        assert stats["lines_changed"] == 0
-        assert warnings == []
-
-
-class TestFindPairedGuillemets:
-    def test_pairs_and_lone_guillemets(self):
-        text = f"{GC} a {GO}b{GC} {GO}c"
-        assert find_paired_guillemets(text, []) == {4, 6}
-
-    def test_protected_guillemets_do_not_pair(self):
-        text = f"`{GO}` b{GC}"
-        assert find_paired_guillemets(text, mask_protected_regions(text)) == set()
-
-
-class TestProcessSpanish:
-    def test_straight_quotes_and_single_quotes(self):
-        result, stats, warnings = convert(
-            '"Hola", dijo, "¿qué tal?" con \'significado\'', SPANISH
-        )
-        assert result == (
-            f"{es('Hola')}, dijo, {es('¿qué tal?')} con {OS}significado{CS}"
-        )
-        assert stats["straight_double"] == 2
-        assert stats["straight_single"] == 2
-        assert stats["guillemet_space"] == 0
-        assert warnings == []
-
-    def test_french_spacing_is_removed(self):
-        result, stats, _ = convert(f"{GO} ya {GC} y {GO} esto {GC}", SPANISH)
-        assert result == f"{es('ya')} y {es('esto')}"
-        assert stats["guillemet_space"] == 4
-
-    def test_english_double_quotes_stay_as_second_level(self):
-        text = f'"Dijo {EN_OPEN_DOUBLE}no{EN_CLOSE_DOUBLE}."'
-        assert convert(text, SPANISH)[0] == es(
-            f"Dijo {EN_OPEN_DOUBLE}no{EN_CLOSE_DOUBLE}."
-        )
+class TestProcess:
+    @pytest.mark.parametrize(
+        "style, text, expected, expected_stats, expected_warnings", PROCESS_CASES
+    )
+    def test_process_file(
+        self, style, text, expected, expected_stats, expected_warnings
+    ):
+        result, stats, warnings = convert(text, style)
+        assert result == expected
+        assert {key: stats[key] for key in expected_stats} == expected_stats
+        assert warnings == expected_warnings
 
     def test_process_block_defaults_to_german(self):
         assert process_block('"Hola"', 1, make_stats(), []) == (
@@ -270,64 +369,123 @@ class TestProcessSpanish:
         )
 
 
+# Each row: text, the positions of the guillemets that pair up
+PAIRED_GUILLEMET_CASES = [
+    pytest.param(f"{GC} a {GO}b{GC} {GO}c", {4, 6}, id="pairs-and-lone-guillemets"),
+    pytest.param(f"{GO}a {GO}b{GC} c{GC}", {0, 3, 5, 8}, id="nested-pairs"),
+    pytest.param(f"`{GO}` b{GC}", set(), id="protected-guillemets-do-not-pair"),
+    pytest.param("", set(), id="empty-block"),
+]
+
+
+class TestFindPairedGuillemets:
+    @pytest.mark.parametrize("text, expected", PAIRED_GUILLEMET_CASES)
+    def test_find_paired_guillemets(self, text, expected):
+        assert find_paired_guillemets(text, mask_protected_regions(text)) == expected
+
+
 # ---------------------------------------------------------------------------
 # Reporting and CLI
 # ---------------------------------------------------------------------------
+# Each row: style, the summary lines it prints, the ones it leaves out. Every
+# row reports 1 straight pair, 2 straight single marks and 3 guillemet
+# corrections.
+GUILLEMET_ROW_CASES = [
+    # ‘…’ is already the target of French, so that stage has no row
+    pytest.param(
+        FRENCH,
+        [
+            '  Straight " -> French:       1 pair(s)',
+            "  Straight ' -> French:       2 mark(s)",
+            "  Guillemet spacing:          3 correction(s)",
+            "  English typographic double: 0 correction(s)",
+            "  Total replacements:         6",
+        ],
+        ["English typographic single"],
+        id="french-shows-the-guillemet-row",
+    ),
+    pytest.param(
+        SPANISH,
+        [
+            '  Straight " -> Spanish:      1 pair(s)',
+            "  Straight ' -> Spanish:      2 mark(s)",
+            "  Guillemet spacing:          3 correction(s)",
+            "  Total replacements:         6",
+        ],
+        ["English typographic single"],
+        id="spanish-shows-the-guillemet-row",
+    ),
+    pytest.param(GERMAN, [], ["Guillemet"], id="german-has-no-guillemet-row"),
+    pytest.param(ENGLISH, [], ["Guillemet"], id="english-has-no-guillemet-row"),
+]
+
+
 class TestReporting:
-    def test_print_stats_shows_the_guillemet_row(self, capsys):
+    @pytest.mark.parametrize("style, present, absent", GUILLEMET_ROW_CASES)
+    def test_guillemet_rows(self, style, present, absent, capsys):
         stats = make_stats()
         stats["straight_double"] = 1
         stats["straight_single"] = 2
         stats["guillemet_space"] = 3
-        print_stats(stats, FRENCH)
+        print_stats(stats, style)
         out = capsys.readouterr().out
-        assert '  Straight " -> French:       1 pair(s)' in out
-        assert "  Straight ' -> French:       2 mark(s)" in out
-        assert "  Guillemet spacing:          3 correction(s)" in out
-        assert "  English typographic double: 0 correction(s)" in out
-        # ‘…’ is already the target of French, so that stage has no row
-        assert "English typographic single" not in out
-        assert "  Total replacements:         6" in out
+        for line in present:
+            assert line in out
+        for text in absent:
+            assert text not in out
 
-    def test_english_has_no_guillemet_row(self, capsys):
-        print_stats(make_stats(), ENGLISH)
-        assert "Guillemet" not in capsys.readouterr().out
+
+# Each row: entry point, file text, the file text afterwards, a summary line.
+# Every row also gets a backup, as the file is outside a Git repository.
+MAIN_FILE_CASES = [
+    pytest.param(
+        main_french,
+        '"C\'est" et « déjà »',
+        f"{fr(f'C{CS}est')} et {fr('déjà')}",
+        "Guillemet spacing:          4 correction(s)",
+        id="french-file-mode",
+    ),
+    pytest.param(
+        main_spanish,
+        '"Hola" y « ya »',
+        f"{es('Hola')} y {es('ya')}",
+        'Straight " -> Spanish:      1 pair(s)',
+        id="spanish-file-mode",
+    ),
+    pytest.param(
+        main_french,
+        "« déjà »",
+        fr("déjà"),
+        "Guillemet spacing:          2 correction(s)",
+        id="file-with-only-spacing-fixes-is-written",
+    ),
+]
+
+# Each row: entry point, its program name, the language its help names
+HELP_CASES = [
+    pytest.param(main_french, "fix-french-quotes", "French", id="french"),
+    pytest.param(main_spanish, "fix-spanish-quotes", "Spanish", id="spanish"),
+]
 
 
 class TestMain:
-    def test_french_file_mode(self, tmp_path, monkeypatch, capsys):
+    @pytest.mark.parametrize(
+        "entry_point, text, expected, summary_line", MAIN_FILE_CASES
+    )
+    def test_file_mode(
+        self, entry_point, text, expected, summary_line, tmp_path, monkeypatch, capsys
+    ):
         f = tmp_path / "a.md"
-        f.write_text('"C\'est" et « déjà »', encoding="utf-8")
-        monkeypatch.setattr(sys, "argv", ["fix-french-quotes", str(f)])
-        main_french()
-        assert f.read_text(encoding="utf-8") == (f"{fr(f'C{CS}est')} et {fr('déjà')}")
+        f.write_text(text, encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", ["fix-quotes", str(f)])
+        entry_point()
+        assert f.read_text(encoding="utf-8") == expected
+        assert (tmp_path / "a.md.bak").exists()
         captured = capsys.readouterr()
-        assert "Guillemet spacing:          4 correction(s)" in captured.out
+        assert summary_line in captured.out
         assert captured.err == ""
 
-    def test_spanish_file_mode(self, tmp_path, monkeypatch, capsys):
-        f = tmp_path / "a.md"
-        f.write_text('"Hola" y « ya »', encoding="utf-8")
-        monkeypatch.setattr(sys, "argv", ["fix-spanish-quotes", str(f)])
-        main_spanish()
-        assert f.read_text(encoding="utf-8") == f"{es('Hola')} y {es('ya')}"
-        assert 'Straight " -> Spanish:      1 pair(s)' in capsys.readouterr().out
-
-    def test_file_with_only_spacing_fixes_is_written(self, tmp_path, monkeypatch):
-        f = tmp_path / "a.md"
-        f.write_text("« déjà »", encoding="utf-8")
-        monkeypatch.setattr(sys, "argv", ["fix-french-quotes", str(f)])
-        main_french()
-        assert f.read_text(encoding="utf-8") == fr("déjà")
-        assert (tmp_path / "a.md.bak").exists()
-
-    @pytest.mark.parametrize(
-        "entry, prog, name",
-        [
-            (main_french, "fix-french-quotes", "French"),
-            (main_spanish, "fix-spanish-quotes", "Spanish"),
-        ],
-    )
+    @pytest.mark.parametrize("entry, prog, name", HELP_CASES)
     def test_help_names_the_language(self, entry, prog, name, monkeypatch, capsys):
         monkeypatch.setenv("COLUMNS", "200")
         monkeypatch.setattr(sys, "argv", [prog, "--help"])
