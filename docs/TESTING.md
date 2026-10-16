@@ -769,11 +769,13 @@ ratchet rule (§3) — current coverage may not drop below the baseline in
 
 | Module | Current | Target | Category |
 |---|---:|---:|---|
-| `manuscripta.project.chapters`        | 76 % | 90 % | CORE |
-| `manuscripta.markdown.bullet_points`  | 72 % | 85 % | CORE |
-| `manuscripta.markdown.emojis`         | 79 % | 85 % | CORE |
-| `manuscripta.utils.git_cache`         | 74 % | 85 % | CORE |
-| `manuscripta.config.loader`           |  0 % | 90 % | CORE |
+| (none) | | | |
+
+The table is empty since 2026-10-16: the last five entries graduated in
+round 2 (`project.chapters` 98 %, `markdown.bullet_points` 100 %,
+`markdown.emojis` 99 %, `utils.git_cache` 100 %, `config.loader` 100 %).
+They are eligible for the mutation scope by category and wait for a
+measured score and a survivor triage (ADR-0002's exclusion table).
 
 Graduated on 2026-10-16 with #26 (line coverage of the package 70 % →
 94 %): `project.init` (100 %), `project.reorder` (98 %),
@@ -932,9 +934,10 @@ this section is the consumer-facing how-to.
 Mutation runs over **CORE pure-logic modules only**, and only over
 modules that are **not currently tracked as coverage debt** in §12.
 
-The eleven modules currently in scope (seven at the start of Phase 4b;
+The fourteen modules currently in scope (seven at the start of Phase 4b;
 `audiobook/tts/retry.py` was removed during Pass 2 — see §14.8.3; five
-debt graduates joined on 2026-10-16):
+debt graduates joined on 2026-10-16 and three more after their survivor
+triage the same day):
 
 | Module | Threshold | Why qualifies |
 |---|---:|---|
@@ -949,10 +952,13 @@ debt graduates joined on 2026-10-16):
 | `src/manuscripta/paths/img_tags.py` | 85 % | pure path/text transform; graduated (measured 79 % on entry, 99 % after survivor triage) |
 | `src/manuscripta/utils/bulk_extension.py` | 85 % | file renaming logic; graduated (measured 74 % on entry, 100 % after survivor triage) |
 | `src/manuscripta/project/reorder.py` | 75 % | chapter renaming logic; graduated (entered at 79 %, raise to 85 after survivor triage) |
+| `src/manuscripta/project/init.py` | 85 % | project scaffolding and settings; graduated (measured 65 % on entry, 93 % after survivor triage) |
+| `src/manuscripta/project/metadata.py` | 85 % | metadata fill from JSON; graduated (66 % on entry, 100 % after triage) |
+| `src/manuscripta/utils/pandoc_batch.py` | 85 % | pandoc batch runner; graduated (66 % on entry, 98 % after triage; the nine remaining survivors are the stubbed subprocess call's keyword arguments and unspecified defaults, see the specification gaps below) |
 
-The whole scope is about 3100 mutants and ran in 1 minute locally on
-2026-10-16 (mutmut 3.5.0, 22 mutants/s), well inside the 45-minute
-nightly budget.
+The whole scope is about 4700 mutants and ran in a few minutes locally
+on 2026-10-16 (mutmut 3.5.0, 22 to 72 mutants/s depending on load), well
+inside the 45-minute nightly budget.
 
 The thresholds live in `[tool.manuscripta.mutation_thresholds]` in
 `pyproject.toml` (single source of truth).

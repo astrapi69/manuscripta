@@ -17,6 +17,8 @@ PATCH_CASES = [
     ),
     # newline normalization alone is not a patch
     pytest.param("a\r\nb", "a\nb", 0, id="crlf-alone-is-not-counted"),
+    # a classic-Mac line ending is normalized too
+    pytest.param("a\rb\r", "a\nb\n", 0, id="lone-cr-becomes-lf"),
     pytest.param(
         "Hello\n\n---\n\nWorld\n",
         "Hello\n\n---\n\nWorld\n",
