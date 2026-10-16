@@ -377,20 +377,21 @@ PROCESS_LINE_CASES = [
         '"', '"', [unpaired("Line 1", '"')], id="single-straight-quote-warning"
     ),
     pytest.param(de("Correct"), de("Correct"), [], id="german-open-close-pair-intact"),
-    # Straight and English typographic in the same line. Today the result is
-    # „Straight„ and “English“: the English stage takes the German closing
-    # quote the straight stage just produced as the opener of its pair.
-    # test_mixed_straight_and_english below keeps the count-only guard.
+    # Straight and English typographic in the same line: after the straight
+    # stage it reads „Straight“ and “English”, and the “ that closes the first
+    # pair must not be taken for the opener of the second (fixed in e042679)
     pytest.param(
         f'"Straight" and {en("English")}',
         f"{de('Straight')} and {de('English')}",
         [],
         id="mixed-straight-and-english",
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason="the English stage pairs the German closing quote of the"
-            " preceding straight pair with the English closing quote",
-        ),
+    ),
+    # an unclosed earlier opener stays; the nearest one opens the pair
+    pytest.param(
+        f"{EN_OPEN_DOUBLE} {en('a')}",
+        f"{EN_OPEN_DOUBLE} {de('a')}",
+        [],
+        id="unclosed-earlier-opener-stays",
     ),
     # process_line is a single-line block (see process_block)
     pytest.param('"a"', de("a"), [], id="is-a-single-line-block"),
@@ -1113,20 +1114,3 @@ class TestBackup:
         main()
         assert DE_OPEN_DOUBLE in f.read_text(encoding="utf-8")
         assert (tmp_path / "t.md.bak").exists() is expect_bak
-
-
-class TestMixedStraightAndEnglishPairs:
-    # After the straight stage a line reads „Straight“ and “English”; the “
-    # that closes the first pair must not be taken for the opener of the second
-    def test_english_closer_pairs_with_its_nearest_opener(self):
-        text = f'"Straight" and {EN_OPEN_DOUBLE}English{EN_CLOSE_DOUBLE}'
-        assert process_line(text, 1, make_stats(), []) == (
-            f"{DE_OPEN_DOUBLE}Straight{DE_CLOSE_DOUBLE} and "
-            f"{DE_OPEN_DOUBLE}English{DE_CLOSE_DOUBLE}"
-        )
-
-    def test_the_unclosed_opener_is_the_earlier_one(self):
-        text = f"{EN_OPEN_DOUBLE} {EN_OPEN_DOUBLE}a{EN_CLOSE_DOUBLE}"
-        assert process_line(text, 1, make_stats(), []) == (
-            f"{EN_OPEN_DOUBLE} {DE_OPEN_DOUBLE}a{DE_CLOSE_DOUBLE}"
-        )
