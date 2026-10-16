@@ -166,6 +166,10 @@ Pandoc metadata: title, author, date, language.
 All export commands have a `-safe` variant (e.g. `export-pdf-safe`) that skips source preprocessing for fast,
 non-destructive draft builds.
 
+Every export command forwards its options to the underlying `full-export` or `print-version-build`
+and prints the usage of both with `--help`. An unknown option aborts with exit status 2 before
+anything is exported, so a misspelled flag never starts a build with the defaults.
+
 ### Audiobook
 
 | Command                 | Description            |

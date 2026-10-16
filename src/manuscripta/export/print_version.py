@@ -138,13 +138,8 @@ def build_print_version(
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """
-    Parse known args and collect unknown args to forward to manuscripta.export.book.
-
-    Namespace fields:
-      - dry_run, restore, export_format, book_type, exact_name, extra
-    """
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """The options print-version-build consumes; unknown ones go to the export."""
     p = argparse.ArgumentParser(description="Build print version of a book project.")
     p.add_argument(
         "--dry-run", action="store_true", help="Print commands without executing."
@@ -172,8 +167,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--exact-name", action="store_true", help="Use exact output name (no suffix)."
     )
+    return p
 
-    known, unknown = p.parse_known_args(argv)
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """
+    Parse known args and collect unknown args to forward to manuscripta.export.book.
+
+    Namespace fields:
+      - dry_run, restore, export_format, book_type, exact_name, extra
+    """
+    known, unknown = _build_arg_parser().parse_known_args(argv)
 
     ns = argparse.Namespace(
         dry_run=known.dry_run,

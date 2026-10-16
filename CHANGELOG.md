@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **`export-*` shortcuts and `--help`**: `--help` / `-h` on every export shortcut (`export-epub`,
+  `export-pdf-safe`, `export-print-version-hardcover`, ...) prints the usage of the shortcut and
+  the options of `full-export` and `print-version-build` and exits without touching the
+  manuscript or `output/`. Before, `--help` was dropped as an unknown option and a full export
+  ran with the defaults. An unknown option now aborts with exit status 2 instead of being
+  dropped silently; `--strict-opts` is still accepted and has no effect. The allow-list gained
+  `--source-dir`, `--resource-path`, `--strict-images` and `--no-strict-images` (the README
+  example `export-pdf --source-dir=...` was dropped before) and `--restore` / `--exact-name` for
+  `print-version-build`; the stale `--scripts-dir` and `--no-restore` are gone (#18).
+
 ## [0.10.0] - 2026-10-06
 
 ### Added

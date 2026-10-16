@@ -6,12 +6,14 @@ traversed it (see ADR-0003 and TESTING.md §3).
 
 Each shortcut is a small wrapper around _run_full_export or
 _run_print_version with option validation. These tests mock the two
-runners and assert on what argv got forwarded, which invalid options got
-filtered, and how --strict-opts aborts propagation.
+runners and assert on what argv got forwarded, that an unknown option
+aborts before the runner is called, and that --help prints the usage
+instead of exporting.
 """
 
 from __future__ import annotations
 
+import sys
 
 import pytest
 
@@ -21,6 +23,12 @@ from manuscripta.export import shortcuts as sc
 
 
 # --- Capture helpers ------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def shortcut_argv(monkeypatch):
+    """A shortcut called without extras reads sys.argv[1:]; keep pytest's out."""
+    monkeypatch.setattr(sys, "argv", ["export-shortcut"])
 
 
 @pytest.fixture
@@ -76,6 +84,37 @@ def test_split_valid_invalid_handles_no_value_flag_at_end():
     assert invalid == []
 
 
+def test_split_valid_invalid_treats_single_dash_and_positionals_as_unknown():
+    valid, invalid = sc._split_valid_invalid_options(
+        ["manuscript", "--lang", "de", "-x", "--epub2"], sc.FULL_EXPORT_ALLOWED_OPTS
+    )
+    assert valid == ["--lang", "de", "--epub2"]
+    assert invalid == ["manuscript", "-x"]
+
+
+def test_full_export_allow_list_covers_the_cli_layer_options():
+    # README documents `export-pdf --source-dir=...`; these were dropped before.
+    for name in (
+        "--source-dir",
+        "--resource-path",
+        "--strict-images",
+        "--no-strict-images",
+    ):
+        assert name in sc.FULL_EXPORT_ALLOWED_OPTS
+
+
+def test_print_version_allow_list_matches_its_parser():
+    from manuscripta.export.print_version import _build_arg_parser
+
+    parser_opts = {
+        opt
+        for action in _build_arg_parser()._actions
+        for opt in action.option_strings
+        if opt.startswith("--") and opt not in {"--help", "--format"}
+    }
+    assert sc.PRINT_VERSION_ALLOWED_OPTS == parser_opts
+
+
 # --- list_allowed_opts ---------------------------------------------------
 
 
@@ -98,23 +137,43 @@ def test_export_forwards_format_and_cover(capture_full):
     assert "--lang" in capture_full[0] and "de" in capture_full[0]
 
 
-def test_export_invalid_opts_logged_but_still_forwarded(capture_full, capsys):
-    sc.export("pdf", None, "--unknown-flag", "--epub2")
+def test_export_unknown_option_aborts_with_status_2(capture_full, capsys):
+    with pytest.raises(SystemExit) as exc:
+        sc.export("pdf", None, "--unknown-flag", "--epub2")
+    assert exc.value.code == 2
     out = capsys.readouterr().out
-    assert "Invalid options" in out
+    assert "Invalid options for full_export_book.py" in out
     assert "--unknown-flag" in out
-    # Valid flag still forwarded.
-    assert "--epub2" in capture_full[0]
-    # Invalid flag NOT forwarded.
-    assert "--unknown-flag" not in capture_full[0]
-
-
-def test_export_strict_opts_aborts_when_invalid_present(capture_full, capsys):
-    sc.export("pdf", None, "--unknown-flag", "--strict-opts")
-    out = capsys.readouterr().out
-    assert "Aborting due to --strict-opts" in out
-    # _run_full_export not called.
+    assert "Aborting" in out and "--help" in out
+    # _run_full_export not called: nothing is exported.
     assert capture_full == []
+
+
+def test_export_strict_opts_changes_nothing(capture_full):
+    # Accepted for compatibility; unknown options abort with or without it.
+    with pytest.raises(SystemExit):
+        sc.export("pdf", None, "--unknown-flag", "--strict-opts")
+    assert capture_full == []
+
+
+def test_export_stray_positional_aborts(capture_full, capsys):
+    with pytest.raises(SystemExit) as exc:
+        sc.export("pdf", None, "manuscript")
+    assert exc.value.code == 2
+    assert "manuscript" in capsys.readouterr().out
+    assert capture_full == []
+
+
+def test_export_bare_double_dash_is_dropped(capture_full):
+    sc.export("pdf", None, "--", "--lang", "de")
+    assert "--" not in capture_full[0]
+    assert "--lang" in capture_full[0]
+
+
+def test_export_forwards_source_dir(capture_full):
+    sc.export("pdf", None, "--source-dir=/tmp/book", "--no-strict-images")
+    assert "--source-dir=/tmp/book" in capture_full[0]
+    assert "--no-strict-images" in capture_full[0]
 
 
 def test_export_strict_opts_not_forwarded_as_option(capture_full):
@@ -171,8 +230,9 @@ def test_export_all_formats_with_cover(capture_full):
     assert any("cover.jpg" in a for a in argv)
 
 
-def test_export_all_formats_strict_aborts(capture_full, capsys):
-    sc.export_all_formats("--bogus", "--strict-opts")
+def test_export_all_formats_unknown_option_aborts(capture_full, capsys):
+    with pytest.raises(SystemExit):
+        sc.export_all_formats("--bogus")
     assert capture_full == []
     assert "Aborting" in capsys.readouterr().out
 
@@ -187,8 +247,9 @@ def test_export_epub2_sets_flag(capture_full):
     assert "--lang" in argv and "de" in argv
 
 
-def test_export_epub2_strict_aborts(capture_full, capsys):
-    sc.export_epub2("--not-a-flag", "--strict-opts")
+def test_export_epub2_unknown_option_aborts(capture_full, capsys):
+    with pytest.raises(SystemExit):
+        sc.export_epub2("--not-a-flag")
     assert capture_full == []
     assert "Aborting" in capsys.readouterr().out
 
@@ -208,8 +269,9 @@ def test_export_epub2_with_cover(capture_full):
     assert "--cover" in argv
 
 
-def test_export_epub2_with_cover_strict_aborts(capture_full, capsys):
-    sc.export_epub2_with_cover("--bogus", "--strict-opts")
+def test_export_epub2_with_cover_unknown_option_aborts(capture_full, capsys):
+    with pytest.raises(SystemExit):
+        sc.export_epub2_with_cover("--bogus")
     assert capture_full == []
     assert "Aborting" in capsys.readouterr().out
 
@@ -258,30 +320,28 @@ def test_export_print_version_safe_honors_user_image_flag(capture_print):
     assert "--skip-images" not in argv
 
 
-def test_export_print_version_epub_strict_aborts(capture_print, capsys):
-    sc.export_print_version_epub("--bogus", "--strict-opts")
+def test_export_print_version_forwards_its_own_options(capture_print):
+    sc.export_print_version_epub("--restore", "--exact-name", "--dry-run")
+    argv = capture_print[0]
+    assert "--restore" in argv and "--exact-name" in argv and "--dry-run" in argv
+
+
+@pytest.mark.parametrize(
+    "func",
+    [
+        sc.export_print_version_epub,
+        sc.export_print_version_paperback,
+        sc.export_print_version_hardcover,
+        sc.export_print_version_paperback_safe,
+        sc.export_print_version_hardcover_safe,
+    ],
+)
+def test_export_print_version_unknown_option_aborts(func, capture_print, capsys):
+    with pytest.raises(SystemExit) as exc:
+        func("--bogus")
+    assert exc.value.code == 2
     assert capture_print == []
-    assert "Aborting" in capsys.readouterr().out
-
-
-def test_export_print_version_paperback_strict_aborts(capture_print, capsys):
-    sc.export_print_version_paperback("--bogus", "--strict-opts")
-    assert capture_print == []
-
-
-def test_export_print_version_hardcover_strict_aborts(capture_print, capsys):
-    sc.export_print_version_hardcover("--bogus", "--strict-opts")
-    assert capture_print == []
-
-
-def test_export_print_version_paperback_safe_strict_aborts(capture_print, capsys):
-    sc.export_print_version_paperback_safe("--bogus", "--strict-opts")
-    assert capture_print == []
-
-
-def test_export_print_version_hardcover_safe_strict_aborts(capture_print, capsys):
-    sc.export_print_version_hardcover_safe("--bogus", "--strict-opts")
-    assert capture_print == []
+    assert "Invalid options for print_version_build.py" in capsys.readouterr().out
 
 
 # --- export_safe + wrappers ---------------------------------------------
@@ -312,10 +372,96 @@ def test_safe_wrapper_does_not_inject_when_user_passed_flag(capture_full):
     assert "--skip-images" not in argv
 
 
-def test_export_safe_strict_aborts(capture_full, capsys):
-    sc.export_safe("pdf", "--bogus", "--strict-opts")
+def test_export_safe_unknown_option_aborts(capture_full, capsys):
+    with pytest.raises(SystemExit):
+        sc.export_safe("pdf", "--bogus")
     assert capture_full == []
     assert "Aborting" in capsys.readouterr().out
+
+
+# --- --help / -h ---------------------------------------------------------
+
+FULL_EXPORT_WRAPPERS = [
+    sc.export_pdf,
+    sc.export_epub,
+    sc.export_docx,
+    sc.export_markdown,
+    sc.export_html,
+    sc.export_all_formats,
+    sc.export_all_formats_with_cover,
+    sc.export_epub2,
+    sc.export_epub_with_cover,
+    sc.export_epub2_with_cover,
+    sc.export_pdf_safe,
+    sc.export_epub_safe,
+    sc.export_docx_safe,
+    sc.export_markdown_safe,
+    sc.export_html_safe,
+]
+
+PRINT_VERSION_WRAPPERS = [
+    sc.export_print_version_epub,
+    sc.export_print_version_paperback,
+    sc.export_print_version_hardcover,
+    sc.export_print_version_paperback_safe,
+    sc.export_print_version_hardcover_safe,
+]
+
+
+@pytest.mark.parametrize("func", FULL_EXPORT_WRAPPERS)
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_full_export_wrappers_help_prints_usage_and_exports_nothing(
+    func, flag, capture_full, capture_print, capsys
+):
+    func(flag)
+    assert capture_full == [] and capture_print == []
+    out = capsys.readouterr().out
+    assert out.startswith("usage: export-shortcut [-h] [OPTION ...]")
+    assert "Runs full_export_book.py as\n  full-export " in out
+    # the forwarded options of full_export_book.py and of its CLI layer
+    assert "--output-file OUTPUT_FILE" in out
+    assert "--source-dir SOURCE_DIR" in out
+    assert "exit status 2" in out
+
+
+@pytest.mark.parametrize("func", PRINT_VERSION_WRAPPERS)
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_print_version_wrappers_help_prints_both_targets(
+    func, flag, capture_full, capture_print, capsys
+):
+    func(flag)
+    assert capture_full == [] and capture_print == []
+    out = capsys.readouterr().out
+    assert out.startswith("usage: export-shortcut [-h] [OPTION ...]")
+    assert "Runs print_version_build.py as\n  print-version-build " in out
+    assert "--export-format {epub,pdf}" in out
+    assert "--output-file OUTPUT_FILE" in out
+
+
+def test_help_names_the_base_arguments_of_the_shortcut(capsys):
+    sc.export_epub2_with_cover("--help")
+    out = capsys.readouterr().out
+    assert "full-export --epub2 --cover assets/covers/cover.jpg [OPTION ...]" in out
+
+
+def test_help_wins_over_other_options_and_unknown_ones(capture_full, capsys):
+    sc.export_pdf("--lang=de", "--bogus", "--help")
+    assert capture_full == []
+    assert "usage:" in capsys.readouterr().out
+
+
+def test_help_uses_the_name_the_shortcut_was_called_as(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["/venv/bin/export-pvh", "--help"])
+    sc.export_print_version_hardcover()
+    out = capsys.readouterr().out
+    assert out.startswith("usage: export-pvh [-h] [OPTION ...]")
+
+
+def test_print_shortcut_help_takes_an_explicit_prog(capsys):
+    sc.print_shortcut_help(sc.FULL_EXPORT, ["--format", "pdf"], prog="my-export")
+    out = capsys.readouterr().out
+    assert out.startswith("usage: my-export [-h] [OPTION ...]")
+    assert "full-export --format pdf [OPTION ...]" in out
 
 
 # --- main() dispatch -----------------------------------------------------
@@ -395,3 +541,9 @@ def test_main_strict_opts_is_forwarded(monkeypatch):
     sc.main(["export", "--format", "pdf", "--strict-opts"])
     args, _ = calls[0]
     assert "--strict-opts" in args[2:]
+
+
+def test_main_passthrough_help_prints_the_shortcut_help(capture_full, capsys):
+    sc.main(["export", "--format", "pdf", "--", "--help"])
+    assert capture_full == []
+    assert "full-export --format pdf [OPTION ...]" in capsys.readouterr().out
