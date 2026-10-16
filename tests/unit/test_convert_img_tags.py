@@ -3,11 +3,12 @@ import pytest
 pytestmark = pytest.mark.unit
 
 # tests/test_convert_img_tags.py
-from pathlib import Path
+import sys
+from pathlib import Path, PurePath
 import os
 import re
 
-from manuscripta.paths.img_tags import convert_markdown_tree
+from manuscripta.paths.img_tags import convert_markdown_tree, main
 
 
 def write(p: Path, text: str):
@@ -116,3 +117,122 @@ def test_preserves_other_attributes_and_normalizes_order(tmp_path: Path):
     assert src_pos < alt_pos
     # Other attributes present
     assert 'class="y"' in t and 'data-id="123"' in t
+
+
+def layout(tmp_path: Path) -> tuple[Path, Path]:
+    """assets/pic.png in a project; returns (the chapter file to fill, the image)."""
+    md = tmp_path / "manuscript" / "chapters" / "01.md"
+    img = tmp_path / "assets" / "pic.png"
+    write(img, "binary")
+    return md, img
+
+
+# Each row: the <img> tag written ({rel}: the relative path to assets/pic.png,
+# {abs}: its absolute path, {ghost}: a relative path to no file), to absolute?
+TAGS_LEFT_ALONE = [
+    pytest.param('<img alt="no source">', True, id="no-src-to-absolute"),
+    pytest.param("<img>", False, id="bare-tag-to-relative"),
+    pytest.param('<img src="{ghost}">', True, id="relative-to-missing-file"),
+    pytest.param('<img src="{rel}" alt="r">', False, id="relative-under-to-relative"),
+    pytest.param('<img src="{abs}">', True, id="absolute-under-to-absolute"),
+]
+
+
+@pytest.mark.parametrize("tag, to_absolute", TAGS_LEFT_ALONE)
+def test_tags_left_alone(tag, to_absolute, tmp_path: Path):
+    md, img = layout(tmp_path)
+    rel = os.path.relpath(img, start=md.parent)
+    text = tag.format(rel=rel, abs=img, ghost="../../assets/ghost.png") + "\n"
+    write(md, text)
+    assert convert_markdown_tree(tmp_path, to_absolute=to_absolute) == (0, 0)
+    assert md.read_text(encoding="utf-8") == text
+
+
+# Each row: the tag with an absolute src ({assets}: the image under assets/,
+# {outside}: a file outside), the counts returned, the tag afterwards ({rel}:
+# the relative path to the assets image)
+WITHOUT_IS_RELATIVE_TO = [
+    pytest.param(
+        '<img alt="ok" src="{assets}">',
+        (1, 1),
+        '<img src="{rel}" alt="ok">',
+        id="under-assets-made-relative",
+    ),
+    pytest.param(
+        '<img src="{outside}" alt="skip">',
+        (0, 0),
+        '<img src="{outside}" alt="skip">',
+        id="outside-assets-untouched",
+    ),
+]
+
+
+@pytest.mark.parametrize("tag, counts, after", WITHOUT_IS_RELATIVE_TO)
+def test_to_relative_without_is_relative_to(tag, counts, after, tmp_path, monkeypatch):
+    """Interpreters lacking PurePath.is_relative_to take the relative_to() route."""
+    md, img = layout(tmp_path)
+    outside = tmp_path / "outside" / "x.png"
+    write(outside, "x")
+    names = dict(assets=img, outside=outside, rel=os.path.relpath(img, md.parent))
+    write(md, tag.format(**names) + "\n")
+    monkeypatch.delattr(PurePath, "is_relative_to")
+    assert convert_markdown_tree(tmp_path, to_absolute=False) == counts
+    assert md.read_text(encoding="utf-8") == after.format(**names) + "\n"
+
+
+def run_main():
+    """Runs main() and returns the exit code it raised (None: it returned)."""
+    try:
+        main()
+    except SystemExit as ex:
+        return ex.code
+    return None
+
+
+CHAPTER = '<img src="{rel}" alt="a">\n<img alt="b" src="{abs}">\n'
+
+# Each row: the direction flags, the exit code (None: main returns), the line
+# printed, the chapter afterwards ({rel}/{abs}: the image's relative and
+# absolute path)
+MAIN_RUNS = [
+    pytest.param(
+        ["--to-absolute"],
+        None,
+        "✅ Converted 1 <img> tag(s) to absolute across 1 file(s).",
+        '<img src="{abs}" alt="a">\n<img src="{abs}" alt="b">\n',
+        id="to-absolute",
+    ),
+    pytest.param(
+        ["--to-relative"],
+        None,
+        "🔄 Reverted 1 <img> tag(s) to relative across 1 file(s).",
+        '<img src="{rel}" alt="a">\n<img src="{rel}" alt="b">\n',
+        id="to-relative",
+    ),
+    pytest.param(
+        [],
+        2,
+        "❌ Please specify exactly one of --to-absolute or --to-relative.",
+        CHAPTER,
+        id="neither-direction",
+    ),
+    pytest.param(
+        ["--to-absolute", "--to-relative"],
+        2,
+        "❌ Please specify exactly one of --to-absolute or --to-relative.",
+        CHAPTER,
+        id="both-directions",
+    ),
+]
+
+
+@pytest.mark.parametrize("flags, code, line, after", MAIN_RUNS)
+def test_main(flags, code, line, after, tmp_path, monkeypatch, capsys):
+    md, img = layout(tmp_path)
+    names = dict(rel=os.path.relpath(img, start=md.parent), abs=img)
+    write(md, CHAPTER.format(**names))
+    argv = ["convert-img-tags", "--base-dir", str(tmp_path), *flags]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert run_main() == code
+    assert capsys.readouterr().out == line + "\n"
+    assert md.read_text(encoding="utf-8") == after.format(**names)
