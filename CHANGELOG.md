@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.11.1] - 2026-10-16
 
 ### Fixed
 - **`convert-img-tags`**: `--base-dir` defaults to the current working directory; it was the
