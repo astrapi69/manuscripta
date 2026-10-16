@@ -18,76 +18,61 @@ def test_iter_md_files_skips_bak(tmp_path: Path):
     assert names == ["a.md"]
 
 
-def test_cli_dry_run_reports_and_writes_only_when_not_dry(
-    tmp_path: Path, capsys, monkeypatch
-):
+# Each row: the file below the book directory and its text, the EMOJI_MAP of
+# the --map module, the flags after --map, texts the report must carry, the
+# files of that section afterwards with their text
+CLI_CASES = [
+    pytest.param(
+        "front-matter/intro.md",
+        "Hello 🔥 📈",
+        "{'🔥': '+++', '📈': '↑'}",
+        ["--report", "--dry-run"],
+        ["replacements=", "files_written=0"],
+        {"intro.md": "Hello 🔥 📈"},
+        id="dry-run-reports-and-writes-nothing",
+    ),
+    # REAL RUN, copy mode
+    pytest.param(
+        "front-matter/intro.md",
+        "Hello 🔥 📈",
+        "{'🔥': '+++', '📈': '↑'}",
+        ["--report"],
+        ["✓ Converted: intro.md → intro-final.md"],
+        {"intro.md": "Hello 🔥 📈", "intro-final.md": "Hello +++ ↑"},
+        id="writes-copy-when-not-dry",
+    ),
+    pytest.param(
+        "chapters/c1.md",
+        "x 📉",
+        "{'📉': '↓'}",
+        ["--overwrite", "--report"],
+        ["✓ Overwrote: c1.md"],
+        {"c1.md": "x ↓"},
+        id="overwrite",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "source, text, emoji_map, flags, reported, files_after", CLI_CASES
+)
+def test_cli(source, text, emoji_map, flags, reported, files_after, tmp_path, capsys):
     root = tmp_path / "manuscript"
-    (root / "front-matter").mkdir(parents=True)
-    (root / "front-matter" / "intro.md").write_text("Hello 🔥 📈", encoding="utf-8")
+    section, name = source.split("/")
+    (root / section).mkdir(parents=True)
+    (root / section / name).write_text(text, encoding="utf-8")
 
     # Provide a tiny mapping via temp module file
     map_py = tmp_path / "map.py"
-    map_py.write_text("EMOJI_MAP={'🔥': '+++', '📈': '↑'}", encoding="utf-8")
+    map_py.write_text(f"EMOJI_MAP={emoji_map}", encoding="utf-8")
 
-    # DRY RUN
     code = repl.main(
-        [
-            "--book-dir",
-            str(root),
-            "--sections",
-            "front-matter",
-            "--map",
-            str(map_py),
-            "--report",
-            "--dry-run",
-        ]
+        ["--book-dir", str(root), "--sections", section, "--map", str(map_py), *flags]
     )
     assert code == 0
     out = capsys.readouterr().out
-    assert "replacements=" in out
-    assert "files_written=0" in out
-
-    # REAL RUN, copy mode
-    code = repl.main(
-        [
-            "--book-dir",
-            str(root),
-            "--sections",
-            "front-matter",
-            "--map",
-            str(map_py),
-            "--report",
-        ]
-    )
-    assert code == 0
-    out = capsys.readouterr().out
-    assert "✓ Converted: intro.md → intro-final.md" in out
-    copied = root / "front-matter" / "intro-final.md"
-    assert copied.read_text(encoding="utf-8") == "Hello +++ ↑"
-
-
-def test_cli_overwrite(tmp_path: Path, capsys):
-    root = tmp_path / "manuscript"
-    (root / "chapters").mkdir(parents=True)
-    f = root / "chapters" / "c1.md"
-    f.write_text("x 📉", encoding="utf-8")
-
-    map_py = tmp_path / "map.py"
-    map_py.write_text("EMOJI_MAP={'📉': '↓'}", encoding="utf-8")
-
-    code = repl.main(
-        [
-            "--book-dir",
-            str(root),
-            "--sections",
-            "chapters",
-            "--map",
-            str(map_py),
-            "--overwrite",
-            "--report",
-        ]
-    )
-    assert code == 0
-    out = capsys.readouterr().out
-    assert "✓ Overwrote: c1.md" in out
-    assert f.read_text(encoding="utf-8") == "x ↓"
+    for line in reported:
+        assert line in out
+    assert {
+        p.name: p.read_text(encoding="utf-8") for p in (root / section).iterdir()
+    } == files_after

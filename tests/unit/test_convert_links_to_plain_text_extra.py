@@ -6,84 +6,79 @@ pytestmark = pytest.mark.unit
 from pathlib import Path
 from manuscripta.markdown.links_to_plain import convert_links_in_text, convert_file
 
-
-def test_multiple_links_same_line():
-    text = "See [One](https://one.test) and [Two](https://two.test?q=1)."
-    out, n = convert_links_in_text(text)
-    assert n == 2
-    assert out == "See One: https://one.test and Two: https://two.test?q=1."
-
-
-def test_title_is_dropped_and_label_preserved():
-    text = 'Read the [Spec](https://spec.test/v1 "Official Spec").'
-    out, n = convert_links_in_text(text)
-    assert n == 1
-    assert out == "Read the Spec: https://spec.test/v1."
-
-
-def test_angle_brackets_with_parentheses_in_url():
-    text = "Open [Issue](<https://host.test/a(b)/c>)."
-    out, n = convert_links_in_text(text)
-    assert n == 1
-    assert out == "Open Issue: https://host.test/a(b)/c."
-
-
-def test_query_and_fragment():
-    text = "Try [Search](https://ex.test/find?q=a+b#top)."
-    out, n = convert_links_in_text(text)
-    assert n == 1
-    assert out == "Try Search: https://ex.test/find?q=a+b#top."
-
-
-def test_protocol_relative_url():
-    text = "CDN: [Asset](//cdn.example.com/lib.js)"
-    out, n = convert_links_in_text(text)
-    assert n == 1
-    assert out == "CDN: Asset: //cdn.example.com/lib.js"
-
-
-def test_mailto_and_tel():
-    text = "Contact [Email](mailto:info@example.com) or [Phone](tel:+123456789)."
-    out, n = convert_links_in_text(text)
-    assert n == 2
-    assert "Email: mailto:info@example.com" in out
-    assert "Phone: tel:+123456789" in out
-
-
-def test_relative_link_is_converted_verbatim():
-    text = "See [Appendix](../back-matter/appendix.md)."
-    out, n = convert_links_in_text(text)
-    assert n == 1
-    assert out == "See Appendix: ../back-matter/appendix.md."
-
-
-def test_anchor_only_is_skipped():
-    text = "Jump to [Top](#top) and [Keep](https://ok.test#frag)."
-    out, n = convert_links_in_text(text)
+# Each row: text, the text with its links converted, the links counted
+CONVERT_TEXT_CASES = [
+    pytest.param(
+        "See [One](https://one.test) and [Two](https://two.test?q=1).",
+        "See One: https://one.test and Two: https://two.test?q=1.",
+        2,
+        id="multiple-links-same-line",
+    ),
+    pytest.param(
+        'Read the [Spec](https://spec.test/v1 "Official Spec").',
+        "Read the Spec: https://spec.test/v1.",
+        1,
+        id="title-is-dropped-and-label-preserved",
+    ),
+    pytest.param(
+        "Open [Issue](<https://host.test/a(b)/c>).",
+        "Open Issue: https://host.test/a(b)/c.",
+        1,
+        id="angle-brackets-with-parentheses-in-url",
+    ),
+    pytest.param(
+        "Try [Search](https://ex.test/find?q=a+b#top).",
+        "Try Search: https://ex.test/find?q=a+b#top.",
+        1,
+        id="query-and-fragment",
+    ),
+    pytest.param(
+        "CDN: [Asset](//cdn.example.com/lib.js)",
+        "CDN: Asset: //cdn.example.com/lib.js",
+        1,
+        id="protocol-relative-url",
+    ),
+    pytest.param(
+        "Contact [Email](mailto:info@example.com) or [Phone](tel:+123456789).",
+        "Contact Email: mailto:info@example.com or Phone: tel:+123456789.",
+        2,
+        id="mailto-and-tel",
+    ),
+    pytest.param(
+        "See [Appendix](../back-matter/appendix.md).",
+        "See Appendix: ../back-matter/appendix.md.",
+        1,
+        id="relative-link-is-converted-verbatim",
+    ),
     # only the full URL should convert; pure anchor stays
-    assert n == 1
-    assert "Keep: https://ok.test#frag" in out
-    assert "[Top](#top)" in out
-
-
-def test_inline_code_and_fenced_code_with_multiple_links_untouched():
-    text = (
+    pytest.param(
+        "Jump to [Top](#top) and [Keep](https://ok.test#frag).",
+        "Jump to [Top](#top) and Keep: https://ok.test#frag.",
+        1,
+        id="anchor-only-is-skipped",
+    ),
+    pytest.param(
         "Real [Link](https://r.test)\n"
         "```\n[Nope](https://no.test)\n```\n"
-        "Inline `code [NopeToo](https://no2.test)` done."
-    )
-    out, n = convert_links_in_text(text)
-    assert n == 1
-    assert "Real Link: https://r.test" in out
-    assert "[Nope](https://no.test)" in out
-    assert "[NopeToo](https://no2.test)" in out
+        "Inline `code [NopeToo](https://no2.test)` done.",
+        "Real Link: https://r.test\n"
+        "```\n[Nope](https://no.test)\n```\n"
+        "Inline `code [NopeToo](https://no2.test)` done.",
+        1,
+        id="inline-code-and-fenced-code-with-multiple-links-untouched",
+    ),
+    pytest.param(
+        '![Alt](img.png "caption") and [OK](https://ok.test)',
+        '![Alt](img.png "caption") and OK: https://ok.test',
+        1,
+        id="image-links-are-ignored-even-with-titles",
+    ),
+]
 
 
-def test_image_links_are_ignored_even_with_titles():
-    text = '![Alt](img.png "caption") and [OK](https://ok.test)'
-    out, n = convert_links_in_text(text)
-    assert n == 1
-    assert out.endswith("OK: https://ok.test")
+@pytest.mark.parametrize("text, expected, count", CONVERT_TEXT_CASES)
+def test_convert_links_in_text(text, expected, count):
+    assert convert_links_in_text(text) == (expected, count)
 
 
 def test_file_roundtrip(tmp_path: Path):

@@ -9,71 +9,94 @@ import sys
 
 from manuscripta.utils.bulk_extension import change_extension  # <- fixed import
 
+DATA = b"data"
 
-def make_files(base: Path, names):
+
+def make_files(base: Path, files: dict[str, bytes]):
     base.mkdir(parents=True, exist_ok=True)
-    for n in names:
+    for n, content in files.items():
         p = base / n
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(b"data")
+        p.write_bytes(content)
 
 
-def test_happy_path_png_to_jpg(tmp_path: Path):
-    make_files(tmp_path, ["a.png", "b.PNG", "c.jpg", "note.txt"])
-    res = change_extension(tmp_path, ".png", ".jpg", recursive=False)
-    assert res.renamed == 2
-    assert (tmp_path / "a.jpg").exists()
-    assert (tmp_path / "b.jpg").exists()
-    assert (tmp_path / "c.jpg").exists()
-    assert res.errors == 0
+def tree(base: Path) -> dict[str, bytes]:
+    return {
+        str(p.relative_to(base)): p.read_bytes() for p in base.rglob("*") if p.is_file()
+    }
 
 
-def test_case_sensitive_only_exact_match(tmp_path: Path):
-    make_files(tmp_path, ["A.png", "B.PNG", "C.PnG"])
-    res = change_extension(
-        tmp_path, ".png", ".jpg", recursive=False, case_insensitive=False
-    )
-    assert res.renamed == 1
-    assert (tmp_path / "A.jpg").exists()
-    assert (tmp_path / "B.PNG").exists()
-    assert (tmp_path / "C.PnG").exists()
+# Each row: the files with their bytes, the source and the target extension, the
+# keyword options, the RenameResult fields expected, the files afterwards with
+# their bytes
+CHANGE_EXTENSION_CASES = [
+    pytest.param(
+        {"a.png": DATA, "b.PNG": DATA, "c.jpg": DATA, "note.txt": DATA},
+        ".png",
+        ".jpg",
+        dict(recursive=False),
+        {"renamed": 2, "errors": 0},
+        {"a.jpg": DATA, "b.jpg": DATA, "c.jpg": DATA, "note.txt": DATA},
+        id="happy-path-png-to-jpg",
+    ),
+    pytest.param(
+        {"A.png": DATA, "B.PNG": DATA, "C.PnG": DATA},
+        ".png",
+        ".jpg",
+        dict(recursive=False, case_insensitive=False),
+        {"renamed": 1},
+        {"A.jpg": DATA, "B.PNG": DATA, "C.PnG": DATA},
+        id="case-sensitive-only-exact-match",
+    ),
+    pytest.param(
+        {"a.png": DATA, "sub/inner.png": DATA, "sub/deeper/leaf.PNG": DATA},
+        "png",
+        "jpg",
+        dict(recursive=True),
+        {"renamed": 3},
+        {"a.jpg": DATA, "sub/inner.jpg": DATA, "sub/deeper/leaf.jpg": DATA},
+        id="recursive-subdirs",
+    ),
+    pytest.param(
+        {"x.png": DATA, "x.jpg": DATA},
+        "png",
+        "jpg",
+        dict(overwrite=False),
+        {"renamed": 0, "skipped_conflict": 1},
+        {"x.png": DATA, "x.jpg": DATA},
+        id="conflict-skips-when-overwrite-false",
+    ),
+    pytest.param(
+        {"y.png": DATA, "y.jpg": b"old"},
+        "png",
+        "jpg",
+        dict(overwrite=True),
+        {"renamed": 1},
+        {"y.jpg": DATA},
+        id="conflict-overwrite-true",
+    ),
+    pytest.param(
+        {"d1.png": DATA, "d2.PNG": DATA},
+        "png",
+        "jpg",
+        dict(dry_run=True),
+        {"planned": 2, "renamed": 0},
+        {"d1.png": DATA, "d2.PNG": DATA},
+        id="dry-run-does-not-change-files",
+    ),
+]
 
 
-def test_recursive_subdirs(tmp_path: Path):
-    make_files(tmp_path, ["a.png", "sub/inner.png", "sub/deeper/leaf.PNG"])
-    res = change_extension(tmp_path, "png", "jpg", recursive=True)
-    assert res.renamed == 3
-    assert (tmp_path / "a.jpg").exists()
-    assert (tmp_path / "sub/inner.jpg").exists()
-    assert (tmp_path / "sub/deeper/leaf.jpg").exists()
-
-
-def test_conflict_skips_when_overwrite_false(tmp_path: Path):
-    make_files(tmp_path, ["x.png", "x.jpg"])
-    res = change_extension(tmp_path, "png", "jpg", overwrite=False)
-    assert res.renamed == 0
-    assert res.skipped_conflict == 1
-    assert (tmp_path / "x.png").exists()
-    assert (tmp_path / "x.jpg").exists()
-
-
-def test_conflict_overwrite_true(tmp_path: Path):
-    make_files(tmp_path, ["y.png", "y.jpg"])
-    (tmp_path / "y.jpg").write_bytes(b"old")
-    res = change_extension(tmp_path, "png", "jpg", overwrite=True)
-    assert res.renamed == 1
-    assert not (tmp_path / "y.png").exists()
-    assert (tmp_path / "y.jpg").exists()
-
-
-def test_dry_run_does_not_change_files(tmp_path: Path):
-    make_files(tmp_path, ["d1.png", "d2.PNG"])
-    res = change_extension(tmp_path, "png", "jpg", dry_run=True)
-    assert res.planned == 2
-    assert res.renamed == 0
-    assert (tmp_path / "d1.png").exists()
-    assert (tmp_path / "d2.PNG").exists()
-    assert not (tmp_path / "d1.jpg").exists()
+@pytest.mark.parametrize(
+    "files, source_ext, dest_ext, options, fields, files_after", CHANGE_EXTENSION_CASES
+)
+def test_change_extension(
+    files, source_ext, dest_ext, options, fields, files_after, tmp_path: Path
+):
+    make_files(tmp_path, files)
+    res = change_extension(tmp_path, source_ext, dest_ext, **options)
+    assert {name: getattr(res, name) for name in fields} == fields
+    assert tree(tmp_path) == files_after
 
 
 def test_directory_does_not_exist_is_error(tmp_path: Path):
