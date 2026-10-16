@@ -197,11 +197,13 @@ def run_main():
 
 CHAPTER = '<img src="{rel}" alt="a">\n<img alt="b" src="{abs}">\n'
 
-# Each row: the direction flags, the exit code (None: main returns), the line
-# printed, the chapter afterwards ({rel}/{abs}: the image's relative and
-# absolute path)
+# Each row: how the project is named ("--base-dir": passed explicitly; "cwd":
+# the working directory, no --base-dir), the direction flags, the exit code
+# (None: main returns), the line printed, the chapter afterwards ({rel}/{abs}:
+# the image's relative and absolute path)
 MAIN_RUNS = [
     pytest.param(
+        "--base-dir",
         ["--to-absolute"],
         None,
         "✅ Converted 1 <img> tag(s) to absolute across 1 file(s).",
@@ -209,6 +211,7 @@ MAIN_RUNS = [
         id="to-absolute",
     ),
     pytest.param(
+        "--base-dir",
         ["--to-relative"],
         None,
         "🔄 Reverted 1 <img> tag(s) to relative across 1 file(s).",
@@ -216,6 +219,15 @@ MAIN_RUNS = [
         id="to-relative",
     ),
     pytest.param(
+        "cwd",
+        ["--to-absolute"],
+        None,
+        "✅ Converted 1 <img> tag(s) to absolute across 1 file(s).",
+        '<img src="{abs}" alt="a">\n<img src="{abs}" alt="b">\n',
+        id="base-dir-defaults-to-the-working-directory",
+    ),
+    pytest.param(
+        "--base-dir",
         [],
         2,
         "❌ Please specify exactly one of --to-absolute or --to-relative.",
@@ -223,6 +235,7 @@ MAIN_RUNS = [
         id="neither-direction",
     ),
     pytest.param(
+        "--base-dir",
         ["--to-absolute", "--to-relative"],
         2,
         "❌ Please specify exactly one of --to-absolute or --to-relative.",
@@ -232,12 +245,16 @@ MAIN_RUNS = [
 ]
 
 
-@pytest.mark.parametrize("flags, code, line, after", MAIN_RUNS)
-def test_main(flags, code, line, after, tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("project, flags, code, line, after", MAIN_RUNS)
+def test_main(project, flags, code, line, after, tmp_path, monkeypatch, capsys):
     md, img = layout(tmp_path)
     names = dict(rel=os.path.relpath(img, start=md.parent), abs=img)
     write(md, CHAPTER.format(**names))
-    argv = ["convert-img-tags", "--base-dir", str(tmp_path), *flags]
+    if project == "cwd":
+        monkeypatch.chdir(tmp_path)
+        argv = ["convert-img-tags", *flags]
+    else:
+        argv = ["convert-img-tags", "--base-dir", str(tmp_path), *flags]
     monkeypatch.setattr(sys, "argv", argv)
     assert run_main() == code
     assert capsys.readouterr().out == line + "\n"

@@ -46,6 +46,27 @@ def test_load_yaml(text, loaded, tmp_path):
     assert load_yaml(path) == loaded
 
 
+# Each row: the text of a YAML file whose top-level node is no mapping, the
+# type name load_yaml's ValueError reports
+NON_MAPPING_DOCUMENTS = [
+    pytest.param("- a\n- b\n", "list", id="sequence"),
+    pytest.param("[]\n", "list", id="empty-sequence"),
+    pytest.param("just text\n", "str", id="scalar-string"),
+    pytest.param("42\n", "int", id="scalar-number"),
+]
+
+
+@pytest.mark.parametrize("text, kind", NON_MAPPING_DOCUMENTS)
+def test_load_yaml_rejects_a_non_mapping_document(text, kind, tmp_path):
+    path = tmp_path / "settings.yaml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError) as exc:
+        load_yaml(path)
+    assert str(exc.value) == (
+        f"{path}: the top-level YAML node must be a mapping, not {kind}"
+    )
+
+
 def test_load_yaml_is_safe_and_rejects_python_tags(tmp_path):
     path = tmp_path / "settings.yaml"
     path.write_text("cmd: !!python/object/apply:os.system ['true']\n", encoding="utf-8")

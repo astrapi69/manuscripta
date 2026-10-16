@@ -11,7 +11,8 @@ treatment of trampoline-induced equivalence"):
 
     denom         = total − equivalent
     survived_live = |survived_from_mutmut \\ equivalent_yaml|
-    killed        = total − survived_live − timeout − suspicious − equivalent
+    killed        = total − survived_live − timeout − suspicious
+                    − not_checked − equivalent
     score         = killed / denom
 
 Equivalent mutants appear in mutmut's ``survived`` output because mutmut
@@ -25,11 +26,19 @@ mutmut is counted against the score twice and the module FAILs even
 when its response work is correct. See the regression test in
 ``tests/unit/test_check_mutation_thresholds.py``.
 
-In mutmut 3.x, ``mutmut results`` lists the mutants that did NOT die
-(``survived`` and ``timeout`` only). Killed mutants are those mentioned
-nowhere in the results output. Total mutants per file are counted by
-inspecting the mutmut-mirrored source under ``mutants/src/`` for
-``def …__mutmut_<N>(…)`` definitions.
+In mutmut 3.x, ``mutmut results`` lists every mutant that did NOT die:
+``survived``, ``timeout``, ``suspicious`` and the ones never checked by a
+test (``not checked``, ``no tests``, ``skipped``, ``check was interrupted
+by user`` — statuses are printed with spaces). Killed mutants are those
+mentioned nowhere in the results output. Total mutants per file are
+counted by inspecting the mutmut-mirrored source under ``mutants/src/``
+for ``def …__mutmut_<N>(…)`` definitions.
+
+A mutant never checked by a test is not a kill. A filtered ``mutmut run
+'manuscripta.foo.*'`` (or an interrupted one) resets every other in-scope
+module to ``not checked``; the script counts those into their own bucket,
+shows them in the table and fails, naming the modules and counts, so a
+stale state can never report as fully killed.
 
 Equivalent mutants must be marked with a sibling YAML file at
 ``.mutmut/equivalent.yaml`` (one entry per mutant id) — manual
@@ -45,8 +54,9 @@ future policy change to touch both. See ADR-0002 §"Alternatives
 considered".
 
 Exit codes:
-    0   all modules at or above threshold
-    1   one or more modules below threshold (build-failing)
+    0   all modules at or above threshold, every in-scope mutant checked
+    1   one or more modules below threshold, or in-scope mutants never
+        checked by a test (build-failing)
     2   configuration or input error (no mutation results, malformed
         pyproject section, missing mutants/ dir, etc.)
 """
@@ -71,23 +81,21 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 MUTANTS_DIR = REPO_ROOT / "mutants"
 EQUIVALENT_FILE = REPO_ROOT / ".mutmut" / "equivalent.yaml"
 
-# Mutmut emits one of: survived | timeout | killed | no_tests | skipped | segfault.
-# `mutmut results` (no flags) prints survived + timeout + suspicious — i.e. the
-# ones that DIDN'T die. Anything not in the results output but present in the
-# mutated source is killed.
+# `mutmut results` (no flags) prints every mutant that DIDN'T die, one
+# `    <name>: <status>` line each. Statuses carry spaces ("not checked",
+# "no tests", "check was interrupted by user"); parse_results() lower-cases
+# them and turns the spaces into underscores. Anything not in the results
+# output but present in the mutated source is killed.
 NON_DEAD_STATUSES = {"survived", "timeout", "suspicious"}
-# Statuses that indicate the mutmut state store is stale or a run was
-# interrupted before checking the mutant. A results listing dominated by
-# these means "killed = absent from results" would misread unrun mutants
-# as kills — the stale-state guard below fails fast instead.
-STALE_STATUSES = {
+# Statuses meaning no test ever ran against the mutant: the state store is
+# stale (a filtered or interrupted run) or the mutant was skipped. They are
+# neither killed nor survived; main() fails when any in-scope mutant has
+# one.
+UNCHECKED_STATUSES = {
     "not_checked",
-    "unstarted",
-    "unrun",
+    "check_was_interrupted_by_user",
     "no_tests",
     "skipped",
-    "queued",
-    "untested",
 }
 
 MUTANT_DEF_RE = re.compile(
@@ -97,7 +105,8 @@ MUTANT_DEF_RE = re.compile(
     re.MULTILINE,
 )
 MUTANT_NAME_PATTERN = re.compile(
-    r"^\s*(?P<name>[\w.\u01c0-\u01cf]+__mutmut_\d+)\s*:\s*(?P<status>\w+)\s*$"
+    r"^\s*(?P<name>[\w.\u01c0-\u01cf]+__mutmut_\d+)\s*:\s*"
+    r"(?P<status>\w+(?: \w+)*)\s*$"
 )
 
 
@@ -148,21 +157,44 @@ def count_total_mutants() -> dict[str, int]:
     return counts
 
 
-def collect_results() -> (
-    tuple[dict[str, dict[str, set[str]]], list[str], dict[str, dict[str, set[str]]]]
-):
-    """Run ``mutmut results`` and group non-dead mutant **names** per file
-    and status.
+PerFileStatuses = dict[str, dict[str, set[str]]]
 
-    Returns (per_file_names, raw_lines, per_file_all_statuses) where
-    per_file_names maps ``src/manuscripta/foo.py -> {"survived":
-    {"…__mutmut_3", …}, "timeout": {"…__mutmut_7"}}``. Names (not just
-    counts) are required so the caller can compute the overlap with
-    ``.mutmut/equivalent.yaml`` and route annotated equivalents out of
-    the ``survived`` bucket — see the module docstring's "score formula"
-    block. ``per_file_all_statuses`` has the same shape but keeps every
-    status (lower-cased), feeding the stale-state guard in ``main()``.
+
+def parse_results(raw: list[str]) -> tuple[PerFileStatuses, PerFileStatuses]:
+    """Group the mutant **names** of ``mutmut results`` output per file and
+    status — exposed for ``tests/unit/test_check_mutation_thresholds.py``.
+
+    Returns (per_file_names, per_file_all_statuses) where per_file_names
+    maps ``src/manuscripta/foo.py -> {"survived": {"…__mutmut_3", …},
+    "timeout": {"…__mutmut_7"}}`` for the NON_DEAD_STATUSES only. Names
+    (not just counts) are required so the caller can compute the overlap
+    with ``.mutmut/equivalent.yaml`` and route annotated equivalents out
+    of the ``survived`` bucket — see the module docstring's "score
+    formula" block. ``per_file_all_statuses`` has the same shape but
+    keeps every status, lower-cased with underscores for spaces
+    (``not_checked``), feeding the unchecked bucket in ``main()``.
     """
+    per_file: PerFileStatuses = defaultdict(lambda: defaultdict(set))
+    per_file_all: PerFileStatuses = defaultdict(lambda: defaultdict(set))
+    for line in raw:
+        m = MUTANT_NAME_PATTERN.match(line)
+        if not m:
+            continue
+        name = m.group("name")
+        status = m.group("status").lower().replace(" ", "_")
+        file_path = mutant_name_to_file(name)
+        if file_path is None:
+            continue
+        per_file_all[file_path][status].add(name)
+        if status not in NON_DEAD_STATUSES:
+            continue
+        per_file[file_path][status].add(name)
+    return per_file, per_file_all
+
+
+def collect_results() -> tuple[PerFileStatuses, list[str], PerFileStatuses]:
+    """Run ``mutmut results`` and return ``parse_results()`` of its output
+    as (per_file_names, raw_lines, per_file_all_statuses)."""
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "mutmut", "results"],
@@ -174,22 +206,17 @@ def collect_results() -> (
     except subprocess.CalledProcessError as e:
         fail(f"`mutmut results` failed (rc={e.returncode}).\n" f"stderr:\n{e.stderr}")
     raw = proc.stdout.splitlines()
-    per_file: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
-    per_file_all: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
-    for line in raw:
-        m = MUTANT_NAME_PATTERN.match(line)
-        if not m:
-            continue
-        name = m.group("name")
-        status = m.group("status").lower()
-        file_path = mutant_name_to_file(name)
-        if file_path is None:
-            continue
-        per_file_all[file_path][status].add(name)
-        if status not in NON_DEAD_STATUSES:
-            continue
-        per_file[file_path][status].add(name)
+    per_file, per_file_all = parse_results(raw)
     return per_file, raw, per_file_all
+
+
+def unchecked_names(statuses: dict[str, set[str]]) -> set[str]:
+    """The mutant names of ``statuses`` (one file's entry of
+    ``per_file_all_statuses``) that no test ever ran against."""
+    names: set[str] = set()
+    for status in UNCHECKED_STATUSES:
+        names |= statuses.get(status, set())
+    return names
 
 
 def compute_module_score(
@@ -198,50 +225,48 @@ def compute_module_score(
     survived_names: set[str],
     timeout_names: set[str],
     suspicious_names: set[str],
+    not_checked_names: set[str],
     equivalent_names: set[str],
-) -> dict[str, "int | float | set[str]"]:
+) -> dict[str, "int | float | None | set[str]"]:
     """Pure scoring function — exposed for ``tests/unit/
     test_check_mutation_thresholds.py``.
 
-    Implements the formula in the module docstring. Returns a dict with
-    the per-module counts that ``main()`` prints, plus the orphan-
-    annotation set (equivalent ids in the YAML that do not appear in any
-    non-dead status — usually a stale annotation left over from a
-    refactor that removed the mutant).
+    Implements the formula in the module docstring. A mutant in
+    ``not_checked_names`` was never run against a test, so it is not a
+    kill; one annotated equivalent counts as equivalent only, like a
+    survived one. Returns a dict with the per-module counts that
+    ``main()`` prints, plus the orphan-annotation set (equivalent ids in
+    the YAML that do not appear in any non-dead status — usually a stale
+    annotation left over from a refactor that removed the mutant).
     """
     survived_live = survived_names - equivalent_names
     timeout_live = timeout_names - equivalent_names
     suspicious_live = suspicious_names - equivalent_names
-    orphans = equivalent_names - (survived_names | timeout_names | suspicious_names)
+    not_checked_live = not_checked_names - equivalent_names
+    orphans = equivalent_names - (
+        survived_names | timeout_names | suspicious_names | not_checked_names
+    )
     eq_count = len(equivalent_names)
     denom = total - eq_count
-    if denom <= 0:
-        score: int | float | None = None
-    else:
+    killed = 0
+    score: int | float | None = None
+    if denom > 0:
         killed = (
             total
             - len(survived_live)
             - len(timeout_live)
             - len(suspicious_live)
+            - len(not_checked_live)
             - eq_count
         )
         score = round(100.0 * killed / denom, 1)
     return {
         "total": total,
-        "killed": (
-            (
-                total
-                - len(survived_live)
-                - len(timeout_live)
-                - len(suspicious_live)
-                - eq_count
-            )
-            if denom > 0
-            else 0
-        ),
+        "killed": killed,
         "survived": len(survived_live),
         "timeout": len(timeout_live),
         "suspicious": len(suspicious_live),
+        "not_checked": len(not_checked_live),
         "equivalent": eq_count,
         "denom": denom,
         "score": score,
@@ -289,66 +314,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Enforce per-module mutation-score thresholds",
     )
-    parser.add_argument(
-        "--allow-stale-state",
-        action="store_true",
-        help=(
-            "Allow >50% not_checked/untested mutation state and continue "
-            "(prints warning, exits 0). Without this flag, the script fails "
-            "fast when the mutmut state appears stale or incomplete."
-        ),
-    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+    parse_args(argv)
     default_threshold, per_file_thresholds = load_thresholds()
     in_scope = in_scope_files()
     totals = count_total_mutants()
     non_dead, _raw, all_statuses = collect_results()
     equivalents = load_equivalents()
 
-    stale_paths: list[tuple[str, int, int]] = []
-    for path in in_scope:
-        total = totals.get(path, 0)
-        if total <= 0:
-            continue
-        statuses = all_statuses.get(path, {})
-        stale_count = sum(len(statuses.get(s, set())) for s in STALE_STATUSES)
-        if stale_count == 0:
-            continue
-        ratio = stale_count / total
-        if ratio > 0.5:
-            stale_paths.append((path, stale_count, total))
-
-    if stale_paths:
-        print(
-            "⚠  Mutation state appears stale or incomplete (>50% not_checked/untested):"
-        )
-        for path, stale_count, total in stale_paths:
-            pct = round(100.0 * stale_count / total, 1)
-            print(f"  {path}: not_checked={stale_count}/{total} ({pct}%)")
-        print()
-        if args.allow_stale_state:
-            print(
-                "Proceeding due to --allow-stale-state (stale-state guard warning only).\n"
-            )
-        else:
-            print(
-                "Failing fast — rerun mutmut with a complete state or use --allow-stale-state to override."
-            )
-            return 2
-
     print("# Mutation threshold check")
     print()
     print(
-        f"{'Module':<55} {'killed':>7} {'surv':>5} {'tout':>5} "
+        f"{'Module':<55} {'killed':>7} {'surv':>5} {'tout':>5} {'unchk':>5} "
         f"{'eq':>4} {'total':>6} {'score':>6} {'thr':>5} {'verdict'}"
     )
-    print("-" * 110)
+    print("-" * 116)
 
     failures: list[str] = []
+    unchecked: list[tuple[str, int, int]] = []
     orphans_anywhere: list[tuple[str, str]] = []
     for path in in_scope:
         threshold = per_file_thresholds.get(path, default_threshold)
@@ -359,6 +345,7 @@ def main(argv: list[str] | None = None) -> int:
             survived_names=set(non_dead_for_path.get("survived", set())),
             timeout_names=set(non_dead_for_path.get("timeout", set())),
             suspicious_names=set(non_dead_for_path.get("suspicious", set())),
+            not_checked_names=unchecked_names(all_statuses.get(path, {})),
             equivalent_names=set(equivalents.get(path, set())),
         )
         for orph in sorted(result["orphan_equivalents"]):  # type: ignore[arg-type]
@@ -367,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
         eq = result["equivalent"]
         if result["score"] is None:
             print(
-                f"{path:<55} {'-':>7} {'-':>5} {'-':>5} {eq:>4} {total:>6} "
+                f"{path:<55} {'-':>7} {'-':>5} {'-':>5} {'-':>5} {eq:>4} {total:>6} "
                 f"{'n/a':>6} {threshold:>5} ?  no mutants"
             )
             continue
@@ -375,9 +362,14 @@ def main(argv: list[str] | None = None) -> int:
         killed = result["killed"]
         survived = result["survived"]
         timeout = result["timeout"]
+        not_checked = result["not_checked"]
         score = result["score"]
         assert isinstance(score, (int, float))
-        if score >= threshold:
+        assert isinstance(not_checked, int)
+        if not_checked > 0:
+            verdict = "UNCHECKED"
+            unchecked.append((path, not_checked, total))
+        elif score >= threshold:
             verdict = "OK"
         else:
             verdict = "FAIL"
@@ -387,8 +379,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"equivalent={eq}, total={total})"
             )
         print(
-            f"{path:<55} {killed:>7} {survived:>5} {timeout:>5} {eq:>4} "
-            f"{total:>6} {score:>5}% {threshold:>4}% {verdict}"
+            f"{path:<55} {killed:>7} {survived:>5} {timeout:>5} {not_checked:>5} "
+            f"{eq:>4} {total:>6} {score:>5}% {threshold:>4}% {verdict}"
         )
 
     print()
@@ -404,6 +396,18 @@ def main(argv: list[str] | None = None) -> int:
             "the mutant. Clean up the YAML or re-run mutmut."
         )
         print()
+    if unchecked:
+        print(
+            "FAIL — in-scope mutants were never checked by a test (status "
+            '"not checked", "no tests", "skipped" or interrupted); a '
+            "filtered or interrupted `mutmut run` leaves every other in-scope "
+            "module unchecked:"
+        )
+        for path, count, total in unchecked:
+            print(f"  {path}: {count} of {total} mutants not checked")
+        print()
+        print("Run `make mutation` (a full `mutmut run`) before the threshold check.")
+        return 1
     if failures:
         print("FAIL — the following modules are below their mutation threshold:")
         for f in failures:

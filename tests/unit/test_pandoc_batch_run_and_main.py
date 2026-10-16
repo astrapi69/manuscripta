@@ -416,6 +416,12 @@ PARSE_ARGS_CASES = [
         resolved(to="html"),
         id="flags-switch-on-what-the-table-switched-off",
     ),
+    pytest.param(
+        {"to": "html", "resource_path": ["img", "css"]},
+        ["--resource-path", "a", "--resource-path", "b"],
+        resolved(to="html", resource_path=["a", "b"]),
+        id="cli-resource-paths-replace-the-table-list",
+    ),
 ]
 
 

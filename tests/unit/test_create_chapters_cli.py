@@ -30,6 +30,10 @@ NO_PLACEHOLDER = (
     "Error: `--name-pattern` must include a '{num}' placeholder "
     "(e.g. '{num:02d}-chapter.md')."
 )
+FOREIGN_FIELD = (
+    "Error: `--name-pattern` '{number}.md' cannot be formatted with num=1 "
+    "(KeyError: 'number'); use a '{num}' placeholder (e.g. '{num:02d}-chapter.md')."
+)
 
 
 def chapters_of(root: Path) -> Path:
@@ -94,11 +98,67 @@ def test_pattern_to_regex(pattern, matches, rejects):
     assert [name for name in rejects if rx.match(name)] == []
 
 
-def test_pattern_with_an_incomplete_placeholder_fails_at_detection(tmp_path):
-    # "{number}" passes the "{num" check but is no placeholder; without a
-    # start the detection of the next number is where it is rejected.
+# Each row: a name pattern without the '{num}' or '{num:...}' token, which the
+# conversion rejects (a '{num!r}' conversion formats but is no token)
+PATTERNS_WITHOUT_TOKEN = [
+    pytest.param("chapter.md", id="no-placeholder"),
+    pytest.param("{num!r}.md", id="conversion-is-not-the-token"),
+]
+
+
+@pytest.mark.parametrize("pattern", PATTERNS_WITHOUT_TOKEN)
+def test_pattern_to_regex_requires_the_token(pattern):
     with pytest.raises(ValueError, match="must contain a '{num}' placeholder"):
-        create_chapter_files(tmp_path, total=1, start=None, name_pattern="{number}.md")
+        _pattern_to_regex(pattern)
+
+
+# ---------------------------------------------------------------------------
+# _ensure_valid_pattern (through create_chapter_files)
+# ---------------------------------------------------------------------------
+# Each row: a name pattern create_chapter_files rejects up front (with or
+# without a start, nothing is created), the error text
+REJECTED_PATTERNS = [
+    pytest.param(
+        "chapter.md",
+        "`--name-pattern` must include a '{num}' placeholder",
+        id="no-placeholder",
+    ),
+    pytest.param(
+        "{{num}}.md",
+        "`--name-pattern` must include a '{num}' placeholder",
+        id="escaped-braces-are-no-placeholder",
+    ),
+    pytest.param(
+        "{number}.md",
+        "`--name-pattern` '{number}.md' cannot be formatted with num=1 "
+        "(KeyError: 'number')",
+        id="foreign-field",
+    ),
+    pytest.param(
+        "{}.md",
+        "`--name-pattern` '{}.md' cannot be formatted with num=1 (IndexError:",
+        id="positional-field",
+    ),
+    pytest.param(
+        "{num:zz}.md",
+        "`--name-pattern` '{num:zz}.md' cannot be formatted with num=1 (ValueError:",
+        id="bad-format-spec",
+    ),
+    pytest.param(
+        "{num}-{.md",
+        "`--name-pattern` '{num}-{.md' cannot be formatted with num=1 (ValueError:",
+        id="unbalanced-brace",
+    ),
+]
+
+
+@pytest.mark.parametrize("pattern, text", REJECTED_PATTERNS)
+@pytest.mark.parametrize("start", [1, None], ids=["with-start", "without-start"])
+def test_rejected_patterns(pattern, text, start, tmp_path):
+    with pytest.raises(ValueError) as exc:
+        create_chapter_files(tmp_path, total=1, start=start, name_pattern=pattern)
+    assert str(exc.value).startswith(text)
+    assert names_in(chapters_of(tmp_path)) is None
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +300,13 @@ MAIN_RUNS = [
         None,
         [NO_PLACEHOLDER],
         id="pattern-without-placeholder-exits-2",
+    ),
+    pytest.param(
+        ["--total", "1", "--start", "1", "--name-pattern", "{number}.md"],
+        2,
+        None,
+        [FOREIGN_FIELD],
+        id="pattern-with-a-foreign-field-exits-2",
     ),
 ]
 

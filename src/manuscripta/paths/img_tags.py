@@ -175,8 +175,8 @@ def main() -> None:
     parser.add_argument(
         "--base-dir",
         type=str,
-        default=str(Path(__file__).resolve().parent.parent),
-        help="Project root (defaults to repository root).",
+        default=str(Path.cwd()),
+        help="Project root (defaults to the current working directory).",
     )
     args = parser.parse_args()
 

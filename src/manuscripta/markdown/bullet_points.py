@@ -5,6 +5,10 @@ import sys
 from pathlib import Path
 from typing import Union
 
+# A thematic break per CommonMark: three or more of the same character
+# (-, * or _) with optional spaces between, nothing else on the line.
+THEMATIC_BREAK_RE = re.compile(r"^[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+
 
 def convert_bullets_in_text(text: str, add_hard_break: bool = True) -> str:
     """
@@ -36,6 +40,12 @@ def convert_bullets_in_text(text: str, add_hard_break: bool = True) -> str:
             continue
 
         indent = len(line) - len(stripped)
+
+        # A thematic break (***, * * *, ---, ___) is no bullet and ends the list
+        if THEMATIC_BREAK_RE.match(line):
+            new_lines.append(line)
+            in_list = False
+            continue
 
         # 1) New bullet line
         m = bullet_pattern.match(line)
@@ -72,10 +82,11 @@ def process_file(path: Path, add_hard_break: bool = True) -> None:
     print(f"[OK] {path}")
 
 
-def process_path(target: Union[str, Path], add_hard_break: bool = True) -> None:
+def process_path(target: Union[str, Path], add_hard_break: bool = True) -> bool:
     """
     If target is a file -> process only this file.
     If target is a directory -> recursively process all .md files.
+    Returns whether the target was found.
     """
     p = Path(target)
 
@@ -86,6 +97,8 @@ def process_path(target: Union[str, Path], add_hard_break: bool = True) -> None:
             process_file(md_file, add_hard_break=add_hard_break)
     else:
         print(f"[ERROR] Path not found: {p}", file=sys.stderr)
+        return False
+    return True
 
 
 def main():
@@ -96,7 +109,8 @@ def main():
     target = sys.argv[1]
 
     # Hard breaks are enabled by default
-    process_path(target, add_hard_break=True)
+    if not process_path(target, add_hard_break=True):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

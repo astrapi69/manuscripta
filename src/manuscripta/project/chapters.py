@@ -11,16 +11,25 @@ LOG = logging.getLogger("create_chapters")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 DEFAULT_PATTERN = "{num:02d}-chapter.md"
+PLACEHOLDER_HINT = "a '{num}' placeholder (e.g. '{num:02d}-chapter.md')"
 
 
 def _ensure_valid_pattern(pattern: str) -> None:
     """
-    Validate that the pattern contains a '{num' placeholder.
+    Validate that the pattern formats with the '{num}' placeholder and nothing
+    else: str.format must succeed, and the number must change the name.
     """
-    if "{num" not in pattern:
+    try:
+        first, second = pattern.format(num=1), pattern.format(num=2)
+    except (KeyError, IndexError, ValueError, AttributeError, TypeError) as exc:
+        # An unknown field ({number}), a positional field ({}), a bad format
+        # spec ({num:zz}), an unbalanced brace, an attribute or index on num.
         raise ValueError(
-            "`--name-pattern` must include a '{num}' placeholder (e.g. '{num:02d}-chapter.md')."
-        )
+            f"`--name-pattern` {pattern!r} cannot be formatted with num=1 "
+            f"({type(exc).__name__}: {exc}); use {PLACEHOLDER_HINT}."
+        ) from exc
+    if first == second:
+        raise ValueError(f"`--name-pattern` must include {PLACEHOLDER_HINT}.")
 
 
 def _pattern_to_regex(pattern: str) -> re.Pattern[str]:
@@ -69,10 +78,7 @@ def _detect_next_start(chapter_dir: Path, name_pattern: str) -> int:
             continue
         m = rx.match(p.name)
         if m:
-            try:
-                existing_nums.append(int(m.group("num")))
-            except (KeyError, ValueError):
-                continue
+            existing_nums.append(int(m.group("num")))
     return (max(existing_nums) + 1) if existing_nums else 1
 
 

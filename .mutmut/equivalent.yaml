@@ -457,17 +457,22 @@ src/manuscripta/markdown/normalize_toc.py:manuscripta.markdown.normalize_toc.x_m
 # ---------------------------------------------------------------------------
 # src/manuscripta/paths/img_tags.py — 21 equivalents across 6 paths
 #   §14.8.1 (help/description wording): 12 mutants — main 3, 4, 5, 16, 17,
-#                                       18, 29, 30, 31, 44, 45, 46
+#                                       18, 29, 30, 31, 43, 44, 45
 #   §14.8.3 (trampoline)              : 1 mutant  — convert_markdown_tree 1
 #   ad-hoc (codec-alias)              : 2 mutants — _convert_src_for_file 4,
 #                                       convert_markdown_tree 56
 #   ad-hoc (dead `or` arm)            : 1 mutant  — _convert_src_for_file 11
 #   ad-hoc (argparse identity type)   : 2 mutants — main 33, 37
-#   ad-hoc (None re-derived to same)  : 3 mutants — main 50, 66, 69
+#   ad-hoc (None re-derived to same)  : 3 mutants — main 49, 65, 68
 # Triage: branch test/coverage-80 (tests/unit/test_convert_img_tags.py
 # carries the A-side: help PRESENCE, the three default directories, relative
 # md_directories, the UTF-8 contract under LC_ALL=C, the per-file and
 # per-tree counters and the tag rebuilt without attributes).
+# Renumbered 2026-10-16 (#28): the --base-dir default became
+# `str(Path.cwd())`, one mutant fewer than the old expression, so every
+# main mutant after it moved down by one; the former C-category trio on
+# that default (34, 38, 42) is killed by the row
+# base-dir-defaults-to-the-working-directory.
 # ---------------------------------------------------------------------------
 
 # --- §14.8.1 — CLI help-text wording is incidental ---
@@ -483,10 +488,10 @@ src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_18
 src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_29
 src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_30
 src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_31
-# main mutants 44/45/46: --base-dir help wording XX-wrap / lower / upper.
+# main mutants 43/44/45: --base-dir help wording XX-wrap / lower / upper.
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_43
 src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_44
 src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_45
-src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_46
 
 # --- §14.8.3 — trampoline-induced equivalence ---
 # One free-function target (convert_markdown_tree) with one literal default
@@ -539,22 +544,12 @@ src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_37
 # `base_dir / "assets"` — the identical path. Every mutant below makes
 # main pass None (or nothing) and lets the callee re-derive it.
 #
-# main mutant 50: `assets = base / "assets"` -> `assets = None`
-src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_50
-# main mutant 66: convert_markdown_tree(..., assets_dir=assets) -> assets_dir=None
-src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_66
-# main mutant 69: the assets_dir kwarg dropped (signature default: None)
-src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_69
-
-# (C-category, NOT annotated: main mutants 34, 38 and 42 — the --base-dir
-#  default `str(Path(__file__).resolve().parent.parent)` set to None,
-#  dropped, or `str(None)`. The help text promises "defaults to repository
-#  root", but since the module moved from scripts/ into the package the
-#  expression resolves to src/manuscripta/, the package directory. A test
-#  can only kill these by pinning that directory as the default, which §14.5
-#  C forbids ("do NOT pin current behaviour as correct"), or by running the
-#  converter outside tmp_path. Spec gap; they remain counted survivors by
-#  design until the default is decided.)
+# main mutant 49: `assets = base / "assets"` -> `assets = None`
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_49
+# main mutant 65: convert_markdown_tree(..., assets_dir=assets) -> assets_dir=None
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_65
+# main mutant 68: the assets_dir kwarg dropped (signature default: None)
+src/manuscripta/paths/img_tags.py:manuscripta.paths.img_tags.x_main__mutmut_68
 
 # ---------------------------------------------------------------------------
 # src/manuscripta/utils/bulk_extension.py — 34 equivalents across 5 paths
@@ -897,19 +892,19 @@ src/manuscripta/project/metadata.py:manuscripta.project.metadata.x_main__mutmut_
 src/manuscripta/project/metadata.py:manuscripta.project.metadata.x_main__mutmut_156
 
 # ---------------------------------------------------------------------------
-# src/manuscripta/utils/pandoc_batch.py — 68 equivalents across 7 clusters
+# src/manuscripta/utils/pandoc_batch.py — 69 equivalents across 7 clusters
 #   §14.8.1 (description/help wording)      : 54 mutants — parse_args 4, 5, 6
 #       and the XX-wrap / lower / upper triple on every help= literal:
-#       26-28, 48-50, 65-67, 88-90, 104-106, 125-127, 139-141, 161-163,
-#       195-197, 216-218, 238-240, 249-251, 262-264, 278-280, 295-297,
-#       308-310, 321-323
-#   §14.8.1 (usage-error wording)            : 1 mutant  — parse_args 341
+#       26-28, 48-50, 65-67, 88-90, 104-106, 118-120, 132-134, 154-156,
+#       188-190, 209-211, 231-233, 242-244, 255-257, 271-273, 288-290,
+#       301-303, 314-316
+#   §14.8.1 (usage-error wording)            : 1 mutant  — parse_args 343
 #   ad-hoc (same code point, other spelling) : 1 mutant  — patch_markdown_text 3
 #   ad-hoc (converges on the empty table)    : 3 mutants — load_defaults 2, 9, 11
 #   ad-hoc (codec registry normalizes names) : 3 mutants — _create_temp_with 16,
 #       run_one 15, 27
-#   ad-hoc (documented keyword defaults)     : 3 mutants — _create_temp_with 4,
-#       run_one 11, 13
+#   ad-hoc (documented keyword defaults)     : 4 mutants — parse_args 112,
+#       _create_temp_with 4, run_one 11, 13
 #   ad-hoc (best-effort cleanup swallows it) : 2 mutants — run_one 50, 51
 #   ad-hoc (coinciding conditions)           : 1 mutant  — run_one 46
 # Triage: tests/unit/test_pandoc_batch_run_and_main.py carries the A-side
@@ -924,11 +919,15 @@ src/manuscripta/project/metadata.py:manuscripta.project.metadata.x_main__mutmut_
 # count), tests/unit/test_pandoc_batch_cmd_and_paths.py RESOURCE_PATH_CASES
 # the platform separator and the full command, and
 # tests/unit/test_pandoc_batch_patch_markdown_text.py the lone CR.
+# Renumbered 2026-10-16 (#31): --resource-path's default became a plain
+# None (seven mutants fewer) and the configured list is applied after
+# parsing (nine mutants more), so the parse_args mutants from --resource-path
+# on moved down by seven and those after the new block up by two.
 #
 # C — specification gaps (9 survivors, NOT entries; counted against the
 # score). Per TESTING.md §14.5 they belong in the audit's "Specification
 # gaps surfaced by mutation testing" list:
-#   parse_args 215: `os.cpu_count() or 4` -> `or 5` — the job count when the
+#   parse_args 208: `os.cpu_count() or 4` -> `or 5` — the job count when the
 #       CPU count is unknown is unspecified (help says "Parallel jobs." only);
 #       pinning 4 would be a literal hash check.
 #   run_one 57, 62: stdout tail [-1000:] -> [-1001:], stderr tail [-2000:]
@@ -967,61 +966,61 @@ src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_arg
 src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_104
 src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_105
 src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_106
-# parse_args mutants 125/126/127: --resource-path help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_125
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_126
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_127
-# parse_args mutants 139/140/141: --lang help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_139
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_140
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_141
-# parse_args mutants 161/162/163: --standalone help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_161
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_162
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_163
-# parse_args mutants 195/196/197: --verbose help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_195
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_196
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_197
-# parse_args mutants 216/217/218: --jobs help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_216
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_217
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_218
-# parse_args mutants 238/239/240: --test-only help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_238
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_239
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_240
-# parse_args mutants 249/250/251: --extra help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_249
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_250
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_251
-# parse_args mutants 262/263/264: --print-config help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_262
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_263
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_264
-# parse_args mutants 278/279/280: --patch-md help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_278
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_279
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_280
-# parse_args mutants 295/296/297: --no-patch-md help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_295
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_296
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_297
-# parse_args mutants 308/309/310: --fix-inplace help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_308
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_309
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_310
-# parse_args mutants 321/322/323: --report-patches help wording XX-wrap / lower / upper.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_321
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_322
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_323
+# parse_args mutants 118/119/120: --resource-path help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_118
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_119
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_120
+# parse_args mutants 132/133/134: --lang help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_132
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_133
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_134
+# parse_args mutants 154/155/156: --standalone help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_154
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_155
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_156
+# parse_args mutants 188/189/190: --verbose help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_188
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_189
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_190
+# parse_args mutants 209/210/211: --jobs help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_209
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_210
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_211
+# parse_args mutants 231/232/233: --test-only help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_231
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_232
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_233
+# parse_args mutants 242/243/244: --extra help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_242
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_243
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_244
+# parse_args mutants 255/256/257: --print-config help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_255
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_256
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_257
+# parse_args mutants 271/272/273: --patch-md help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_271
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_272
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_273
+# parse_args mutants 288/289/290: --no-patch-md help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_288
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_289
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_290
+# parse_args mutants 301/302/303: --fix-inplace help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_301
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_302
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_303
+# parse_args mutants 314/315/316: --report-patches help wording XX-wrap / lower / upper.
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_314
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_315
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_316
 
 # --- §14.8.1 — usage-error wording is a diagnostic, the exit is the contract ---
-# parse_args mutant 341: p.error("--to is required (...)") -> the same text
+# parse_args mutant 343: p.error("--to is required (...)") -> the same text
 #   XX-wrapped. argparse still exits with 2 and the message still names --to
 #   and the pyproject table (both pinned by PARSE_ARGS_ERRORS/to-missing);
 #   the surrounding wording is operator-facing diagnostic text.
-src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_341
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_343
 
 # --- Ad-hoc — the same code point spelled differently ---
 # patch_markdown_text mutant 3: startswith("﻿") -> startswith("﻿");
@@ -1055,6 +1054,12 @@ src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_run_one__
 src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_run_one__mutmut_27
 
 # --- Ad-hoc — the explicit keyword restates the documented default ---
+# parse_args mutant 112: add_argument("--resource-path", action="append",
+#   default=None, ...) -> the default kwarg dropped. None is argparse's own
+#   default for an option; the configured list is substituted after parsing
+#   either way (pinned by PARSE_ARGS_CASES/table-feeds-every-default and
+#   cli-resource-paths-replace-the-table-list).
+src/manuscripta/utils/pandoc_batch.py:manuscripta.utils.pandoc_batch.x_parse_args__mutmut_112
 # _create_temp_with mutant 4: NamedTemporaryFile(..., delete=False) ->
 #   delete=None. tempfile tests the flag for truth on close(); None keeps
 #   the file exactly as False does, and run_one's unlink removes it later.
