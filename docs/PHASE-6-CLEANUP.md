@@ -90,7 +90,10 @@ to stop current work. Close each with its own commit or ADR.
     entries (heuristic: > 50 % of in-scope mutants).
   - The threshold script itself emits a loud warning when it observes
     > 50 % `not_checked` and exits non-zero unless an explicit
-    `--allow-stale-state` flag is passed.
+    `--allow-stale-state` flag is passed. (Superseded on 2026-10-16,
+    #29: the script now fails on any unchecked in-scope mutant and the
+    flag is gone; the guard had never fired because `mutmut results`
+    prints "not checked" with a space.)
   - The `mutation-check` Make target always invokes a clean `mutmut
     run` first (slowest, safest); leave the narrow-mode invocation as
     a separate `mutation-fast-check` target gated for dev-loop use only.
