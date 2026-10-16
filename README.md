@@ -4,6 +4,7 @@
 [![coverage](https://codecov.io/gh/astrapi69/manuscripta/graph/badge.svg)](https://codecov.io/gh/astrapi69/manuscripta)
 [![mutation testing](https://github.com/astrapi69/manuscripta/actions/workflows/mutation.yml/badge.svg)](https://github.com/astrapi69/manuscripta/actions/workflows/mutation.yml)
 [![mutation score](https://img.shields.io/badge/mutation%20score-99.9%25-brightgreen)](docs/audits/current-mutation.md)
+[![awesome well-tested: silver](https://raw.githubusercontent.com/awesome-references/awesome-well-tested/main/badges/silver.svg)](https://github.com/awesome-references/awesome-well-tested#python)
 
 Book production pipeline for authors and self-publishers.
 
