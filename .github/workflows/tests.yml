@@ -22,6 +22,9 @@ jobs:
     name: tests + coverage
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Secrets cannot be tested in a step's `if`; an env var can.
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
     steps:
       - name: Check out repo
@@ -59,12 +62,21 @@ jobs:
           poetry run pytest --cov=manuscripta --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
-        # Needs the CODECOV_TOKEN repository secret (Codecov > repo > Settings).
-        # A missing token fails this step on purpose: a green build with no
-        # published figure would be worse than a red one.
+        # Needs the CODECOV_TOKEN repository secret (Codecov > manuscripta >
+        # Settings > Repository Upload Token). With the token an upload that
+        # fails fails the job: a green build with no published figure would
+        # be worse than a red one.
+        if: env.CODECOV_TOKEN != ''
         uses: codecov/codecov-action@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ env.CODECOV_TOKEN }}
           files: coverage.xml
           disable_search: true
           fail_ci_if_error: true
+
+      - name: Coverage not uploaded
+        # Without the token the tests still gate the build; the missing
+        # figure shows up as a warning on the run instead of a red job.
+        if: env.CODECOV_TOKEN == ''
+        run: |
+          echo "::warning title=Coverage not uploaded::CODECOV_TOKEN is not set; add it as a repository secret so the Codecov badge and awesome-well-tested get a figure."
