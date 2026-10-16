@@ -16,192 +16,187 @@ pytestmark = pytest.mark.unit
 from manuscripta.paths import to_relative as mod
 
 
+def _layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """assets/ and manuscript/chapters/ under tmp_path, the module's
+    ASSETS_DIR pointed at the former."""
+    assets = tmp_path / "assets"
+    md_dir = tmp_path / "manuscript" / "chapters"
+    assets.mkdir(parents=True)
+    md_dir.mkdir(parents=True)
+    monkeypatch.setattr(mod, "ASSETS_DIR", assets)
+    return assets, md_dir
+
+
 # Helpers ------------------------------------------------------------------
 
+# Each row: the raw target and the (text, had_angles) pair _strip_angles returns
+STRIP_ANGLES_CASES = [
+    pytest.param("<foo>", ("foo", True), id="removes-pair"),
+    pytest.param("foo", ("foo", False), id="leaves-unbracketed"),
+    # Brackets are stripped only as a matched pair.
+    pytest.param("<foo", ("<foo", False), id="leaves-one-sided-open"),
+    pytest.param("foo>", ("foo>", False), id="leaves-one-sided-close"),
+]
 
-def test_strip_angles_removes_pair():
-    text, had = mod._strip_angles("<foo>")
-    assert (text, had) == ("foo", True)
-
-
-def test_strip_angles_leaves_unbracketed():
-    text, had = mod._strip_angles("foo")
-    assert (text, had) == ("foo", False)
-
-
-def test_is_absolute_path_true_for_abs():
-    assert mod._is_absolute_path("/abs/path") is True
-
-
-def test_is_absolute_path_false_for_rel():
-    assert mod._is_absolute_path("rel/path") is False
-
-
-def test_is_absolute_path_false_for_empty():
+# Each row: the target and whether _is_absolute_path accepts it
+IS_ABSOLUTE_PATH_CASES = [
+    pytest.param("/abs/path", True, id="true-for-abs"),
+    pytest.param("rel/path", False, id="false-for-rel"),
     # An empty string is neither absolute nor starting with "/".
-    assert mod._is_absolute_path("") is False
+    pytest.param("", False, id="false-for-empty"),
+]
+
+# Each row: the target and whether _is_url_or_anchor treats it as one
+IS_URL_OR_ANCHOR_CASES = [
+    pytest.param("", True, id="detects-empty"),
+    pytest.param("#anchor", True, id="detects-anchor"),
+    pytest.param("http://e.com", True, id="detects-scheme-http"),
+    pytest.param("mailto:a@b", True, id="detects-scheme-mailto"),
+    pytest.param("data:abc", True, id="detects-scheme-data"),
+    pytest.param("rel/path", False, id="rejects-plain-relative-path"),
+    pytest.param("/abs/path", False, id="rejects-plain-absolute-path"),
+    pytest.param("file.png", False, id="rejects-plain-file-name"),
+]
 
 
-@pytest.mark.parametrize(
-    "target", ["", "#anchor", "http://e.com", "mailto:a@b", "data:abc"]
-)
-def test_is_url_or_anchor_detects_scheme_and_anchor(target):
-    assert mod._is_url_or_anchor(target) is True
+@pytest.mark.parametrize("raw, expected", STRIP_ANGLES_CASES)
+def test_strip_angles(raw, expected):
+    assert mod._strip_angles(raw) == expected
 
 
-@pytest.mark.parametrize("target", ["rel/path", "/abs/path", "file.png"])
-def test_is_url_or_anchor_rejects_plain_paths(target):
-    assert mod._is_url_or_anchor(target) is False
+@pytest.mark.parametrize("target, expected", IS_ABSOLUTE_PATH_CASES)
+def test_is_absolute_path(target, expected):
+    assert mod._is_absolute_path(target) is expected
+
+
+@pytest.mark.parametrize("target, expected", IS_URL_OR_ANCHOR_CASES)
+def test_is_url_or_anchor(target, expected):
+    assert mod._is_url_or_anchor(target) is expected
 
 
 # convert_target_to_relative ----------------------------------------------
 
+# Each row: the raw target and what comes back for the chapter directory
+# manuscript/chapters. {img} is the absolute path of assets/pic.png,
+# {outside} that of elsewhere/pic.png.
+CONVERT_TARGET_CASES = [
+    pytest.param(
+        "{img}", "../../assets/pic.png", id="converts-absolute-path-inside-assets"
+    ),
+    pytest.param("<{img}>", "<../../assets/pic.png>", id="preserves-angle-brackets"),
+    pytest.param("http://example.com", "http://example.com", id="leaves-url-untouched"),
+    pytest.param("#intro", "#intro", id="leaves-anchor-untouched"),
+    pytest.param(
+        "images/foo.png", "images/foo.png", id="leaves-relative-path-untouched"
+    ),
+    pytest.param(
+        "{outside}", "{outside}", id="leaves-absolute-path-outside-assets-untouched"
+    ),
+]
 
-def test_converts_absolute_path_inside_assets(tmp_path, monkeypatch):
-    assets = tmp_path / "assets"
-    md_dir = tmp_path / "manuscript" / "chapters"
-    assets.mkdir(parents=True)
-    md_dir.mkdir(parents=True)
+
+@pytest.mark.parametrize("target, expected", CONVERT_TARGET_CASES)
+def test_convert_target_to_relative(target, expected, tmp_path, monkeypatch):
+    assets, md_dir = _layout(tmp_path, monkeypatch)
     img = assets / "pic.png"
     img.write_bytes(b"\x89PNG")
-
-    monkeypatch.setattr(mod, "ASSETS_DIR", assets)
-
-    rel = mod.convert_target_to_relative(str(img), md_dir)
-    assert rel == "../../assets/pic.png"
-
-
-def test_preserves_angle_brackets(tmp_path, monkeypatch):
-    assets = tmp_path / "assets"
-    md_dir = tmp_path / "manuscript" / "chapters"
-    assets.mkdir(parents=True)
-    md_dir.mkdir(parents=True)
-    img = assets / "pic.png"
-    img.write_bytes(b"\x89PNG")
-    monkeypatch.setattr(mod, "ASSETS_DIR", assets)
-
-    out = mod.convert_target_to_relative(f"<{img}>", md_dir)
-    assert out.startswith("<") and out.endswith(">")
-    assert "../../assets/pic.png" in out
-
-
-def test_leaves_url_untouched():
-    result = mod.convert_target_to_relative("http://example.com", Path("/any"))
-    assert result == "http://example.com"
-
-
-def test_leaves_anchor_untouched():
-    result = mod.convert_target_to_relative("#intro", Path("/any"))
-    assert result == "#intro"
-
-
-def test_leaves_relative_path_untouched():
-    result = mod.convert_target_to_relative("images/foo.png", Path("/any"))
-    assert result == "images/foo.png"
-
-
-def test_leaves_absolute_path_outside_assets_untouched(tmp_path, monkeypatch):
-    monkeypatch.setattr(mod, "ASSETS_DIR", tmp_path / "assets")
-    (tmp_path / "assets").mkdir()
     outside = tmp_path / "elsewhere" / "pic.png"
     outside.parent.mkdir()
     outside.write_bytes(b"\x89PNG")
-    result = mod.convert_target_to_relative(str(outside), tmp_path / "manuscript")
-    assert result == str(outside)
+    fields = {"img": img, "outside": outside}
+
+    result = mod.convert_target_to_relative(target.format(**fields), md_dir)
+    assert result == expected.format(**fields)
 
 
 # convert_paths_in_text ----------------------------------------------------
 
+# Each row: the text of the chapter manuscript/chapters/ch1.md and its
+# conversion. {img} is the absolute path of assets/pic.png.
+CONVERT_PATHS_IN_TEXT_CASES = [
+    pytest.param(
+        "![alt]({img})", "![alt](../../assets/pic.png)", id="handles-markdown-image"
+    ),
+    pytest.param(
+        '<img src="{img}"/> <a href="{img}">l</a>',
+        '<img src="../../assets/pic.png"/> <a href="../../assets/pic.png">l</a>',
+        id="handles-html-img-and-a",
+    ),
+    pytest.param(
+        "[text]({img})", "[text](../../assets/pic.png)", id="handles-markdown-link"
+    ),
+]
 
-def test_convert_paths_in_text_handles_markdown_image(tmp_path, monkeypatch):
-    assets = tmp_path / "assets"
-    md_dir = tmp_path / "manuscript" / "chapters"
-    assets.mkdir(parents=True)
-    md_dir.mkdir(parents=True)
+
+@pytest.mark.parametrize("text, expected", CONVERT_PATHS_IN_TEXT_CASES)
+def test_convert_paths_in_text(text, expected, tmp_path, monkeypatch):
+    assets, md_dir = _layout(tmp_path, monkeypatch)
     img = assets / "pic.png"
     img.write_bytes(b"\x89")
-    monkeypatch.setattr(mod, "ASSETS_DIR", assets)
 
     md = md_dir / "ch1.md"
-    text = f"![alt]({img})"
-    out = mod.convert_paths_in_text(text, md)
-    assert out == "![alt](../../assets/pic.png)"
-
-
-def test_convert_paths_in_text_handles_html_img_and_a(tmp_path, monkeypatch):
-    assets = tmp_path / "assets"
-    md_dir = tmp_path / "manuscript" / "chapters"
-    assets.mkdir(parents=True)
-    md_dir.mkdir(parents=True)
-    img = assets / "pic.png"
-    img.write_bytes(b"\x89")
-    monkeypatch.setattr(mod, "ASSETS_DIR", assets)
-
-    md = md_dir / "ch1.md"
-    text = f'<img src="{img}"/> <a href="{img}">l</a>'
-    out = mod.convert_paths_in_text(text, md)
-    assert out.count("../../assets/pic.png") == 2
-    assert str(img) not in out
+    assert mod.convert_paths_in_text(text.format(img=img), md) == expected
 
 
 # process_md_file ----------------------------------------------------------
 
+# Each row: the text of the chapter manuscript/chapters/ch1.md, whether
+# process_md_file reports a change and the text afterwards. {img} is the
+# absolute path of assets/pic.png.
+PROCESS_MD_FILE_CASES = [
+    pytest.param(
+        "![alt]({img})\n",
+        True,
+        "![alt](../../assets/pic.png)\n",
+        id="rewrites-when-changed",
+    ),
+    pytest.param(
+        "![alt](relative/path.png)\n",
+        False,
+        "![alt](relative/path.png)\n",
+        id="no-change-returns-false",
+    ),
+]
 
-def test_process_md_file_rewrites_when_changed(tmp_path, monkeypatch, capsys):
-    assets = tmp_path / "assets"
-    md_dir = tmp_path / "manuscript" / "chapters"
-    assets.mkdir(parents=True)
-    md_dir.mkdir(parents=True)
+
+@pytest.mark.parametrize("text, changed, after", PROCESS_MD_FILE_CASES)
+def test_process_md_file(text, changed, after, tmp_path, monkeypatch, capsys):
+    assets, md_dir = _layout(tmp_path, monkeypatch)
     img = assets / "pic.png"
     img.write_bytes(b"\x89")
-    monkeypatch.setattr(mod, "ASSETS_DIR", assets)
 
     md = md_dir / "ch1.md"
-    md.write_text(f"![alt]({img})\n", encoding="utf-8")
+    md.write_text(text.format(img=img), encoding="utf-8")
 
-    changed = mod.process_md_file(md)
-    assert changed is True
-    assert md.read_text(encoding="utf-8").strip() == "![alt](../../assets/pic.png)"
-
-
-def test_process_md_file_no_change_returns_false(tmp_path, monkeypatch):
-    assets = tmp_path / "assets"
-    md_dir = tmp_path / "manuscript" / "chapters"
-    assets.mkdir(parents=True)
-    md_dir.mkdir(parents=True)
-    monkeypatch.setattr(mod, "ASSETS_DIR", assets)
-
-    md = md_dir / "ch1.md"
-    md.write_text("![alt](relative/path.png)\n", encoding="utf-8")
-    assert mod.process_md_file(md) is False
+    assert mod.process_md_file(md) is changed
+    assert md.read_text(encoding="utf-8") == after
 
 
 # main --------------------------------------------------------------------
 
-
-def test_main_iterates_and_reports_count(tmp_path, monkeypatch, capsys):
+# Each row: the chapters to write into manuscript/chapters (name → text), the
+# directories main walks (under tmp_path) and the count the summary line
+# reports. {img} is the absolute path of assets/pic.png.
+MAIN_CASES = [
     # Build a fake project layout; point module globals at tmp_path.
-    chapters = tmp_path / "manuscript" / "chapters"
-    assets = tmp_path / "assets"
-    chapters.mkdir(parents=True)
-    assets.mkdir(parents=True)
+    pytest.param(
+        {"ch1.md": "![x]({img})\n", "ch2.md": "![y](rel.png)\n"},
+        ["manuscript/chapters"],
+        1,
+        id="iterates-and-reports-count",
+    ),
+    pytest.param({}, ["does-not-exist"], 0, id="skips-nonexistent-dirs"),
+]
+
+
+@pytest.mark.parametrize("chapters, directories, updated", MAIN_CASES)
+def test_main(chapters, directories, updated, tmp_path, monkeypatch, capsys):
+    assets, md_dir = _layout(tmp_path, monkeypatch)
     img = assets / "pic.png"
     img.write_bytes(b"\x89")
-
-    monkeypatch.setattr(mod, "ASSETS_DIR", assets)
-    monkeypatch.setattr(mod, "MD_DIRECTORIES", [chapters])
-
-    (chapters / "ch1.md").write_text(f"![x]({img})\n", encoding="utf-8")
-    (chapters / "ch2.md").write_text("![y](rel.png)\n", encoding="utf-8")
+    for name, text in chapters.items():
+        (md_dir / name).write_text(text.format(img=img), encoding="utf-8")
+    monkeypatch.setattr(mod, "MD_DIRECTORIES", [tmp_path / d for d in directories])
 
     mod.main()
-    out = capsys.readouterr().out
-    assert "Files updated: 1" in out
-
-
-def test_main_skips_nonexistent_dirs(tmp_path, monkeypatch, capsys):
-    missing = tmp_path / "does-not-exist"
-    monkeypatch.setattr(mod, "MD_DIRECTORIES", [missing])
-    mod.main()
-    out = capsys.readouterr().out
-    assert "Files updated: 0" in out
+    assert f"Files updated: {updated}" in capsys.readouterr().out

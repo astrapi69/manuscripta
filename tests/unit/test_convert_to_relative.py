@@ -1,11 +1,19 @@
 # tests/test_convert_to_relative.py
 import importlib.util
 from pathlib import Path
-import textwrap
 import os
 import pytest
 
 pytestmark = pytest.mark.unit
+
+# Import the implementation from your repo (tests/.. = project root)
+MODULE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "manuscripta"
+    / "paths"
+    / "to_relative.py"
+)
 
 
 def import_ctr(module_path: Path):
@@ -34,121 +42,74 @@ def temp_project(tmp_path: Path):
     return project
 
 
-def test_markdown_image_absolute_to_relative(temp_project, monkeypatch):
-    project = temp_project
-
-    chapter = project / "manuscript" / "chapters" / "01-intro.md"
-    pic = project / "assets" / "img" / "cover (v1).png"
-    write(pic, "png")
-    write(
-        chapter,
-        textwrap.dedent(
-            f"""
-            # Intro
-            ![Cover](<{pic.as_posix()}> "title")
-            Inline: ![x]({pic.as_posix()})
-            """
-        ).strip(),
-    )
-
-    # Import the implementation from your repo (tests/.. = project root)
-    mod = import_ctr(
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "manuscripta"
-        / "paths"
-        / "to_relative.py"
-    )
-
-    # Point the module to the temp project structure
-    monkeypatch.setattr(mod, "PROJECT_ROOT", project.resolve(), raising=False)
-    monkeypatch.setattr(mod, "MANUSCRIPT_DIR", project / "manuscript", raising=False)
-    monkeypatch.setattr(mod, "ASSETS_DIR", project / "assets", raising=False)
-    monkeypatch.setattr(
-        mod,
-        "MD_DIRECTORIES",
-        [
+def point_at(mod, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the module to the temp project structure."""
+    targets = {
+        "PROJECT_ROOT": project.resolve(),
+        "MANUSCRIPT_DIR": project / "manuscript",
+        "ASSETS_DIR": project / "assets",
+        "MD_DIRECTORIES": [
             project / "manuscript" / "chapters",
             project / "manuscript" / "front-matter",
             project / "manuscript" / "back-matter",
         ],
-        raising=False,
-    )
-
-    converted = mod.convert_paths_in_text(chapter.read_text(encoding="utf-8"), chapter)
-    rel = Path(os.path.relpath(pic, start=chapter.parent)).as_posix()
-
-    assert f'![Cover](<{rel}> "title")' in converted
-    assert f"![x]({rel})" in converted
+    }
+    for name, value in targets.items():
+        monkeypatch.setattr(mod, name, value, raising=False)
 
 
-def test_html_img_and_a_tags(temp_project, monkeypatch):
+# Each row: the file under the project, the text of the chapter
+# manuscript/chapters/p.md and the text after conversion (None: unchanged).
+# {pic} is the file's absolute POSIX path, {rel} its POSIX path relative to
+# the chapter.
+CONVERT_TEXT_CASES = [
+    pytest.param(
+        "assets/img/cover (v1).png",
+        '# Intro\n![Cover](<{pic}> "title")\nInline: ![x]({pic})',
+        '# Intro\n![Cover](<{rel}> "title")\nInline: ![x]({rel})',
+        id="markdown-image-absolute-to-relative",
+    ),
+    pytest.param(
+        "assets/img/p.png",
+        '<img src="{pic}"> <a href="{pic}">link</a>',
+        '<img src="{rel}"> <a href="{rel}">link</a>',
+        id="html-img-and-a-tags",
+    ),
+    pytest.param(
+        "notassets/p.png",
+        "[web](https://example.com)\n[anchor](#sec)\n![outside]({pic})\nrel ok",
+        None,
+        id="skip-urls-anchors-and-non-assets",
+    ),
+]
+
+
+@pytest.mark.parametrize("file, text, after", CONVERT_TEXT_CASES)
+def test_convert_paths_in_text(file, text, after, temp_project, monkeypatch):
     project = temp_project
-    mod = import_ctr(
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "manuscripta"
-        / "paths"
-        / "to_relative.py"
-    )
+    mod = import_ctr(MODULE_PATH)
+    point_at(mod, project, monkeypatch)
 
     chapter = project / "manuscript" / "chapters" / "p.md"
-    pic = project / "assets" / "img" / "p.png"
+    pic = project / file
     write(pic, "png")
-    write(chapter, f'<img src="{pic.as_posix()}"> <a href="{pic.as_posix()}">link</a>')
+    fields = {
+        "pic": pic.as_posix(),
+        "rel": Path(os.path.relpath(pic, start=chapter.parent)).as_posix(),
+    }
+    write(chapter, text.format(**fields))
 
-    monkeypatch.setattr(mod, "PROJECT_ROOT", project.resolve(), raising=False)
-    monkeypatch.setattr(mod, "MANUSCRIPT_DIR", project / "manuscript", raising=False)
-    monkeypatch.setattr(mod, "ASSETS_DIR", project / "assets", raising=False)
-
-    out = mod.convert_paths_in_text(chapter.read_text(), chapter)
-    rel = Path(os.path.relpath(pic, start=chapter.parent)).as_posix()
-    assert f'<img src="{rel}">' in out
-    assert f'<a href="{rel}">' in out
-
-
-def test_skip_urls_anchors_and_non_assets(temp_project, monkeypatch):
-    project = temp_project
-    mod = import_ctr(
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "manuscripta"
-        / "paths"
-        / "to_relative.py"
+    out = mod.convert_paths_in_text(chapter.read_text(encoding="utf-8"), chapter)
+    expected = (
+        chapter.read_text(encoding="utf-8") if after is None else after.format(**fields)
     )
-
-    chapter = project / "manuscript" / "chapters" / "p.md"
-    outside = project / "notassets" / "p.png"
-    write(outside, "x")
-
-    write(
-        chapter,
-        textwrap.dedent(
-            f"""
-            [web](https://example.com)
-            [anchor](#sec)
-            ![outside]({outside.as_posix()})
-            rel ok
-            """
-        ).strip(),
-    )
-
-    monkeypatch.setattr(mod, "PROJECT_ROOT", project.resolve(), raising=False)
-    monkeypatch.setattr(mod, "ASSETS_DIR", project / "assets", raising=False)
-
-    out = mod.convert_paths_in_text(chapter.read_text(), chapter)
-    assert out == chapter.read_text()  # unchanged
+    assert out == expected
 
 
 def test_idempotency(temp_project, monkeypatch):
     project = temp_project
-    mod = import_ctr(
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "manuscripta"
-        / "paths"
-        / "to_relative.py"
-    )
+    mod = import_ctr(MODULE_PATH)
+    point_at(mod, project, monkeypatch)
 
     chapter = project / "manuscript" / "chapters" / "p.md"
     pic = project / "assets" / "img" / "p.png"
@@ -156,9 +117,6 @@ def test_idempotency(temp_project, monkeypatch):
     rel = Path(os.path.relpath(pic, start=chapter.parent)).as_posix()
     write(chapter, f"![x]({rel})")
 
-    monkeypatch.setattr(mod, "PROJECT_ROOT", project.resolve(), raising=False)
-    monkeypatch.setattr(mod, "ASSETS_DIR", project / "assets", raising=False)
-
-    once = mod.convert_paths_in_text(chapter.read_text(), chapter)
+    once = mod.convert_paths_in_text(chapter.read_text(encoding="utf-8"), chapter)
     twice = mod.convert_paths_in_text(once, chapter)
     assert once == twice

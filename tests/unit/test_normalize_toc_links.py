@@ -24,57 +24,61 @@ def run_script(toc_path: Path, args):
     )
 
 
-def test_strip_to_anchors_basic(tmp_path):
+# Each row: the TOC lines, the arguments after ``--toc <path>``, the fragments
+# the file must carry afterwards and the ones it must have lost
+NORMALIZE_CASES = [
+    pytest.param(
+        [
+            "- [Intro](chapters/01.gfm#einleitung)",
+            "- [Kapitel 2](chapters/02.markdown#zweites)",
+            "- [Schon Anker](#bereits-anker)",
+            "- [Normales .md](chapters/03.md#drittes)",
+        ],
+        ["--mode", "strip-to-anchors"],
+        [
+            "(#einleitung)",
+            "(#zweites)",
+            "(#bereits-anker)",  # unchanged
+            "(#drittes)",
+        ],
+        # ensure file paths are stripped
+        ["chapters/01.gfm", "chapters/02.markdown", "chapters/03.md"],
+        id="strip-to-anchors-basic",
+    ),
+    pytest.param(
+        [
+            "- [GFM](chapters/01.gfm#einleitung)",
+            "- [MD](chapters/02.md#zweites)",
+            "- [MARKDOWN](chapters/03.markdown#drittes)",
+            "- [Nur Anker](#nur-anker)",  # should stay unchanged
+        ],
+        ["--mode", "replace-ext", "--ext", "md"],
+        [
+            "(chapters/01.md#einleitung)",
+            "(chapters/02.md#zweites)",
+            "(chapters/03.md#drittes)",
+            "(#nur-anker)",  # untouched
+        ],
+        [],
+        id="replace-ext-swaps-endings",
+    ),
+]
+
+
+@pytest.mark.parametrize("lines, args, present, absent", NORMALIZE_CASES)
+def test_normalize(lines, args, present, absent, tmp_path):
     # Create a temp TOC in tmp_path
     toc = tmp_path / "toc.md"
-    toc.write_text(
-        "\n".join(
-            [
-                "- [Intro](chapters/01.gfm#einleitung)",
-                "- [Kapitel 2](chapters/02.markdown#zweites)",
-                "- [Schon Anker](#bereits-anker)",
-                "- [Normales .md](chapters/03.md#drittes)",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    toc.write_text("\n".join(lines), encoding="utf-8")
 
-    res = run_script(toc, ["--mode", "strip-to-anchors"])
+    res = run_script(toc, args)
     assert res.returncode == 0, res.stderr
 
     out = toc.read_text(encoding="utf-8")
-    assert "(#einleitung)" in out
-    assert "(#zweites)" in out
-    assert "(#bereits-anker)" in out  # unchanged
-    assert "(#drittes)" in out
-    # ensure file paths are stripped
-    assert "chapters/01.gfm" not in out
-    assert "chapters/02.markdown" not in out
-    assert "chapters/03.md" not in out
-
-
-def test_replace_ext_swaps_endings(tmp_path):
-    toc = tmp_path / "toc.md"
-    toc.write_text(
-        "\n".join(
-            [
-                "- [GFM](chapters/01.gfm#einleitung)",
-                "- [MD](chapters/02.md#zweites)",
-                "- [MARKDOWN](chapters/03.markdown#drittes)",
-                "- [Nur Anker](#nur-anker)",  # should stay unchanged
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    res = run_script(toc, ["--mode", "replace-ext", "--ext", "md"])
-    assert res.returncode == 0, res.stderr
-
-    out = toc.read_text(encoding="utf-8")
-    assert "(chapters/01.md#einleitung)" in out
-    assert "(chapters/02.md#zweites)" in out
-    assert "(chapters/03.md#drittes)" in out
-    assert "(#nur-anker)" in out  # untouched
+    for fragment in present:
+        assert fragment in out
+    for fragment in absent:
+        assert fragment not in out
 
 
 def test_strip_to_anchors_idempotent(tmp_path):

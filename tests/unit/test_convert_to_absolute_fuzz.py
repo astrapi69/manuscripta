@@ -69,37 +69,39 @@ def test_fuzz_relative_images_with_parentheses_and_spaces(
     assert ' "Cover")' in out
 
 
-def test_bare_url_with_parentheses_and_no_angle_brackets(tmp_path_factory):
-    base = tmp_path_factory.mktemp("bareparen")
-    ch = base / "manuscript" / "chapters"
-    img = base / "assets" / "has(paren) and (space).png"
-    write(img, "x")
+# Each row: the image files under assets/, the chapter body, the expected
+# (changed, count) and the text of the chapter afterwards. {rel0}/{img0} are
+# the first image's path relative to the chapter and its absolute path,
+# {rel1}/{img1} the second's.
+BARE_URL_CASES = [
+    pytest.param(
+        ["has(paren) and (space).png"],
+        "![p]({rel0})",
+        (True, 1),
+        "![p]({img0})",
+        id="bare-url-with-parentheses-and-no-angle-brackets",
+    ),
+    pytest.param(
+        ["t1(a).png", "t2(b).png"],
+        "![x]({rel0} \"A\")\n![y]({rel1} 'B')",
+        (True, 2),
+        "![x]({img0} \"A\")\n![y]({img1} 'B')",
+        id="title-single-or-double-quotes-following-bare-url",
+    ),
+]
 
-    md = ch / "doc.md"
-    rel = os.path.relpath(img, start=md.parent)
-    write(md, f"![p]({rel})")
 
-    changed, cnt = convert_file_to_absolute(md)
-    assert changed and cnt == 1
-    out = md.read_text(encoding="utf-8")
-    assert f"![p]({img.resolve()})" in out
+@pytest.mark.parametrize("images, body, expected, after", BARE_URL_CASES)
+def test_bare_url_target(images, body, expected, after, tmp_path_factory):
+    base = tmp_path_factory.mktemp("bareurl")
+    md = base / "manuscript" / "chapters" / "doc.md"
+    fields = {}
+    for i, name in enumerate(images):
+        img = base / "assets" / name
+        write(img, "x")
+        fields[f"rel{i}"] = os.path.relpath(img, start=md.parent)
+        fields[f"img{i}"] = img.resolve()
+    write(md, body.format(**fields))
 
-
-def test_title_single_or_double_quotes_following_bare_url(tmp_path_factory):
-    base = tmp_path_factory.mktemp("titles")
-    ch = base / "manuscript" / "chapters"
-    img1 = base / "assets" / "t1(a).png"
-    img2 = base / "assets" / "t2(b).png"
-    write(img1, "x")
-    write(img2, "x")
-
-    md = ch / "doc.md"
-    rel1 = os.path.relpath(img1, start=md.parent)
-    rel2 = os.path.relpath(img2, start=md.parent)
-    write(md, f"![x]({rel1} \"A\")\n![y]({rel2} 'B')")
-
-    changed, cnt = convert_file_to_absolute(md)
-    assert changed and cnt == 2
-    out = md.read_text(encoding="utf-8")
-    assert f'![x]({img1.resolve()} "A")' in out
-    assert f"![y]({img2.resolve()} 'B')" in out
+    assert convert_file_to_absolute(md) == expected
+    assert md.read_text(encoding="utf-8") == after.format(**fields)

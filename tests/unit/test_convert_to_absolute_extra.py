@@ -13,107 +13,86 @@ def write(p: Path, txt: str):
     p.write_text(txt, encoding="utf-8")
 
 
-def test_relative_with_dot_and_dotdot(tmp_path: Path):
-    base = tmp_path
-    ch = base / "manuscript" / "chapters" / "sub"
-    img = base / "assets" / "imgs" / "a.png"
-    write(img, "x")
-
-    md = ch / "doc.md"
-    rel1 = os.path.relpath(img, start=md.parent)  # e.g. ../../assets/imgs/a.png
-    rel2 = "./" + os.path.relpath(
-        img, start=md.parent
-    )  # ./../../assets/imgs/a.png (still valid)
-    write(md, f"![one]({rel1}) and ![two]({rel2})")
-
-    changed, cnt = convert_file_to_absolute(md)
-    assert changed and cnt == 2
-    out = md.read_text(encoding="utf-8")
-    assert str(img.resolve()) in out
-    assert out.count("![") == 2
-
-
-def test_protocol_and_data_urls_are_ignored(tmp_path: Path):
-    base = tmp_path
-    ch = base / "manuscript" / "chapters"
-    md = ch / "urls.md"
-    text = (
+# Each row: the chapter under manuscript/, the image files under assets/, the
+# chapter body, the expected (changed, count) and the text of the chapter
+# afterwards (None: unchanged). {rel0}/{img0} are the first image's path
+# relative to the chapter and its absolute path, {rel1}/{img1} the second's.
+SINGLE_FILE_CASES = [
+    # ./../../assets/imgs/a.png is still valid
+    pytest.param(
+        "chapters/sub/doc.md",
+        ["imgs/a.png"],
+        "![one]({rel0}) and ![two](./{rel0})",
+        (True, 2),
+        "![one]({img0}) and ![two]({img0})",
+        id="relative-with-dot-and-dotdot",
+    ),
+    # nothing to convert; all are "url-like"
+    pytest.param(
+        "chapters/urls.md",
+        [],
         "![http](https://example.com/a.png) "
         "![proto-rel](//cdn.example.com/a.png) "
         "![mailto](mailto:info@example.com) "
-        "![data](data:image/png;base64,iVBORw0KGgo...)"
-    )
-    write(md, text)
-
-    changed, cnt = convert_file_to_absolute(md)
-    # nothing to convert; all are "url-like"
-    assert not changed and cnt == 0
-    assert md.read_text(encoding="utf-8") == text
-
-
-def test_multiple_images_same_line_mixed(tmp_path: Path):
-    base = tmp_path
-    ch = base / "manuscript" / "chapters"
-    img1 = base / "assets" / "a.png"
-    img2 = base / "assets" / "b.png"
-    write(img1, "x")
-    write(img2, "x")
-
-    md = ch / "multi.md"
-    rel1 = os.path.relpath(img1, start=md.parent)
-    rel2 = os.path.relpath(img2, start=md.parent)
-    text = f"![a]({rel1})![b]({rel2}) ![skip](https://host/p.png)"
-    write(md, text)
-
-    changed, cnt = convert_file_to_absolute(md)
-    assert changed and cnt == 2
-    out = md.read_text(encoding="utf-8")
-    assert str(img1.resolve()) in out and str(img2.resolve()) in out
-    assert "https://host/p.png" in out
-
-
-def test_single_quoted_title_is_preserved(tmp_path: Path):
-    base = tmp_path
-    ch = base / "manuscript" / "chapters"
-    img = base / "assets" / "c.png"
-    write(img, "x")
-
-    md = ch / "title_single_quote.md"
-    rel = os.path.relpath(img, start=md.parent)
-    write(md, f"![sq](<{rel}> 'Cover')")
-
-    changed, cnt = convert_file_to_absolute(md)
-    assert changed and cnt == 1
-    out = md.read_text(encoding="utf-8")
+        "![data](data:image/png;base64,iVBORw0KGgo...)",
+        (False, 0),
+        None,
+        id="protocol-and-data-urls-are-ignored",
+    ),
+    pytest.param(
+        "chapters/multi.md",
+        ["a.png", "b.png"],
+        "![a]({rel0})![b]({rel1}) ![skip](https://host/p.png)",
+        (True, 2),
+        "![a]({img0})![b]({img1}) ![skip](https://host/p.png)",
+        id="multiple-images-same-line-mixed",
+    ),
     # title stays inside parens; path becomes absolute
-    assert f"![sq]({img.resolve()} 'Cover')" in out
+    pytest.param(
+        "chapters/title_single_quote.md",
+        ["c.png"],
+        "![sq](<{rel0}> 'Cover')",
+        (True, 1),
+        "![sq]({img0} 'Cover')",
+        id="single-quoted-title-is-preserved",
+    ),
+    pytest.param(
+        "chapters/mix.md",
+        ["d.png"],
+        "![ok]({rel0})\n"
+        "![missing](images/none.png)\n"
+        "![url](https://ex.com/x.png)\n"
+        "`inline ![nope]({rel0})`\n"
+        "```\nblock ![nope2]({rel0})\n```\n",
+        (True, 1),
+        "![ok]({img0})\n"
+        "![missing](images/none.png)\n"
+        "![url](https://ex.com/x.png)\n"
+        "`inline ![nope]({rel0})`\n"
+        "```\nblock ![nope2]({rel0})\n```\n",
+        id="mixed-convertible-and-nonconvertible",
+    ),
+]
 
 
-def test_mixed_convertible_and_nonconvertible(tmp_path: Path):
-    base = tmp_path
-    ch = base / "manuscript" / "chapters"
-    img = base / "assets" / "d.png"
-    write(img, "x")
-
-    md = ch / "mix.md"
-    rel = os.path.relpath(img, start=md.parent)
-    text = (
-        f"![ok]({rel})\n"
-        f"![missing](images/none.png)\n"
-        f"![url](https://ex.com/x.png)\n"
-        f"`inline ![nope]({rel})`\n"
-        f"```\nblock ![nope2]({rel})\n```\n"
-    )
+@pytest.mark.parametrize("chapter, images, body, expected, after", SINGLE_FILE_CASES)
+def test_convert_file_to_absolute(
+    chapter, images, body, expected, after, tmp_path: Path
+):
+    md = tmp_path / "manuscript" / chapter
+    fields = {}
+    for i, name in enumerate(images):
+        img = tmp_path / "assets" / name
+        write(img, "x")
+        fields[f"rel{i}"] = os.path.relpath(img, start=md.parent)
+        fields[f"img{i}"] = img.resolve()
+    text = body.format(**fields)
     write(md, text)
 
-    changed, cnt = convert_file_to_absolute(md)
-    assert changed and cnt == 1
-    out = md.read_text(encoding="utf-8")
-    assert f"![ok]({img.resolve()})" in out
-    assert "![missing](images/none.png)" in out
-    assert "![url](https://ex.com/x.png)" in out
-    assert "`inline ![nope]" in out
-    assert "block ![nope2]" in out
+    assert convert_file_to_absolute(md) == expected
+    assert md.read_text(encoding="utf-8") == (
+        text if after is None else after.format(**fields)
+    )
 
 
 def test_walk_three_default_dirs_with_mixed_content(tmp_path: Path):

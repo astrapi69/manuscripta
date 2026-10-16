@@ -57,18 +57,31 @@ def option_help_text(help_out: str, flag: str) -> str:
     return " ".join(collected).strip()
 
 
+# Each row: an option whose ``--help`` entry must carry some help text. The
+# mutants a row kills stay in the comment above it.
+OPTIONS_WITH_HELP = [
+    # Kills main __mutmut_8/11 (``--toc`` help None/dropped)
+    pytest.param("--toc", id="toc"),
+    # Kills main __mutmut_22/26 (``--mode`` help None/dropped)
+    pytest.param("--mode", id="mode"),
+    # Kills main __mutmut_40/43 (``--ext`` help None/dropped)
+    pytest.param("--ext", id="ext"),
+]
+
+
 class TestHelpSurfacePresence:
-    def test_every_option_has_help_text(self, monkeypatch, capsys):
+    @pytest.mark.parametrize("flag", OPTIONS_WITH_HELP)
+    def test_every_option_has_help_text(self, flag, monkeypatch, capsys):
         """§14.8.1: dropping a ``help=`` kwarg (or nulling it) removes
         a line from ``--help`` — observable presence, A-category. The
         assertion checks presence only, not wording.
 
         Kills main __mutmut_8/11 (``--toc`` help None/dropped),
-        __mutmut_22/26 (``--mode``), __mutmut_40/43 (``--ext``).
+        __mutmut_22/26 (``--mode``), __mutmut_40/43 (``--ext``) — one
+        row of OPTIONS_WITH_HELP each.
         """
         out = help_output(monkeypatch, capsys)
-        for flag in ("--toc", "--mode", "--ext"):
-            assert option_help_text(out, flag) != ""
+        assert option_help_text(out, flag) != ""
 
     def test_parser_has_description_paragraph(self, monkeypatch, capsys):
         """The CLI carries a description paragraph between the usage
@@ -86,6 +99,38 @@ class TestHelpSurfacePresence:
             and not c.startswith("positional")
         ]
         assert prose
+
+
+# Each row: the TOC text, the arguments after ``--toc <path>``, the text
+# afterwards and a fragment of the summary line. The contract sentence and
+# the mutants a row kills stay in the comment above it.
+DEFAULT_VALUE_CASES = [
+    # Invoked without ``--mode``, the tool strips file links to pure anchors
+    # — the documented default behaviour.
+    # Kills main __mutmut_21/25 (default None/dropped → the strip-to-anchors
+    # comparison fails and the replace-ext branch runs) and __mutmut_33/34
+    # (default literal rewritten — argparse validates string defaults
+    # against ``choices``, so the run errors out instead of normalizing).
+    pytest.param(
+        "- [Ch1](chapters/01.md#intro)\n",
+        [],
+        "- [Ch1](#intro)\n",
+        "TOC normalized",
+        id="default-mode-is-strip-to-anchors",
+    ),
+    # ``--mode replace-ext`` without ``--ext`` targets ``.md`` — a ``.md``
+    # link is already normalized and the file must stay byte-identical.
+    # Kills main __mutmut_39/42 (default None/dropped → links rewritten to
+    # ``.None``) and __mutmut_46/47 (default literal rewritten → links
+    # rewritten to ``.XXmdXX`` / ``.MD``).
+    pytest.param(
+        "[Ch1](chapters/01.md#intro)\n",
+        ["--mode", "replace-ext"],
+        "[Ch1](chapters/01.md#intro)\n",
+        "unchanged",
+        id="default-ext-is-md",
+    ),
+]
 
 
 class TestDefaultedValuesAreBehaviour:
@@ -109,37 +154,15 @@ class TestDefaultedValuesAreBehaviour:
         assert m is not None
         assert m.group(1) == "manuscript/front-matter/toc.md"
 
-    def test_default_mode_is_strip_to_anchors(self, tmp_path, monkeypatch, capsys):
-        """Invoked without ``--mode``, the tool strips file links to
-        pure anchors — the documented default behaviour.
-
-        Kills main __mutmut_21/25 (default None/dropped → the
-        strip-to-anchors comparison fails and the replace-ext branch
-        runs) and __mutmut_33/34 (default literal rewritten — argparse
-        validates string defaults against ``choices``, so the run
-        errors out instead of normalizing).
-        """
+    @pytest.mark.parametrize("text, argv, after, note", DEFAULT_VALUE_CASES)
+    def test_defaulted_value(
+        self, text, argv, after, note, tmp_path, monkeypatch, capsys
+    ):
         toc = tmp_path / "toc.md"
-        toc.write_text("- [Ch1](chapters/01.md#intro)\n", encoding="utf-8")
-        run_main(monkeypatch, ["--toc", str(toc)])
-        assert toc.read_text(encoding="utf-8") == "- [Ch1](#intro)\n"
-        assert "TOC normalized" in capsys.readouterr().out
-
-    def test_default_ext_is_md(self, tmp_path, monkeypatch, capsys):
-        """``--mode replace-ext`` without ``--ext`` targets ``.md`` —
-        a ``.md`` link is already normalized and the file must stay
-        byte-identical.
-
-        Kills main __mutmut_39/42 (default None/dropped → links
-        rewritten to ``.None``) and __mutmut_46/47 (default literal
-        rewritten → links rewritten to ``.XXmdXX`` / ``.MD``).
-        """
-        toc = tmp_path / "toc.md"
-        content = "[Ch1](chapters/01.md#intro)\n"
-        toc.write_text(content, encoding="utf-8")
-        run_main(monkeypatch, ["--toc", str(toc), "--mode", "replace-ext"])
-        assert toc.read_text(encoding="utf-8") == content
-        assert "unchanged" in capsys.readouterr().out
+        toc.write_text(text, encoding="utf-8")
+        run_main(monkeypatch, ["--toc", str(toc), *argv])
+        assert toc.read_text(encoding="utf-8") == after
+        assert note in capsys.readouterr().out
 
     def test_invalid_mode_is_rejected(self, tmp_path, monkeypatch, capsys):
         """``choices`` is a validation contract: an unknown mode must
