@@ -14,6 +14,13 @@ All notable changes to this project will be documented in this file.
   artifact `mutation-context` of every run, in the schema of awesome-well-tested's
   `docs/mutation-context.md`; `scripts/check_mutation_thresholds.py --equivalent-count` prints
   the number of annotated equivalents it feeds in.
+- **Mutation scope**: `markdown/links_to_plain.py` and `markdown/strip_links.py`, the last two
+  eligible CORE modules, enter the nightly mutation scope at the 85 % tier (78 % and 70 % on
+  entry, 99 % and 100 % after the survivor triage per TESTING.md §14.5: case-table rows for
+  token uniqueness, angle-bracketed destinations, the UTF-8 contract under `LC_ALL=C`, reference
+  links and definition lines, the `toc.md` default and help presence; 40 equivalents annotated;
+  one specification gap, the destination/title separator, documented). The scope is twenty-one
+  modules, about 5700 mutants.
 
 ## [0.11.1] - 2026-10-16
 
