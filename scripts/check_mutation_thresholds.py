@@ -314,11 +314,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Enforce per-module mutation-score thresholds",
     )
+    parser.add_argument(
+        "--equivalent-count",
+        action="store_true",
+        help="print the number of in-scope mutants annotated as equivalent in "
+        ".mutmut/equivalent.yaml and exit 0; the nightly passes it to the "
+        "mutation-context converter of awesome-well-tested",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parse_args(argv)
+    args = parse_args(argv)
+    if args.equivalent_count:
+        # Only the in-scope files: the score table counts the same set, and an
+        # annotation for a module outside the scope must not shrink the
+        # denominator of the context file.
+        equivalents = load_equivalents()
+        print(sum(len(equivalents.get(path, ())) for path in in_scope_files()))
+        return 0
     default_threshold, per_file_thresholds = load_thresholds()
     in_scope = in_scope_files()
     totals = count_total_mutants()

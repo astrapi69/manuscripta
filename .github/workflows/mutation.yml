@@ -82,6 +82,31 @@ jobs:
           # Save threshold output for the audit file step.
           mv threshold-report.txt /tmp/mutation-threshold-report.txt
 
+      - name: Write the mutation context (awesome-well-tested docs/mutation-context.md)
+        # The context that makes the score comparable: tool and version, scope, the
+        # full result breakdown, the equivalent count, mutmut's own score and the
+        # strict one of TESTING.md §14.4. The converter is pinned to a commit of the
+        # list that defines the schema.
+        run: |
+          poetry run mutmut export-cicd-stats
+          curl -fsSL -o /tmp/mutation_context.py \
+            https://raw.githubusercontent.com/awesome-references/awesome-well-tested/3d1258db8b54a1ad239229869eec9d57c527991c/scripts/mutation_context.py
+          targets=()
+          while IFS= read -r path; do targets+=(--target "$path"); done < <(
+            poetry run python -c 'import tomllib; print("\n".join(tomllib.load(open("pyproject.toml", "rb"))["tool"]["mutmut"]["paths_to_mutate"]))'
+          )
+          poetry run python /tmp/mutation_context.py --mutmut mutants/mutmut-cicd-stats.json \
+            --tool-version "$(poetry run python -c 'import importlib.metadata as m; print(m.version("mutmut"))')" \
+            --equivalent "$(poetry run python scripts/check_mutation_thresholds.py --equivalent-count)" \
+            "${targets[@]}" --out mutants/mutation-context.json
+          cat mutants/mutation-context.json
+
+      - name: Keep the mutation context
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-context
+          path: mutants/mutation-context.json
+
       - name: Render mutation audit
         # Run unconditionally so the audit reflects the run even on threshold
         # regression. This is the audit-on-success rule from ADR-0002.

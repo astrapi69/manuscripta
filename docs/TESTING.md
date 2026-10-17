@@ -1017,8 +1017,9 @@ version, scope, the full result breakdown, the equivalent count, the strict
 and the tool's own score) is written up in the awesome-well-tested list,
 [docs/mutation-context.md](https://github.com/awesome-references/awesome-well-tested/blob/main/docs/mutation-context.md),
 with a JSON schema and a converter that turns `mutmut export-cicd-stats`
-output into a `mutation-context.json`. The nightly does not write that file
-yet.
+output into a `mutation-context.json`. The nightly writes it from
+`mutmut export-cicd-stats` and `check_mutation_thresholds.py --equivalent-count`
+and keeps it as the artefact `mutation-context` of every run.
 
 ### 14.5 Response protocol for surviving mutants
 
