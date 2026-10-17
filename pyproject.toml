@@ -239,6 +239,10 @@ paths_to_mutate = [
     "src/manuscripta/markdown/emojis.py",
     "src/manuscripta/config/loader.py",
     "src/manuscripta/utils/git_cache.py",
+    # The last two eligible CORE modules (2026-10-17), entering after
+    # survivor triage per §14.5.
+    "src/manuscripta/markdown/links_to_plain.py",
+    "src/manuscripta/markdown/strip_links.py",
     # src/manuscripta/audiobook/tts/retry.py removed — insufficient
     # mutable surface per ADR-0002 §"Score formula treatment of
     # trampoline-induced equivalence". All three mutmut-3.x mutants
@@ -323,6 +327,10 @@ default = 85
 "src/manuscripta/markdown/emojis.py" = 85
 "src/manuscripta/config/loader.py" = 85
 "src/manuscripta/utils/git_cache.py" = 85
+# The last two eligible CORE modules (2026-10-17), pure-transform tier after
+# survivor triage.
+"src/manuscripta/markdown/links_to_plain.py" = 85
+"src/manuscripta/markdown/strip_links.py" = 85
 # "src/manuscripta/audiobook/tts/retry.py" = 80 — removed alongside
 # its paths_to_mutate entry above (§14.8.3 insufficient mutable
 # surface). Restore this line to 80 when the module re-enters scope.
