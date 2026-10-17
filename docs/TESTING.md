@@ -1009,6 +1009,17 @@ Timeouts, no-tests, and suspicious mutants count **against** the
 score (strict reading). Rationale in ADR-0002 §Decision: a timeout
 is not an assertion the test made about the mutant's behaviour.
 
+The score alone does not travel well: mutmut's own count for the same run
+reads 4824 / 5390 = 89.5 % (2026-10-16), the formula above 96.6 %, and the
+difference is the 395 annotated equivalent mutants plus the strict reading
+of timeouts. What a reader needs next to any published score (tool and
+version, scope, the full result breakdown, the equivalent count, the strict
+and the tool's own score) is written up in the awesome-well-tested list,
+[docs/mutation-context.md](https://github.com/awesome-references/awesome-well-tested/blob/main/docs/mutation-context.md),
+with a JSON schema and a converter that turns `mutmut export-cicd-stats`
+output into a `mutation-context.json`. The nightly does not write that file
+yet.
+
 ### 14.5 Response protocol for surviving mutants
 
 Every survivor falls into exactly one of four categories. The Phase
