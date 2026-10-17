@@ -393,3 +393,42 @@ def test_table_shows_the_unchecked_count(script_module, monkeypatch):
     # killed surv tout unchk eq total score thr verdict
     assert rows[FOO][1:] == ["4", "0", "0", "0", "0", "4", "100.0%", "75%", "OK"]
     assert rows[BAR][1:] == ["3", "0", "0", "1", "0", "4", "75.0%", "75%", "UNCHECKED"]
+
+
+# ---------------------------------------------------------------------------
+# --equivalent-count (the number the nightly hands to the context converter)
+# ---------------------------------------------------------------------------
+
+# Each row: the lines of .mutmut/equivalent.yaml (None: no file at all), the
+# count the flag prints
+EQUIVALENT_COUNTS = [
+    pytest.param(None, 0, id="no-annotation-file-is-zero"),
+    pytest.param(
+        ["# a comment", "", "   "], 0, id="comments-and-blank-lines-count-nothing"
+    ),
+    pytest.param(
+        [f"{FOO}:{M}1", f"{FOO}:{M}2", f"{BAR}:{N}1"],
+        3,
+        id="entries-are-summed-across-files",
+    ),
+    pytest.param([f"{FOO}:{M}1", f"{FOO}:{M}1"], 1, id="a-duplicate-entry-counts-once"),
+    pytest.param(["not an entry"], 0, id="a-line-without-a-colon-is-skipped"),
+    pytest.param(
+        [f"{FOO}:{M}1", f"src/manuscripta/out/of_scope.py:{M}2"],
+        1,
+        id="an-entry-for-a-module-outside-the-scope-does-not-count",
+    ),
+]
+
+
+@pytest.mark.parametrize("lines, count", EQUIVALENT_COUNTS)
+def test_equivalent_count_flag(
+    script_module, monkeypatch, tmp_path, capsys, lines, count
+):
+    path = tmp_path / "equivalent.yaml"
+    if lines is not None:
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    monkeypatch.setattr(script_module, "EQUIVALENT_FILE", path)
+    monkeypatch.setattr(script_module, "in_scope_files", lambda: [FOO, BAR])
+    assert script_module.main(["--equivalent-count"]) == 0
+    assert capsys.readouterr().out.strip() == str(count)

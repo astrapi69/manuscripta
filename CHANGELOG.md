@@ -9,6 +9,11 @@ All notable changes to this project will be documented in this file.
   writing the audit and opening the issue (ADR-0002 amendment); pull requests still do not run
   it. The default threshold is 85 % (was 75 %) and `text_chunking` moves from 80 % to 85 %; no
   module in scope sits below 85 %.
+- **Nightly mutation testing** keeps a `mutation-context.json` (tool and version, scope, the
+  result breakdown, the equivalent count, mutmut's own score and the strict one) as the
+  artifact `mutation-context` of every run, in the schema of awesome-well-tested's
+  `docs/mutation-context.md`; `scripts/check_mutation_thresholds.py --equivalent-count` prints
+  the number of annotated equivalents it feeds in.
 
 ## [0.11.1] - 2026-10-16
 
