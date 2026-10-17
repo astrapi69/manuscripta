@@ -73,6 +73,40 @@ CONVERT_TEXT_CASES = [
         1,
         id="image-links-are-ignored-even-with-titles",
     ),
+    # Every protected span gets its own token: a third span must not take the
+    # place of the second when the text is restored (token uniqueness,
+    # TESTING.md §14.8.5). Kills _protect_segments__mutmut_8 (idx += 1 -> idx = 1).
+    pytest.param(
+        "a `[x](1)` b `[y](2)` c `[z](3)` d [k](https://k.test)",
+        "a `[x](1)` b `[y](2)` c `[z](3)` d k: https://k.test",
+        1,
+        id="three-inline-code-spans-each-stay-verbatim",
+    ),
+    # An angle-bracketed destination may contain spaces (CommonMark); the
+    # brackets keep it whole instead of cutting it at the first space like a
+    # title.
+    pytest.param(
+        "Open [Doc](<https://host.test/my file.pdf>).",
+        "Open Doc: https://host.test/my file.pdf.",
+        1,
+        id="angle-brackets-with-space-in-url",
+    ),
+    # A title after an angle-bracketed destination is dropped like any other
+    # title, and the brackets come off.
+    pytest.param(
+        'Read [Spec](<https://spec.test/v1> "Official Spec").',
+        "Read Spec: https://spec.test/v1.",
+        1,
+        id="angle-brackets-with-title",
+    ),
+    # Only a matched <...> pair is a delimiter; a `>` at the end of a bare
+    # destination is a URL character and is kept verbatim.
+    pytest.param(
+        "See [Greater](https://ex.test/?op=>).",
+        "See Greater: https://ex.test/?op=>.",
+        1,
+        id="bare-url-ending-in-a-greater-than-sign-is-kept",
+    ),
 ]
 
 

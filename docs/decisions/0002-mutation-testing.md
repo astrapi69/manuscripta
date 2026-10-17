@@ -58,7 +58,7 @@ mutmut by default.
 > module exits the debt table, it is added to the mutation scope in
 > the same commit that removes it from `baseline-coverage.json`.
 
-**Current in-scope list (19 modules)**:
+**Current in-scope list (21 modules)**:
 
 | Module path | Threshold | Inclusion criterion satisfied |
 |---|---:|---|
@@ -81,6 +81,8 @@ mutmut by default.
 | `src/manuscripta/markdown/emojis.py` | 85 % | CORE pure text transform; graduated in round 2 (99 %), measured 69 % on entry and 100 % after triage |
 | `src/manuscripta/config/loader.py` | 85 % | CORE YAML settings loader; graduated in round 2 (100 %), measured 83 % on entry and 100 % after triage |
 | `src/manuscripta/utils/git_cache.py` | 85 % | CORE by the §12 classification; wraps `git reflog` / `git gc` through a stubbed `subprocess.run`, 15 of its 72 mutants sit on that call (§14.2 noise, well under half), the rest is command assembly, output forwarding, the error path and the exit code; graduated in round 2 (100 %), measured 90 % on entry and 100 % after triage |
+| `src/manuscripta/markdown/links_to_plain.py` | 85 % | CORE pure text transform; one of the two last eligible modules (92 % coverage), entered 2026-10-17 after measurement and triage: 78 % on entry, 99 % after (12 A rows, 13 B annotations, 1 C: the destination/title separator, see the 2026-10-17 audit) |
+| `src/manuscripta/markdown/strip_links.py` | 85 % | CORE pure text transform with an argparse front (94 % coverage), entered 2026-10-17 with `links_to_plain`: 70 % on entry, 100 % after triage (34 A rows, 27 B annotations, no C) |
 
 (The list was seven modules at ADR acceptance. `audiobook/tts/retry.py`
 was removed during Phase 4b Pass 2 under the insufficient-surface
@@ -94,7 +96,6 @@ survivors are triaged per the response protocol.)
 
 | Module | Why excluded |
 |---|---|
-| `manuscripta.markdown.{links_to_plain,strip_links}` | Eligible by category (92 % and 94 % coverage); not yet measured. Add after a measured score and a survivor triage, as every 2026-10-16 entry was. |
 | `manuscripta.images.generate` | Graduated 2026-10-16 (99 %) but network-bound (DeepAI HTTP API); its tests mock `requests`, so mutation would measure the mocks (§14.2). Measured 73 %. Out of scope by shape. |
 | `manuscripta.project.shortcuts_init` | CLI_WRAPPER shape (argv dispatch). |
 | `manuscripta.project.tag_message`, `manuscripta.audiobook.generator`, `manuscripta.translation.{deepl,lmstudio}`, `manuscripta.audiobook.tts.edge_tts_adapter` | CLI_WRAPPER / NETWORK_INTEGRATION shapes (git subprocess, TTS engines and ffmpeg, HTTP clients). Covered at 98-100 % since #26 with stubbed `subprocess.run`, `requests` and adapters, and measured informally on 2026-10-16 at 76 %, 80 %, 79 %, 77 % and 74 %: mutation there measures the stubs, so they stay out by category. |

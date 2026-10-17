@@ -1735,3 +1735,184 @@ src/manuscripta/utils/git_cache.py:manuscripta.utils.git_cache.x_clean_git_cache
 #   are A.
 src/manuscripta/utils/git_cache.py:manuscripta.utils.git_cache.x_main__mutmut_7
 src/manuscripta/utils/git_cache.py:manuscripta.utils.git_cache.x_main__mutmut_8
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/markdown/links_to_plain.py — 13 equivalents across 3 clusters
+#   §14.8.5 (opaque-token renaming)         : 9 mutants — _protect_segments 3, 9,
+#                                             10, 17, 22, 23, 26, 31, 32
+#   ad-hoc (first element of split)         : 2 mutants — _clean_target 15, 18
+#   ad-hoc (codec registry normalizes names): 2 mutants — convert_file 4, 13
+# Triage 2026-10-17: tests/unit/test_convert_links_to_plain_text{,_extra}.py
+# carry the A-side (three code spans each restored to their own text,
+# killing the uniqueness-breaking _protect_segments 8; a space and a title
+# behind an angle-bracketed destination and a bare destination ending in
+# `>`, killing _clean_target 2, 6, 8, 9, 10 and 20; the C-locale test,
+# killing the encoding=None / dropped siblings convert_file 2, 9 and 11;
+# the unchanged file's (False, 0), killing 17; the status line naming the
+# file, killing 14). One C-class survivor stays: _clean_target 12
+# (split(" ") -> split(None)), see the 2026-10-17 audit.
+# ---------------------------------------------------------------------------
+
+# --- §14.8.5 — opaque-token renaming, uniqueness preserved ---
+# Round-trip trace (shared): _restore_segments() at links_to_plain.py:53-56
+# loops `for token, original in mapping.items(): text = text.replace(token,
+# original)` — mechanical replace, nothing inspects the token spelling.
+# The counter `idx` is shared across both protect() passes, so FENCE and
+# INLINE spellings (mutated or not) never collide. Same encoder/decoder
+# pair as paths/to_absolute.py; each entry states the mutated spelling and
+# why bijectivity holds. The uniqueness-BROKEN sibling (idx += 1 -> idx = 1,
+# mutant 8) is A-killed by the row three-inline-code-spans-each-stay-verbatim.
+#
+# _protect_segments mutant 3: idx = 0 -> 1. Tokens {{FENCE_1}}, {{FENCE_2}},
+#   … — counter shifted, still strictly monotonic; unique, non-colliding.
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x__protect_segments__mutmut_3
+# _protect_segments mutant 9: idx += 1 -> idx -= 1. Counter 0, -1, -2, … —
+#   strictly monotonic (decreasing); {{fence_-2}} shape qualifies per policy.
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x__protect_segments__mutmut_9
+# _protect_segments mutant 10: idx += 1 -> idx += 2. Counter 0, 2, 4, … —
+#   strictly monotonic; unique.
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x__protect_segments__mutmut_10
+# _protect_segments mutant 17: prefix "FENCE" -> None. Tokens {{None_N}} —
+#   {{None_0}} explicitly qualifies per policy; INLINE pass unchanged and
+#   the shared counter keeps the two spellings disjoint.
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x__protect_segments__mutmut_17
+# _protect_segments mutant 22: prefix "FENCE" -> "XXFENCEXX". {{XXFENCEXX_N}}
+#   explicitly qualifies per policy.
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x__protect_segments__mutmut_22
+# _protect_segments mutant 23: prefix "FENCE" -> "fence". Lowercase spelling,
+#   disjoint from "INLINE"; unique.
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x__protect_segments__mutmut_23
+# _protect_segments mutant 26: prefix "INLINE" -> None. Mirror of mutant 17.
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x__protect_segments__mutmut_26
+# _protect_segments mutant 31: prefix "INLINE" -> "XXINLINEXX". As mutant 22.
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x__protect_segments__mutmut_31
+# _protect_segments mutant 32: prefix "INLINE" -> "inline". As mutant 23.
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x__protect_segments__mutmut_32
+
+# --- Ad-hoc — the first element of a split does not depend on maxsplit ---
+# _clean_target keeps only `t.split(" ", 1)[0]`, the text before the first
+# space. str.split(sep, maxsplit) returns the same first element for every
+# maxsplit >= 1 and for no maxsplit at all: the cut before the first
+# separator is the same, only the rest of the list differs, and the rest is
+# discarded. The separator sibling 12 (split(None, 1)) is observable on a
+# tab before the first space and is C.
+#
+# _clean_target mutant 15: t.split(" ", 1)[0] -> t.split(" ")[0]
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x__clean_target__mutmut_15
+# _clean_target mutant 18: t.split(" ", 1)[0] -> t.split(" ", 2)[0]
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x__clean_target__mutmut_18
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# Same reasoning as the convert.py and to_absolute.py codec-alias clusters:
+# codecs.lookup canonicalises case, so "utf-8" and "UTF-8" name the
+# identical codec. The None / dropped siblings 2, 9 and 11 are A-killed by
+# test_convert_file_reads_and_writes_utf8_under_c_locale.
+#
+# convert_file mutant 4: read_text(encoding="utf-8") -> "UTF-8"
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x_convert_file__mutmut_4
+# convert_file mutant 13: write_text(updated, encoding="utf-8") -> "UTF-8"
+src/manuscripta/markdown/links_to_plain.py:manuscripta.markdown.links_to_plain.x_convert_file__mutmut_13
+
+# ---------------------------------------------------------------------------
+# src/manuscripta/markdown/strip_links.py — 27 equivalents across 5 clusters
+#   §14.8.1 (help/description wording)     : 22 mutants — parse_args 3, 4, 5,
+#                                            16, 17, 18, 29, 30, 31, 42, 43, 44,
+#                                            55, 56, 57, 68, 69, 70, 81, 82, 83;
+#                                            main 13
+#   §14.8.3 (trampoline)                   : 2 mutants — process_file 1, 2
+#   §14.8.4 (empty-slice)                  : 2 mutants — strip_links_in_text
+#                                            15, 23
+#   ad-hoc (codec registry normalizes)     : 1 mutant  — parse_args 54
+# Triage 2026-10-17: tests/unit/test_strip_links_{text,io,cli}.py carry the
+# A-side (an inline code span starting where a fence ends, the count across
+# prose segments, reference links and definition lines, the blank line left
+# by a removed definition; the UTF-8 contract of process_file and main under
+# LC_ALL=C with and without --overwrite; the toc.md default without --file;
+# help PRESENCE for the six options and the description paragraph). No
+# C-class survivor.
+# ---------------------------------------------------------------------------
+
+# --- §14.8.1 — CLI help-text wording is incidental ---
+# The XX-wrapped, lower-cased and upper-cased variants of the parser
+# description and of the help= of --file, --overwrite, --suffix, --encoding,
+# --dry-run and --report. Parser behaviour (defaults, store_true, types) is
+# unchanged; the presence of every help text is pinned by OPTIONS_WITH_HELP
+# and the description paragraph by test_help_has_a_description_paragraph,
+# which kill the None / dropped siblings 2, 9, 13, 21, 24, 34, 37, 47, 50,
+# 60, 63, 73 and 76.
+#
+# parse_args mutants 3, 4, 5: description wording
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_3
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_4
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_5
+# parse_args mutants 16, 17, 18: --file help wording
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_16
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_17
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_18
+# parse_args mutants 29, 30, 31: --overwrite help wording
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_29
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_30
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_31
+# parse_args mutants 42, 43, 44: --suffix help wording
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_42
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_43
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_44
+# parse_args mutants 55, 56, 57: --encoding help wording
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_55
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_56
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_57
+# parse_args mutants 68, 69, 70: --dry-run help wording
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_68
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_69
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_70
+# parse_args mutants 81, 82, 83: --report help wording
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_81
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_82
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_83
+# main mutant 13: print("🔎 dry-run: no files written") -> XX-wrapped. Status
+#   line of the dry run; the exit status and the untouched directory are
+#   pinned by CLI_CASES/dry-run-reports-and-writes-nothing.
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_main__mutmut_13
+
+# --- §14.8.3 — trampoline-induced equivalence ---
+# One free-function target (process_file) with one literal default
+# (encoding: str = "utf-8"), which draws two mutants (XX-wrap and upper):
+# Σ = 2, within the 2 × 1 stop-rule. The wrapper in mutants/ binds
+# `args = [src, overwrite, suffix, encoding]` from the original signature
+# and forwards them, so the mutated default is never consulted. The
+# behavioural side of the default is pinned by
+# test_process_file_reads_and_writes_utf8_under_c_locale (encoding omitted,
+# umlauts read and written as UTF-8 under LC_ALL=C), which kills the
+# encoding=None / dropped siblings 4, 11, 13, 18 and 20 in the body.
+#
+# process_file mutant 1: encoding: str = "utf-8" -> "XXutf-8XX"
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_process_file__mutmut_1
+# process_file mutant 2: encoding: str = "utf-8" -> "UTF-8"
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_process_file__mutmut_2
+
+# --- §14.8.4 — empty-slice append with downstream no-op consumption ---
+# Per-mutant downstream traces. strip_links_in_text walks the sorted code
+# spans and hands every gap `text[i:s]` (and the tail `text[i:]`) to
+# strip_links_in_text_no_code; the two guards keep empty gaps out.
+#
+# mutant 15: `if i < s:` -> `<=`. Admits text[i:s] when i == s (a code span
+# at the very start of the text, or two spans back to back). Slice is "".
+# Downstream trace: strip_links_in_text_no_code("") runs LINK_RX.sub,
+# REF_LINK_RX.sub, LINK_DEF_RX.subn and re.sub(r"\n{3,}") on "", each
+# matches nothing and returns "" with count 0; out_parts gains "" and
+# total += 0, so "".join(out_parts) and total are those of the original.
+# The row inline-code-right-after-a-fence-stays-code (spans at 0 and
+# back to back) exercises exactly this path.
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_strip_links_in_text__mutmut_15
+# mutant 23: `if i < len(text):` -> `<=`. Admits text[i:] when i == len(text)
+# (the text ends with a code span). Slice is "". Downstream trace: identical
+# to mutant 15 — strip_links_in_text_no_code("") == ("", 0), the appended ""
+# and the added 0 leave the joined text and the count unchanged.
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_strip_links_in_text__mutmut_23
+
+# --- Ad-hoc — Python codec registry normalizes codec names ---
+# parse_args mutant 54: --encoding default "utf-8" -> "UTF-8". args.encoding
+#   reaches read_text / write_text unchanged and codecs.lookup canonicalises
+#   case, so both name the identical codec. The None / dropped siblings 46
+#   and 49 are A-killed by test_main_reads_and_writes_utf8_under_c_locale.
+src/manuscripta/markdown/strip_links.py:manuscripta.markdown.strip_links.x_parse_args__mutmut_54

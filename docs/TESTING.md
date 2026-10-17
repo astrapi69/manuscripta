@@ -934,10 +934,12 @@ this section is the consumer-facing how-to.
 Mutation runs over **CORE pure-logic modules only**, and only over
 modules that are **not currently tracked as coverage debt** in §12.
 
-The nineteen modules currently in scope (seven at the start of Phase 4b;
+The twenty-one modules currently in scope (seven at the start of Phase 4b;
 `audiobook/tts/retry.py` was removed during Pass 2 — see §14.8.3; five
 debt graduates joined on 2026-10-16, three more after their survivor
-triage the same day, and the last five debt modules in round 3):
+triage the same day, the last five debt modules in round 3, and the two
+remaining eligible CORE modules, `links_to_plain` and `strip_links`, on
+2026-10-17):
 
 | Module | Threshold | Why qualifies |
 |---|---:|---|
@@ -960,10 +962,12 @@ triage the same day, and the last five debt modules in round 3):
 | `src/manuscripta/markdown/emojis.py` | 85 % | pure text transform; graduated in round 2 (69 % on entry, 100 % after triage) |
 | `src/manuscripta/config/loader.py` | 85 % | YAML settings loader; graduated in round 2 (83 % on entry, 100 % after triage) |
 | `src/manuscripta/utils/git_cache.py` | 85 % | git cache clean-up; graduated in round 2 (90 % on entry, 100 % after triage; 15 of 72 mutants sit on the stubbed `subprocess.run` call, the rest is command assembly, output forwarding and the exit code) |
+| `src/manuscripta/markdown/links_to_plain.py` | 85 % | pure text transform; one of the two last eligible CORE modules, entered 2026-10-17 (78 % on entry, 99 % after triage; one C-class survivor on the destination/title separator, see the 2026-10-17 audit) |
+| `src/manuscripta/markdown/strip_links.py` | 85 % | pure text transform with an argparse front; entered 2026-10-17 with `links_to_plain` (70 % on entry, 100 % after triage) |
 
-The whole scope is about 5400 mutants and ran in a few minutes locally
-on 2026-10-16 (mutmut 3.5.0, 22 to 72 mutants/s depending on load), well
-inside the 45-minute nightly budget.
+The whole scope is about 5700 mutants and ran in about five minutes
+locally on 2026-10-17 (mutmut 3.5.0, 22 to 72 mutants/s depending on
+load), well inside the 45-minute nightly budget.
 
 The thresholds live in `[tool.manuscripta.mutation_thresholds]` in
 `pyproject.toml` (single source of truth).
